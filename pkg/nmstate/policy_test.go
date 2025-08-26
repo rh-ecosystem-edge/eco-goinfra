@@ -282,6 +282,9 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 		slavePorts        []string
 		bondName          string
 		mode              string
+		miimon            int
+		lacpRate          string
+		minLinks          int
 		expectedError     string
 	}{
 		{
@@ -290,6 +293,9 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 			slavePorts:        []string{"ens1", "ens2"},
 			bondName:          "bd1",
 			mode:              "active-backup",
+			miimon:            100,
+			lacpRate:          "fast",
+			minLinks:          1,
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
@@ -297,6 +303,9 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 			slavePorts:        []string{"ens1", "ens2"},
 			bondName:          "",
 			mode:              "active-backup",
+			miimon:            100,
+			lacpRate:          "fast",
+			minLinks:          1,
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
@@ -304,10 +313,29 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 			slavePorts:        []string{"ens1", "ens2"},
 			bondName:          "bd1",
 			mode:              "",
+			miimon:            100,
+			lacpRate:          "fast",
+			minLinks:          1,
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "",
+			slavePorts:        []string{"ens1", "ens2"},
+			bondName:          "bd1",
+			mode:              "active-backup",
+			miimon:            0,
+			lacpRate:          "",
+			minLinks:          0,
 		},
 	}
 	for _, testCase := range testCases {
-		testPolicy := testCase.testNMStatePolicy.WithBondInterface(testCase.slavePorts, testCase.bondName, testCase.mode)
+		options := OptionsLinkAggregation{
+			Miimon:   testCase.miimon,
+			LacpRate: testCase.lacpRate,
+			MinLinks: testCase.minLinks,
+		}
+		testPolicy := testCase.testNMStatePolicy.WithBondInterface(testCase.slavePorts, testCase.bondName,
+			testCase.mode, options)
 		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
 
 		desireState := &DesiredState{}
@@ -322,6 +350,11 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 						LinkAggregation: LinkAggregation{
 							Mode: testCase.mode,
 							Port: testCase.slavePorts,
+							Options: OptionsLinkAggregation{
+								Miimon:   testCase.miimon,
+								LacpRate: testCase.lacpRate,
+								MinLinks: testCase.minLinks,
+							},
 						},
 					},
 				},
