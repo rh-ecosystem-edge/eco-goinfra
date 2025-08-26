@@ -37,19 +37,6 @@ func getBuilderNotFoundError(kind string) error {
 	return fmt.Errorf("the %s builder could not be found", kind)
 }
 
-// wrapGetError wraps the error from when the Get method fails.
-func wrapGetError[O any, SO objectPointer[O]](builder Builder[O, SO], err error) error {
-	kind := builder.GetGVK().Kind
-	name := builder.GetDefinition().GetName()
-	namespace := builder.GetDefinition().GetNamespace()
-
-	if namespace == "" {
-		return fmt.Errorf("failed to get the %s builder %s: %w", kind, name, err)
-	}
-
-	return fmt.Errorf("failed to get the %s builder %s in namespace %s: %w", kind, name, namespace, err)
-}
-
 // --- Validation Errors
 
 // getBuilderUninitializedError returns an error for when the builder is uninitialized.
@@ -65,4 +52,86 @@ func getBuilderDefinitionNilError(kind string) error {
 // getBuilderAPIClientNilError returns an error for when the builder's apiClient is nil.
 func getBuilderAPIClientNilError(kind string) error {
 	return fmt.Errorf("the %s builder cannot have nil apiClient", kind)
+}
+
+// --- Error Wrappers
+
+// wrapGetError wraps the error from when the Get method fails.
+func wrapGetError[O any, SO objectPointer[O]](builder Builder[O, SO], err error) error {
+	kind := builder.GetGVK().Kind
+	name := builder.GetDefinition().GetName()
+	namespace := builder.GetDefinition().GetNamespace()
+
+	if namespace == "" {
+		return fmt.Errorf("failed to get the %s builder %s: %w", kind, name, err)
+	}
+
+	return fmt.Errorf("failed to get the %s builder %s in namespace %s: %w", kind, name, namespace, err)
+}
+
+// wrapDeleteError wraps the error from when the Delete method fails.
+func wrapDeleteError[O any, SO objectPointer[O]](builder Builder[O, SO], err error) error {
+	kind := builder.GetGVK().Kind
+	name := builder.GetDefinition().GetName()
+	namespace := builder.GetDefinition().GetNamespace()
+
+	if namespace == "" {
+		return fmt.Errorf("failed to delete the %s builder %s: %w", kind, name, err)
+	}
+
+	return fmt.Errorf("failed to delete the %s builder %s in namespace %s: %w", kind, name, namespace, err)
+}
+
+// wrapUpdateError wraps the error from when the Update method fails.
+func wrapUpdateError[O any, SO objectPointer[O]](builder Builder[O, SO], err error) error {
+	kind := builder.GetGVK().Kind
+	name := builder.GetDefinition().GetName()
+	namespace := builder.GetDefinition().GetNamespace()
+
+	if namespace == "" {
+		return fmt.Errorf("failed to update the %s builder %s: %w", kind, name, err)
+	}
+
+	return fmt.Errorf("failed to update the %s builder %s in namespace %s: %w", kind, name, namespace, err)
+}
+
+// wrapForceUpdateDeleteError wraps the error from when the Delete method fails during a force update.
+func wrapForceUpdateDeleteError[O any, SO objectPointer[O]](builder Builder[O, SO], err error) error {
+	kind := builder.GetGVK().Kind
+	name := builder.GetDefinition().GetName()
+	namespace := builder.GetDefinition().GetNamespace()
+
+	if namespace == "" {
+		return fmt.Errorf("failed to delete the %s builder %s during force update: %w", kind, name, err)
+	}
+
+	return fmt.Errorf("failed to delete the %s builder %s in namespace %s during force update: %w",
+		kind, name, namespace, err)
+}
+
+// wrapForceUpdateCreateError wraps the error from when the Create method fails during a force update.
+func wrapForceUpdateCreateError[O any, SO objectPointer[O]](builder Builder[O, SO], err error) error {
+	kind := builder.GetGVK().Kind
+	name := builder.GetDefinition().GetName()
+	namespace := builder.GetDefinition().GetNamespace()
+
+	if namespace == "" {
+		return fmt.Errorf("failed to recreate the %s builder %s during force update: %w", kind, name, err)
+	}
+
+	return fmt.Errorf("failed to recreate the %s builder %s in namespace %s during force update: %w",
+		kind, name, namespace, err)
+}
+
+// wrapCreateError wraps the error from when the Create method fails.
+func wrapCreateError[O any, SO objectPointer[O]](builder Builder[O, SO], err error) error {
+	kind := builder.GetGVK().Kind
+	name := builder.GetDefinition().GetName()
+	namespace := builder.GetDefinition().GetNamespace()
+
+	if namespace == "" {
+		return fmt.Errorf("failed to create the %s builder %s: %w", kind, name, err)
+	}
+
+	return fmt.Errorf("failed to create the %s builder %s in namespace %s: %w", kind, name, namespace, err)
 }

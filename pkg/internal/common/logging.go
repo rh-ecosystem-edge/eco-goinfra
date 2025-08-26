@@ -85,6 +85,61 @@ func logBuilderExists[O any, SO objectPointer[O]](builder Builder[O, SO]) {
 	}
 }
 
+// logBuilderDelete prints the log for using the builder's Delete method. It assumes the builder has already been
+// validated.
+func logBuilderDelete[O any, SO objectPointer[O]](builder Builder[O, SO]) {
+	kind := builder.GetGVK().Kind
+	name := builder.GetDefinition().GetName()
+	namespace := builder.GetDefinition().GetNamespace()
+
+	if namespace == "" {
+		glog.V(100).Infof("Deleting %s builder %s", kind, name)
+	} else {
+		glog.V(100).Infof("Deleting %s builder %s in namespace %s", kind, name, namespace)
+	}
+}
+
+// logBuilderCreate prints the log for using the builder's Create method. It assumes the builder has already been
+// validated.
+func logBuilderCreate[O any, SO objectPointer[O]](builder Builder[O, SO]) {
+	kind := builder.GetGVK().Kind
+	name := builder.GetDefinition().GetName()
+	namespace := builder.GetDefinition().GetNamespace()
+
+	if namespace == "" {
+		glog.V(100).Infof("Creating %s builder %s", kind, name)
+	} else {
+		glog.V(100).Infof("Creating %s builder %s in namespace %s", kind, name, namespace)
+	}
+}
+
+// logBuilderAlreadyExists prints the log for when the builder already exists.
+func logBuilderAlreadyExists[O any, SO objectPointer[O]](builder Builder[O, SO]) {
+	kind := builder.GetGVK().Kind
+	name := builder.GetDefinition().GetName()
+	namespace := builder.GetDefinition().GetNamespace()
+
+	if namespace == "" {
+		glog.V(100).Infof("The %s builder %s already exists", kind, name)
+	} else {
+		glog.V(100).Infof("The %s builder %s in namespace %s already exists", kind, name, namespace)
+	}
+}
+
+// logBuilderUpdate prints the log for using the builder's Update method. It assumes the builder has already been
+// validated.
+func logBuilderUpdate[O any, SO objectPointer[O]](builder Builder[O, SO], force bool) {
+	kind := builder.GetGVK().Kind
+	name := builder.GetDefinition().GetName()
+	namespace := builder.GetDefinition().GetNamespace()
+
+	if namespace == "" {
+		glog.V(100).Infof("Updating %s builder %s with force=%t", kind, name, force)
+	} else {
+		glog.V(100).Infof("Updating %s builder %s in namespace %s with force=%t", kind, name, namespace, force)
+	}
+}
+
 // --- Not Found Errors
 
 // logBuilderNotFound prints the log for when a builder could not be found.

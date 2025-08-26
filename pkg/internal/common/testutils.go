@@ -1,6 +1,7 @@
 package common
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -23,7 +24,45 @@ var (
 	namespacedGVK    = corev1.SchemeGroupVersion.WithKind("ConfigMap")
 )
 
-var errInvalidBuilder = errors.New(defaultErrorMessage)
+var (
+	errInvalidBuilder = errors.New(defaultErrorMessage)
+	errUpdateConflict = errors.New("simulated update conflict")
+	errDeleteFailure  = errors.New("simulated delete failure")
+	errCreateFailure  = errors.New("simulated create failure")
+
+	testFailingCreate = func(
+		ctx context.Context,
+		client runtimeclient.WithWatch,
+		obj runtimeclient.Object,
+		opts ...runtimeclient.CreateOption,
+	) error {
+		fmt.Println("testFailingCreate")
+
+		return errCreateFailure
+	}
+
+	testFailingUpdate = func(
+		ctx context.Context,
+		client runtimeclient.WithWatch,
+		obj runtimeclient.Object,
+		opts ...runtimeclient.UpdateOption,
+	) error {
+		fmt.Println("testFailingUpdate")
+
+		return errUpdateConflict
+	}
+
+	testFailingDelete = func(
+		ctx context.Context,
+		client runtimeclient.WithWatch,
+		obj runtimeclient.Object,
+		opts ...runtimeclient.DeleteOption,
+	) error {
+		fmt.Println("testFailingDelete")
+
+		return errDeleteFailure
+	}
+)
 
 var (
 	// errSchemeAttachment is the error returned by testFailingSchemeAttacher.

@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -61,6 +62,19 @@ type Builder[O any, SO objectPointer[O]] interface {
 	SetGVK(schema.GroupVersionKind)
 }
 
+// MixinAttacher is an interface for types which require a step during initialization of a builder to ensure mixins are
+// all attached. In practice, this is meant to be implemented by the resource-specific builders so that any mixins they
+// embed can be connected to the EmbeddableBuilder.
+//
+// This interface is defined separately from the Builder interface since while the resource-specific builders must
+// implement the Builder interface, they do not need to implement the MixinAttacher interface. Similarly,
+// EmbeddableBuilder should not implement this interface even though it is a Builder.
+type MixinAttacher interface {
+	// AttachMixins ensures that all mixins are attached to their base builders. This method will be called on the
+	// zero-value of builder pointers right after allocation, provided the builder also implements MixinAttacher.
+	AttachMixins()
+}
+
 // builderPointer is similar to objectPointer and is a constraint that is satisfied by a Builder that is a pointer. It
 // exists for the same reason as objectPointer: needing access to the dereferenced form of builders to construct new
 // ones.
@@ -75,6 +89,10 @@ type builderPointer[B, O any, SO objectPointer[O]] interface {
 func NewClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O, SO]](
 	apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name string) SB {
 	var builder SB = new(B)
+
+	if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
+		mixinAttacher.AttachMixins()
+	}
 
 	logNewClusterScopedBuilderInitializing(builder.GetGVK().Kind, name)
 
@@ -113,6 +131,10 @@ func NewClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B,
 func NewNamespacedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O, SO]](
 	apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name, nsname string) SB {
 	var builder SB = new(B)
+
+	if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
+		mixinAttacher.AttachMixins()
+	}
 
 	logNewNamespacedBuilderInitializing(builder.GetGVK().Kind, name, nsname)
 
@@ -165,6 +187,10 @@ func PullClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B
 	apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name string) (SB, error) {
 	var builder SB = new(B)
 
+	if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
+		mixinAttacher.AttachMixins()
+	}
+
 	logPullClusterScopedBuilderPulling(builder.GetGVK().Kind, name)
 
 	if apiClient == nil || reflect.ValueOf(apiClient).IsNil() {
@@ -208,6 +234,10 @@ func PullClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B
 func PullNamespacedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O, SO]](
 	apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name, nsname string) (SB, error) {
 	var builder SB = new(B)
+
+	if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
+		mixinAttacher.AttachMixins()
+	}
 
 	logPullNamespacedBuilderPulling(builder.GetGVK().Kind, name, nsname)
 
@@ -291,6 +321,99 @@ func Exists[O any, SO objectPointer[O]](builder Builder[O, SO]) bool {
 	builder.SetObject(object)
 
 	return true
+}
+
+// Delete deletes the resource from the cluster. It immediately tries to delete the resource and if successful, or the
+// resource did not exist, the builder's object is set to nil. Otherwise, the error is wrapped and returned without
+// modifying the builder.
+func Delete[O any, SO objectPointer[O]](builder Builder[O, SO]) error {
+	if err := Validate(builder); err != nil {
+		return err
+	}
+
+	logBuilderDelete(builder)
+
+	err := builder.GetClient().Delete(context.TODO(), builder.GetDefinition())
+	if err == nil || k8serrors.IsNotFound(err) {
+		builder.SetObject(nil)
+
+		return nil
+	}
+
+	return wrapDeleteError(builder, err)
+}
+
+// Update updates the resource on the cluster using the builder's definition. It immediately tries to update the
+// resource and if successful, will update the builder's object to be the definition. Otherwise, it checks to see if the
+// error is because the resource did not exist, returning with an error if so. If the error is for any other reason, the
+// behavior depends on the force flag.
+//
+// If force is true, the resource will be deleted and recreated. Otherwise, the error is wrapped and returned without
+// modifying the builder.
+func Update[O any, SO objectPointer[O]](builder Builder[O, SO], force bool) error {
+	if err := Validate(builder); err != nil {
+		return err
+	}
+
+	logBuilderUpdate(builder, force)
+
+	if !Exists(builder) {
+		logBuilderNotFound(builder.GetGVK().Kind)
+
+		return getBuilderNotFoundError(builder.GetGVK().Kind)
+	}
+
+	// Object is set by Exists so we do not need to do a nil check here.
+	builder.GetDefinition().SetResourceVersion(builder.GetObject().GetResourceVersion())
+
+	err := builder.GetClient().Update(context.TODO(), builder.GetDefinition())
+	if err == nil {
+		builder.SetObject(builder.GetDefinition())
+
+		return nil
+	}
+
+	if !force {
+		return wrapUpdateError(builder, err)
+	}
+
+	err = Delete(builder)
+	if err != nil {
+		return wrapForceUpdateDeleteError(builder, err)
+	}
+
+	builder.GetDefinition().SetResourceVersion("")
+
+	err = Create(builder)
+	if err != nil {
+		return wrapForceUpdateCreateError(builder, err)
+	}
+
+	return nil
+}
+
+// Create creates the definition on the cluster. If the resource already exists, this is a no-op.
+func Create[O any, SO objectPointer[O]](builder Builder[O, SO]) error {
+	if err := Validate(builder); err != nil {
+		return err
+	}
+
+	logBuilderCreate(builder)
+
+	if Exists(builder) {
+		logBuilderAlreadyExists(builder)
+
+		return nil
+	}
+
+	err := builder.GetClient().Create(context.TODO(), builder.GetDefinition())
+	if err != nil {
+		return wrapCreateError(builder, err)
+	}
+
+	builder.SetObject(builder.GetDefinition())
+
+	return nil
 }
 
 // Validate checks that the builder is valid, that is, it is non-nil, has a non-nil definition, has a non-nil client,

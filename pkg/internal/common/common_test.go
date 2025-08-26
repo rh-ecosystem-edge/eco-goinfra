@@ -2,6 +2,7 @@ package common
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
@@ -9,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestNewClusterScopedBuilder(t *testing.T) {
@@ -480,6 +482,251 @@ func TestExists(t *testing.T) {
 			if testCase.expectedResult {
 				assert.NotNil(t, builder.GetObject())
 				assert.Equal(t, defaultName, builder.GetObject().GetName())
+			}
+		})
+	}
+}
+
+func TestCreate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		builderValid     bool
+		objectExists     bool
+		interceptorFuncs interceptor.Funcs
+		expectedError    error
+	}{
+		{
+			name:          "valid create new resource",
+			builderValid:  true,
+			objectExists:  false,
+			expectedError: nil,
+		},
+		{
+			name:          "invalid builder",
+			builderValid:  false,
+			objectExists:  false,
+			expectedError: errInvalidBuilder,
+		},
+		{
+			name:          "resource already exists",
+			builderValid:  true,
+			objectExists:  true,
+			expectedError: nil,
+		},
+		{
+			name:             "failed creation",
+			builderValid:     true,
+			objectExists:     false,
+			interceptorFuncs: interceptor.Funcs{Create: testFailingCreate},
+			expectedError:    fmt.Errorf("failed to create the Namespace builder test-resource: %w", errCreateFailure),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var objects []runtime.Object
+			if testCase.objectExists {
+				objects = append(objects, buildDummyClusterScopedResource())
+			}
+
+			client := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:   objects,
+				SchemeAttachers:  []clients.SchemeAttacher{testSchemeAttacher},
+				InterceptorFuncs: testCase.interceptorFuncs,
+			})
+
+			builder := buildValidMockClusterScopedBuilder(client)
+			if !testCase.builderValid {
+				builder = buildInvalidMockClusterScopedBuilder(client)
+			}
+
+			err := Create(builder)
+			assert.Equal(t, testCase.expectedError, err)
+
+			if testCase.expectedError == nil {
+				assert.NotNil(t, builder.GetObject())
+				assert.Equal(t, defaultName, builder.GetObject().GetName())
+			}
+		})
+	}
+}
+
+//nolint:funlen // This function is only long because of the number of test cases.
+func TestUpdate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		builderValid     bool
+		objectExists     bool
+		force            bool
+		interceptorFuncs interceptor.Funcs
+		expectedError    error
+	}{
+		{
+			name:          "valid update existing resource",
+			builderValid:  true,
+			objectExists:  true,
+			force:         false,
+			expectedError: nil,
+		},
+		{
+			name:          "invalid builder",
+			builderValid:  false,
+			objectExists:  false,
+			force:         false,
+			expectedError: errInvalidBuilder,
+		},
+		{
+			name:          "resource does not exist",
+			builderValid:  true,
+			objectExists:  false,
+			force:         false,
+			expectedError: getBuilderNotFoundError(clusterScopedGVK.Kind),
+		},
+		{
+			name:          "valid force update existing resource",
+			builderValid:  true,
+			objectExists:  true,
+			force:         true,
+			expectedError: nil,
+		},
+		{
+			name:         "force update with initial update conflict",
+			builderValid: true,
+			objectExists: true,
+			force:        true,
+			interceptorFuncs: interceptor.Funcs{
+				Update: testFailingUpdate,
+			},
+			expectedError: nil,
+		},
+		{
+			name:             "non-force update with conflict should fail",
+			builderValid:     true,
+			objectExists:     true,
+			force:            false,
+			interceptorFuncs: interceptor.Funcs{Update: testFailingUpdate},
+			expectedError:    fmt.Errorf("failed to update the Namespace builder test-resource: %w", errUpdateConflict),
+		},
+		{
+			name:             "force update with delete failure",
+			builderValid:     true,
+			objectExists:     true,
+			force:            true,
+			interceptorFuncs: interceptor.Funcs{Update: testFailingUpdate, Delete: testFailingDelete},
+			expectedError: fmt.Errorf("failed to delete the Namespace builder test-resource during force update: "+
+				"failed to delete the Namespace builder test-resource: %w", errDeleteFailure),
+		},
+		{
+			name:             "force update with create failure",
+			builderValid:     true,
+			objectExists:     true,
+			force:            true,
+			interceptorFuncs: interceptor.Funcs{Update: testFailingUpdate, Create: testFailingCreate},
+			expectedError: fmt.Errorf("failed to recreate the Namespace builder test-resource during force update: "+
+				"failed to create the Namespace builder test-resource: %w", errCreateFailure),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var objects []runtime.Object
+			if testCase.objectExists {
+				objects = append(objects, buildDummyClusterScopedResource())
+			}
+
+			client := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:   objects,
+				SchemeAttachers:  []clients.SchemeAttacher{testSchemeAttacher},
+				InterceptorFuncs: testCase.interceptorFuncs,
+			})
+
+			builder := buildValidMockClusterScopedBuilder(client)
+			if !testCase.builderValid {
+				builder = buildInvalidMockClusterScopedBuilder(client)
+			}
+
+			err := Update(builder, testCase.force)
+			if testCase.expectedError == nil {
+				assert.NoError(t, err)
+			} else {
+				// The expected error for the force update failures will not match because of how it is
+				// wrapped, so we instead compare the error text.
+				assert.EqualError(t, err, testCase.expectedError.Error())
+			}
+		})
+	}
+}
+
+func TestDelete(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		builderValid     bool
+		objectExists     bool
+		interceptorFuncs interceptor.Funcs
+		expectedError    error
+	}{
+		{
+			name:          "valid delete existing resource",
+			builderValid:  true,
+			objectExists:  true,
+			expectedError: nil,
+		},
+		{
+			name:          "invalid builder",
+			builderValid:  false,
+			objectExists:  false,
+			expectedError: errInvalidBuilder,
+		},
+		{
+			name:          "resource does not exist",
+			builderValid:  true,
+			objectExists:  false,
+			expectedError: nil,
+		},
+		{
+			name:             "failed deletion",
+			builderValid:     true,
+			objectExists:     true,
+			interceptorFuncs: interceptor.Funcs{Delete: testFailingDelete},
+			expectedError:    fmt.Errorf("failed to delete the Namespace builder test-resource: %w", errDeleteFailure),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var objects []runtime.Object
+			if testCase.objectExists {
+				objects = append(objects, buildDummyClusterScopedResource())
+			}
+
+			client := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:   objects,
+				SchemeAttachers:  []clients.SchemeAttacher{testSchemeAttacher},
+				InterceptorFuncs: testCase.interceptorFuncs,
+			})
+
+			builder := buildValidMockClusterScopedBuilder(client)
+			if !testCase.builderValid {
+				builder = buildInvalidMockClusterScopedBuilder(client)
+			}
+
+			err := Delete(builder)
+			assert.Equal(t, testCase.expectedError, err)
+
+			if testCase.expectedError == nil {
+				assert.Nil(t, builder.GetObject())
 			}
 		})
 	}
