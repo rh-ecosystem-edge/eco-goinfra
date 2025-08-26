@@ -133,6 +133,14 @@ func IsAPICallFailed(err error) bool {
 	return errors.As(err, &apiCallFailed)
 }
 
+// IsAPICallFailedWithVerb returns true if an error, or any error in the error's tree, is due to an API call failing
+// with the given verb.
+func IsAPICallFailedWithVerb(err error, verb string) bool {
+	var apiCallFailed *apiCallFailedError
+
+	return errors.As(err, &apiCallFailed) && apiCallFailed.verb == verb
+}
+
 type builderNilError struct{}
 
 var _ error = (*builderNilError)(nil)

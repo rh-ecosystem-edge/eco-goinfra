@@ -236,7 +236,7 @@ func (client *ProvisioningClient) DeleteAllOf(
 
 // Status always returns nil since the ProvisioningRequest cannot have its status updated via the O2IMS API.
 //
-//nolint:ireturn // forced to return interface to satisfy runtimeclient.Client interface
+//nolint:ireturn,nolintlint // forced to return interface to satisfy runtimeclient.Client interface
 func (client *ProvisioningClient) Status() runtimeclient.SubResourceWriter {
 	return nil
 }
@@ -244,7 +244,7 @@ func (client *ProvisioningClient) Status() runtimeclient.SubResourceWriter {
 // SubResource always returns nil since the ProvisioningRequest has no subresources that can be updated via the O2IMS
 // API.
 //
-//nolint:ireturn // forced to return interface to satisfy runtimeclient.Client interface
+//nolint:ireturn,nolintlint // forced to return interface to satisfy runtimeclient.Client interface
 func (client *ProvisioningClient) SubResource(_ string) runtimeclient.SubResourceClient {
 	return nil
 }
@@ -256,7 +256,7 @@ func (client *ProvisioningClient) Scheme() *runtime.Scheme {
 
 // RESTMapper always returns nil since the ProvisioningClient does not use a REST mapper.
 //
-//nolint:ireturn // forced to return interface to satisfy runtimeclient.Client interface
+//nolint:ireturn,nolintlint // forced to return interface to satisfy runtimeclient.Client interface
 func (client *ProvisioningClient) RESTMapper() meta.RESTMapper {
 	return nil
 }
