@@ -8,6 +8,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -78,6 +79,19 @@ func NewResourceKeyFromBuilder[O any, SO objectPointer[O]](builder Builder[O, SO
 	}
 }
 
+// MixinAttacher is an interface for types which require a step during initialization of a builder to ensure mixins are
+// all attached. In practice, this is meant to be implemented by the resource-specific builders so that any mixins they
+// embed can be connected to the EmbeddableBuilder.
+//
+// This interface is defined separately from the Builder interface since while the resource-specific builders must
+// implement the Builder interface, they do not need to implement the MixinAttacher interface. Similarly,
+// EmbeddableBuilder should not implement this interface even though it is a Builder.
+type MixinAttacher interface {
+	// AttachMixins ensures that all mixins are attached to their base builders. This method will be called on the
+	// zero-value of builder pointers right after allocation, provided the builder also implements MixinAttacher.
+	AttachMixins()
+}
+
 // builderPointer is similar to objectPointer and is a constraint that is satisfied by a Builder that is a pointer. It
 // exists for the same reason as objectPointer: needing access to the dereferenced form of builders to construct new
 // ones.
@@ -92,6 +106,10 @@ type builderPointer[B, O any, SO objectPointer[O]] interface {
 func NewClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O, SO]](
 	apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name string) SB {
 	var builder SB = new(B)
+
+	if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
+		mixinAttacher.AttachMixins()
+	}
 
 	builder.SetGVK(builder.GetGVK())
 	builder.SetClient(apiClient)
@@ -136,6 +154,10 @@ func NewClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B,
 func NewNamespacedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O, SO]](
 	apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name, nsname string) SB {
 	var builder SB = new(B)
+
+	if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
+		mixinAttacher.AttachMixins()
+	}
 
 	builder.SetGVK(builder.GetGVK())
 	builder.SetClient(apiClient)
@@ -190,6 +212,10 @@ func PullClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B
 	ctx context.Context, apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name string) (SB, error) {
 	var builder SB = new(B)
 
+	if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
+		mixinAttacher.AttachMixins()
+	}
+
 	builder.SetGVK(builder.GetGVK())
 	builder.SetClient(apiClient)
 	builder.SetDefinition(new(O))
@@ -237,6 +263,10 @@ func PullClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B
 func PullNamespacedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O, SO]](
 	ctx context.Context, apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name, nsname string) (SB, error) {
 	var builder SB = new(B)
+
+	if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
+		mixinAttacher.AttachMixins()
+	}
 
 	builder.SetGVK(builder.GetGVK())
 	builder.SetClient(apiClient)
@@ -328,6 +358,126 @@ func Exists[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, 
 	builder.SetObject(object)
 
 	return true
+}
+
+// Delete deletes the resource from the cluster. It immediately tries to delete the resource and if successful, or the
+// resource did not exist, the builder's object is set to nil. Otherwise, the error is wrapped and returned without
+// modifying the builder.
+func Delete[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, SO]) error {
+	if err := Validate(builder); err != nil {
+		return err
+	}
+
+	key := NewResourceKeyFromBuilder(builder)
+
+	klog.V(100).Infof("Deleting %s", key.String())
+
+	err := builder.GetClient().Delete(ctx, builder.GetDefinition())
+	if err == nil || k8serrors.IsNotFound(err) {
+		builder.SetObject(nil)
+
+		return nil
+	}
+
+	klog.V(100).Infof("Failed to delete %s: %v", key.String(), err)
+
+	return errors.NewAPICallFailed("delete", key, err)
+}
+
+// Update updates the resource on the cluster using the builder's definition. It immediately tries to update the
+// resource and if successful, will update the builder's object to be the definition. Otherwise, it checks to see if the
+// error is because the resource did not exist, returning with an error if so. If the error is for any other reason, the
+// behavior depends on the force flag.
+//
+// If force is true, the resource will be deleted and recreated. Otherwise, the error is wrapped and returned without
+// modifying the builder. It is generally discouraged to use the force flag since finalizers may cause unexpected side
+// effects and most update errors can be resolved by retrying on conflict.
+func Update[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, SO], force bool) error {
+	if err := Validate(builder); err != nil {
+		return err
+	}
+
+	key := NewResourceKeyFromBuilder(builder)
+
+	klog.V(100).Infof("Updating %s with force %t", key.String(), force)
+
+	latestObject, err := Get(ctx, builder)
+	if err != nil {
+		klog.V(100).Infof("Failed to get latest object for %s: %v", key.String(), err)
+
+		return fmt.Errorf("failed get latest object for update: %w", err)
+	}
+
+	builder.GetDefinition().SetResourceVersion(latestObject.GetResourceVersion())
+
+	err = builder.GetClient().Update(ctx, builder.GetDefinition())
+	if err == nil {
+		builder.SetObject(builder.GetDefinition())
+
+		return nil
+	}
+
+	if !force {
+		klog.V(100).Infof("Failed to update %s without force: %v", key.String(), err)
+
+		return errors.NewAPICallFailed("update", key, err)
+	}
+
+	err = Delete(ctx, builder)
+	if err != nil {
+		klog.V(100).Infof("Failed to delete %s during force update: %v", key.String(), err)
+
+		return fmt.Errorf("failed to force update: %w", err)
+	}
+
+	err = Create(ctx, builder)
+	if err != nil {
+		klog.V(100).Infof("Failed to create %s during force update: %v", key.String(), err)
+
+		return fmt.Errorf("failed to force update: %w", err)
+	}
+
+	return nil
+}
+
+// Create creates the definition on the cluster. If the resource already exists, this is a no-op.
+func Create[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, SO]) error {
+	if err := Validate(builder); err != nil {
+		return err
+	}
+
+	key := NewResourceKeyFromBuilder(builder)
+
+	klog.V(100).Infof("Creating %s", key.String())
+
+	// Create requests will be rejected if the resource version is set, so we clear it.
+	builder.GetDefinition().SetResourceVersion("")
+
+	err := builder.GetClient().Create(ctx, builder.GetDefinition())
+	if err == nil {
+		builder.SetObject(builder.GetDefinition())
+
+		return nil
+	}
+
+	if k8serrors.IsAlreadyExists(err) {
+		klog.V(100).Infof("The resource %s already exists and cannot be created", key.String())
+
+		object, err := Get(ctx, builder)
+		if err != nil {
+			klog.V(100).Infof("Failed to get existing %s: %v", key.String(), err)
+
+			return fmt.Errorf("resource already exists but failed to get it: %w", err)
+		}
+
+		builder.SetObject(object)
+
+		return nil
+	}
+
+	klog.V(100).Infof("Failed to create %s: %v", key.String(), err)
+
+	return errors.NewAPICallFailed("create", key, err)
 }
 
 // Validate checks that the builder is valid, that is, it is non-nil, has a non-nil definition, has a non-nil client,

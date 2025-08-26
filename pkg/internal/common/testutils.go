@@ -1,10 +1,12 @@
 package common
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -23,7 +25,39 @@ var (
 	namespacedGVK    = corev1.SchemeGroupVersion.WithKind("ConfigMap")
 )
 
-var errInvalidBuilder = errors.New(defaultErrorMessage)
+var (
+	errInvalidBuilder = errors.New(defaultErrorMessage)
+	errUpdateConflict = errors.New("simulated update conflict")
+	errDeleteFailure  = errors.New("simulated delete failure")
+	errCreateFailure  = errors.New("simulated create failure")
+
+	testFailingCreate = func(
+		ctx context.Context,
+		client runtimeclient.WithWatch,
+		obj runtimeclient.Object,
+		opts ...runtimeclient.CreateOption,
+	) error {
+		return errCreateFailure
+	}
+
+	testFailingUpdate = func(
+		ctx context.Context,
+		client runtimeclient.WithWatch,
+		obj runtimeclient.Object,
+		opts ...runtimeclient.UpdateOption,
+	) error {
+		return errUpdateConflict
+	}
+
+	testFailingDelete = func(
+		ctx context.Context,
+		client runtimeclient.WithWatch,
+		obj runtimeclient.Object,
+		opts ...runtimeclient.DeleteOption,
+	) error {
+		return errDeleteFailure
+	}
+)
 
 var (
 	// errSchemeAttachment is the error returned by testFailingSchemeAttacher.
@@ -40,6 +74,12 @@ func isErrorNil(err error) bool {
 
 func isInvalidBuilder(err error) bool {
 	return errors.Is(err, errInvalidBuilder)
+}
+
+func isAPICallFailedWithVerb(verb string) func(error) bool {
+	return func(err error) bool {
+		return commonerrors.IsAPICallFailedWithVerb(err, verb)
+	}
 }
 
 // buildDummyClusterScopedResource creates a dummy cluster-scoped resource for testing. In this case, it is a Namespace,

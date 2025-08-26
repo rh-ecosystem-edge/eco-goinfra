@@ -10,6 +10,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestNewClusterScopedBuilder(t *testing.T) {
@@ -457,6 +458,249 @@ func TestExists(t *testing.T) {
 			if testCase.expectedResult {
 				assert.NotNil(t, builder.GetObject())
 				assert.Equal(t, defaultName, builder.GetObject().GetName())
+			}
+		})
+	}
+}
+
+func TestCreate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		builderValid     bool
+		objectExists     bool
+		interceptorFuncs interceptor.Funcs
+		assertError      func(error) bool
+	}{
+		{
+			name:         "valid create new resource",
+			builderValid: true,
+			objectExists: false,
+			assertError:  isErrorNil,
+		},
+		{
+			name:         "invalid builder",
+			builderValid: false,
+			objectExists: false,
+			assertError:  isInvalidBuilder,
+		},
+		{
+			name:         "resource already exists",
+			builderValid: true,
+			objectExists: true,
+			assertError:  isErrorNil,
+		},
+		{
+			name:             "failed creation",
+			builderValid:     true,
+			objectExists:     false,
+			interceptorFuncs: interceptor.Funcs{Create: testFailingCreate},
+			assertError:      isAPICallFailedWithVerb("create"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var objects []runtime.Object
+			if testCase.objectExists {
+				objects = append(objects, buildDummyClusterScopedResource())
+			}
+
+			client := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:   objects,
+				SchemeAttachers:  []clients.SchemeAttacher{testSchemeAttacher},
+				InterceptorFuncs: testCase.interceptorFuncs,
+			})
+
+			builder := buildValidMockClusterScopedBuilder(client)
+			if !testCase.builderValid {
+				builder = buildInvalidMockClusterScopedBuilder(client)
+			}
+
+			err := Create(t.Context(), builder)
+
+			assert.Truef(t, testCase.assertError(err), "got error %v", err)
+
+			if err == nil {
+				assert.NotNil(t, builder.GetObject())
+				assert.Equal(t, defaultName, builder.GetObject().GetName())
+			}
+		})
+	}
+}
+
+//nolint:funlen // This function is only long because of the number of test cases.
+func TestUpdate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		builderValid     bool
+		objectExists     bool
+		force            bool
+		interceptorFuncs interceptor.Funcs
+		assertError      func(error) bool
+	}{
+		{
+			name:         "valid update existing resource",
+			builderValid: true,
+			objectExists: true,
+			force:        false,
+			assertError:  isErrorNil,
+		},
+		{
+			name:         "invalid builder",
+			builderValid: false,
+			objectExists: false,
+			force:        false,
+			assertError:  isInvalidBuilder,
+		},
+		{
+			name:         "resource does not exist",
+			builderValid: true,
+			objectExists: false,
+			force:        false,
+			assertError:  k8serrors.IsNotFound,
+		},
+		{
+			name:         "valid force update existing resource",
+			builderValid: true,
+			objectExists: true,
+			force:        true,
+			assertError:  isErrorNil,
+		},
+		{
+			name:             "force update with initial error",
+			builderValid:     true,
+			objectExists:     true,
+			force:            true,
+			interceptorFuncs: interceptor.Funcs{Update: testFailingUpdate},
+			assertError:      isErrorNil,
+		},
+		{
+			name:             "non-force update with error should fail",
+			builderValid:     true,
+			objectExists:     true,
+			force:            false,
+			interceptorFuncs: interceptor.Funcs{Update: testFailingUpdate},
+			assertError:      isAPICallFailedWithVerb("update"),
+		},
+		{
+			name:             "force update with delete failure",
+			builderValid:     true,
+			objectExists:     true,
+			force:            true,
+			interceptorFuncs: interceptor.Funcs{Update: testFailingUpdate, Delete: testFailingDelete},
+			assertError:      isAPICallFailedWithVerb("delete"),
+		},
+		{
+			name:             "force update with create failure",
+			builderValid:     true,
+			objectExists:     true,
+			force:            true,
+			interceptorFuncs: interceptor.Funcs{Update: testFailingUpdate, Create: testFailingCreate},
+			assertError:      isAPICallFailedWithVerb("create"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var objects []runtime.Object
+			if testCase.objectExists {
+				objects = append(objects, buildDummyClusterScopedResource())
+			}
+
+			client := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:   objects,
+				SchemeAttachers:  []clients.SchemeAttacher{testSchemeAttacher},
+				InterceptorFuncs: testCase.interceptorFuncs,
+			})
+
+			builder := buildValidMockClusterScopedBuilder(client)
+			if !testCase.builderValid {
+				builder = buildInvalidMockClusterScopedBuilder(client)
+			}
+
+			err := Update(t.Context(), builder, testCase.force)
+
+			assert.Truef(t, testCase.assertError(err), "got error %v", err)
+
+			if err == nil {
+				assert.NotNil(t, builder.GetObject())
+				assert.Equal(t, defaultName, builder.GetObject().GetName())
+			}
+		})
+	}
+}
+
+func TestDelete(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		builderValid     bool
+		objectExists     bool
+		interceptorFuncs interceptor.Funcs
+		assertError      func(error) bool
+	}{
+		{
+			name:         "valid delete existing resource",
+			builderValid: true,
+			objectExists: true,
+			assertError:  isErrorNil,
+		},
+		{
+			name:         "invalid builder",
+			builderValid: false,
+			objectExists: false,
+			assertError:  isInvalidBuilder,
+		},
+		{
+			name:         "resource does not exist",
+			builderValid: true,
+			objectExists: false,
+			assertError:  isErrorNil,
+		},
+		{
+			name:             "failed deletion",
+			builderValid:     true,
+			objectExists:     true,
+			interceptorFuncs: interceptor.Funcs{Delete: testFailingDelete},
+			assertError:      isAPICallFailedWithVerb("delete"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var objects []runtime.Object
+			if testCase.objectExists {
+				objects = append(objects, buildDummyClusterScopedResource())
+			}
+
+			client := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:   objects,
+				SchemeAttachers:  []clients.SchemeAttacher{testSchemeAttacher},
+				InterceptorFuncs: testCase.interceptorFuncs,
+			})
+
+			builder := buildValidMockClusterScopedBuilder(client)
+			if !testCase.builderValid {
+				builder = buildInvalidMockClusterScopedBuilder(client)
+			}
+
+			err := Delete(t.Context(), builder)
+
+			assert.Truef(t, testCase.assertError(err), "got error %v", err)
+
+			if err == nil {
+				assert.Nil(t, builder.GetObject())
 			}
 		})
 	}
