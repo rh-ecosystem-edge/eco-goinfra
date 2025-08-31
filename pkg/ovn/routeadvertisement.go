@@ -5,56 +5,62 @@ import (
 	"fmt"
 
 	"github.com/golang/glog"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	ovnv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ovn/routeadvertisement"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	ovnv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ovn/routeadvertisement/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ovn/types"
 )
 
-// RouteAdvertisementBuilder provides struct for the RouteAdvertisement object containing connection to
-// the cluster and the RouteAdvertisement definitions.
+// RouteAdvertisementBuilder provides a wrapper around RouteAdvertisements objects for the Kubernetes API.
 type RouteAdvertisementBuilder struct {
-	Definition *ovnv1.RouteAdvertisement
-	Object     *ovnv1.RouteAdvertisement
-	apiClient  runtimeClient.Client
-	errorMsg   string
+	// RouteAdvertisement definition, used to create the RouteAdvertisement object.
+	Definition *ovnv1.RouteAdvertisements
+	// Created RouteAdvertisement object.
+	Object *ovnv1.RouteAdvertisements
+	// api client to interact with the kubernetes cluster.
+	apiClient client.Client
+	// Used to store latest error message upon defining or mutating RouteAdvertisement definition.
+	errorMsg string
 }
-
-// RouteAdvertisementAdditionalOptions additional options for RouteAdvertisement object.
-type RouteAdvertisementAdditionalOptions func(builder *RouteAdvertisementBuilder) (*RouteAdvertisementBuilder, error)
 
 // NewRouteAdvertisementBuilder creates a new instance of RouteAdvertisementBuilder.
 func NewRouteAdvertisementBuilder(
-	apiClient *clients.Settings, name, nsname string, advertisements []ovnv1.AdvertisementType) *RouteAdvertisementBuilder {
+	apiClient client.Client,
+	name string,
+	advertisements []ovnv1.AdvertisementType,
+	nodeSelector metav1.LabelSelector,
+	frrConfigurationSelector metav1.LabelSelector,
+	networkSelectors types.NetworkSelectors) *RouteAdvertisementBuilder {
 	glog.V(100).Infof(
-		"Initializing new RouteAdvertisement structure with the following params: %s, %s, %v",
-		name, nsname, advertisements)
+		"Initializing new RouteAdvertisement structure with the following params: "+
+			"name: %s, advertisements: %v, nodeSelector: %v, frrConfigurationSelector: %v, networkSelectors: %v",
+		name, advertisements, nodeSelector, frrConfigurationSelector, networkSelectors)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient cannot be nil")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(ovnv1.AddToScheme)
-	if err != nil {
-		glog.V(100).Infof("Failed to add ovn scheme to client schemes")
+		glog.V(100).Infof("RouteAdvertisement 'apiClient' cannot be nil")
 
 		return nil
 	}
 
 	builder := &RouteAdvertisementBuilder{
-		apiClient: apiClient.Client,
-		Definition: &ovnv1.RouteAdvertisement{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
+		apiClient: apiClient,
+		Definition: &ovnv1.RouteAdvertisements{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "RouteAdvertisements",
+				APIVersion: fmt.Sprintf("%s/%s", ovnv1.GroupName, ovnv1.SchemeGroupVersion.Version),
 			},
-			Spec: ovnv1.RouteAdvertisementSpec{
-				Advertisements: advertisements,
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+			Spec: ovnv1.RouteAdvertisementsSpec{
+				Advertisements:           advertisements,
+				NodeSelector:             nodeSelector,
+				FRRConfigurationSelector: frrConfigurationSelector,
+				NetworkSelectors:         networkSelectors,
 			},
 		},
 	}
@@ -67,111 +73,32 @@ func NewRouteAdvertisementBuilder(
 		return builder
 	}
 
-	if nsname == "" {
-		glog.V(100).Infof("The namespace of the RouteAdvertisement is empty")
-
-		builder.errorMsg = "RouteAdvertisement 'namespace' cannot be empty"
-
-		return builder
-	}
-
 	if len(advertisements) == 0 {
-		glog.V(100).Infof("The advertisements list of the RouteAdvertisement is empty")
+		glog.V(100).Infof("RouteAdvertisement 'advertisements' cannot be empty")
 
 		builder.errorMsg = "RouteAdvertisement 'advertisements' cannot be empty"
 
 		return builder
 	}
 
-	if len(advertisements) > 2 {
-		glog.V(100).Infof("The advertisements list of the RouteAdvertisement has more than 2 items")
-
-		builder.errorMsg = "RouteAdvertisement 'advertisements' cannot have more than 2 items"
-
-		return builder
-	}
-
-	// Validate that advertisements are unique
-	seen := make(map[ovnv1.AdvertisementType]bool)
-	for _, ad := range advertisements {
-		if seen[ad] {
-			glog.V(100).Infof("Duplicate advertisement type found: %s", ad)
-
-			builder.errorMsg = fmt.Sprintf("RouteAdvertisement 'advertisements' cannot contain duplicates: %s", ad)
-
-			return builder
-		}
-		seen[ad] = true
-	}
-
 	return builder
 }
 
-// Get returns RouteAdvertisement object if found.
-func (builder *RouteAdvertisementBuilder) Get() (*ovnv1.RouteAdvertisement, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	glog.V(100).Infof(
-		"Collecting RouteAdvertisement object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	routeAdvertisement := &ovnv1.RouteAdvertisement{}
-	err := builder.apiClient.Get(context.TODO(),
-		runtimeClient.ObjectKey{Name: builder.Definition.Name, Namespace: builder.Definition.Namespace},
-		routeAdvertisement)
-
-	if err != nil {
-		glog.V(100).Infof(
-			"RouteAdvertisement object %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, err
-	}
-
-	return routeAdvertisement, nil
-}
-
-// Exists checks whether the given RouteAdvertisement exists.
-func (builder *RouteAdvertisementBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	glog.V(100).Infof(
-		"Checking if RouteAdvertisement %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Pull loads an existing RouteAdvertisement into the Builder struct.
-func Pull(apiClient *clients.Settings, name, nsname string) (*RouteAdvertisementBuilder, error) {
-	glog.V(100).Infof("Pulling existing RouteAdvertisement name: %s namespace: %s", name, nsname)
+// PullRouteAdvertisement pulls existing RouteAdvertisement from cluster.
+func PullRouteAdvertisement(apiClient client.Client, name string) (*RouteAdvertisementBuilder, error) {
+	glog.V(100).Infof("Pulling existing RouteAdvertisement name %s from cluster", name)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is nil")
+		glog.V(100).Infof("The apiClient cannot be nil")
 
-		return nil, fmt.Errorf("apiClient cannot be nil")
+		return nil, fmt.Errorf("RouteAdvertisement 'apiClient' cannot be nil")
 	}
 
-	err := apiClient.AttachScheme(ovnv1.AddToScheme)
-	if err != nil {
-		glog.V(100).Infof("Failed to add ovn scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &RouteAdvertisementBuilder{
-		apiClient: apiClient.Client,
-		Definition: &ovnv1.RouteAdvertisement{
+	builder := RouteAdvertisementBuilder{
+		apiClient: apiClient,
+		Definition: &ovnv1.RouteAdvertisements{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
+				Name: name,
 			},
 		},
 	}
@@ -182,19 +109,35 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*RouteAdvertisement
 		return nil, fmt.Errorf("RouteAdvertisement 'name' cannot be empty")
 	}
 
-	if nsname == "" {
-		glog.V(100).Infof("The namespace of the RouteAdvertisement is empty")
-
-		return nil, fmt.Errorf("RouteAdvertisement 'namespace' cannot be empty")
-	}
-
 	if !builder.Exists() {
-		return nil, fmt.Errorf("RouteAdvertisement object %s does not exist in namespace %s", name, nsname)
+		return nil, fmt.Errorf("RouteAdvertisement object %s does not exist", name)
 	}
 
 	builder.Definition = builder.Object
 
-	return builder, nil
+	return &builder, nil
+}
+
+// Get returns RouteAdvertisement object if found.
+func (builder *RouteAdvertisementBuilder) Get() (*ovnv1.RouteAdvertisements, error) {
+	if valid, err := builder.validate(); !valid {
+		return nil, err
+	}
+
+	glog.V(100).Infof("Getting RouteAdvertisement %s", builder.Definition.Name)
+
+	routeAdvertisement := &ovnv1.RouteAdvertisements{}
+	err := builder.apiClient.Get(context.TODO(), client.ObjectKey{
+		Name: builder.Definition.Name,
+	}, routeAdvertisement)
+
+	if err != nil {
+		glog.V(100).Infof("RouteAdvertisement object %s does not exist", builder.Definition.Name)
+
+		return nil, err
+	}
+
+	return routeAdvertisement, err
 }
 
 // Create makes a RouteAdvertisement in the cluster and stores the created object in struct.
@@ -203,140 +146,160 @@ func (builder *RouteAdvertisementBuilder) Create() (*RouteAdvertisementBuilder, 
 		return builder, err
 	}
 
-	glog.V(100).Infof("Creating the RouteAdvertisement %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
+	glog.V(100).Infof("Creating the RouteAdvertisement %s", builder.Definition.Name)
 
+	var err error
 	if !builder.Exists() {
-		err := builder.apiClient.Create(context.TODO(), builder.Definition)
-		if err != nil {
-			glog.V(100).Infof("Failed to create RouteAdvertisement")
-
-			return nil, err
-		}
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// Delete removes RouteAdvertisement object from a cluster.
-func (builder *RouteAdvertisementBuilder) Delete() (*RouteAdvertisementBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	glog.V(100).Infof("Deleting the RouteAdvertisement object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		glog.V(100).Infof("RouteAdvertisement %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(context.TODO(), builder.Definition)
-
-	if err != nil {
-		return builder, fmt.Errorf("can not delete RouteAdvertisement: %w", err)
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Update renovates the existing RouteAdvertisement object with the RouteAdvertisement definition in builder.
-func (builder *RouteAdvertisementBuilder) Update(force bool) (*RouteAdvertisementBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	glog.V(100).Infof("Updating the RouteAdvertisement object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("failed to update RouteAdvertisement, object does not exist on cluster")
-	}
-
-	err := builder.apiClient.Update(context.TODO(), builder.Definition)
-
-	if err != nil {
-		if force {
-			glog.V(100).Infof(
-				msg.FailToUpdateNotification("RouteAdvertisement", builder.Definition.Name, builder.Definition.Namespace))
-
-			builder, err := builder.Delete()
-
-			if err != nil {
-				glog.V(100).Infof(
-					msg.FailToUpdateError("RouteAdvertisement", builder.Definition.Name, builder.Definition.Namespace))
-
-				return nil, err
-			}
-
-			return builder.Create()
+		err = builder.apiClient.Create(context.TODO(), builder.Definition)
+		if err == nil {
+			builder.Object = builder.Definition
 		}
 	}
 
 	return builder, err
 }
 
-// WithFRRConfigurationSelector sets the FRRConfigurationSelector for the RouteAdvertisement.
-func (builder *RouteAdvertisementBuilder) WithFRRConfigurationSelector(selector *metav1.LabelSelector) *RouteAdvertisementBuilder {
+// Delete removes RouteAdvertisement object from a cluster.
+func (builder *RouteAdvertisementBuilder) Delete() error {
+	if valid, err := builder.validate(); !valid {
+		return err
+	}
+
+	glog.V(100).Infof("Deleting the RouteAdvertisement %s", builder.Definition.Name)
+
+	if !builder.Exists() {
+		glog.V(100).Infof("RouteAdvertisement %s cannot be deleted because it does not exist",
+			builder.Definition.Name)
+
+		builder.Object = nil
+
+		return nil
+	}
+
+	err := builder.apiClient.Delete(context.TODO(), builder.Definition)
+
+	if err != nil {
+		return fmt.Errorf("can not delete RouteAdvertisement: %w", err)
+	}
+
+	builder.Object = nil
+
+	return nil
+}
+
+// Exists checks whether the given RouteAdvertisement exists.
+func (builder *RouteAdvertisementBuilder) Exists() bool {
+	if valid, _ := builder.validate(); !valid {
+		return false
+	}
+
+	glog.V(100).Infof("Checking if RouteAdvertisement %s exists", builder.Definition.Name)
+
+	var err error
+	builder.Object, err = builder.Get()
+
+	return err == nil || !errors.IsNotFound(err)
+}
+
+// Update renovates the existing RouteAdvertisement object with RouteAdvertisement definition in builder.
+func (builder *RouteAdvertisementBuilder) Update() (*RouteAdvertisementBuilder, error) {
+	if valid, err := builder.validate(); !valid {
+		return builder, err
+	}
+
+	glog.V(100).Infof("Updating the RouteAdvertisement object %s", builder.Definition.Name)
+
+	err := builder.apiClient.Update(context.TODO(), builder.Definition)
+
+	if err != nil {
+		glog.V(100).Infof(
+			msg.FailToUpdateNotification("RouteAdvertisement", builder.Definition.Name))
+
+		return nil, err
+	}
+
+	builder.Object = builder.Definition
+
+	return builder, err
+}
+
+// WithTargetVRF sets the targetVRF field in the RouteAdvertisement definition.
+func (builder *RouteAdvertisementBuilder) WithTargetVRF(targetVRF string) *RouteAdvertisementBuilder {
 	if valid, _ := builder.validate(); !valid {
 		return builder
 	}
 
-	glog.V(100).Infof(
-		"Setting RouteAdvertisement %s in namespace %s with FRRConfigurationSelector: %v",
-		builder.Definition.Name, builder.Definition.Namespace, selector)
+	glog.V(100).Infof("Setting RouteAdvertisement %s targetVRF to %s", builder.Definition.Name, targetVRF)
 
-	builder.Definition.Spec.FRRConfigurationSelector = selector
+	builder.Definition.Spec.TargetVRF = targetVRF
 
 	return builder
 }
 
-// WithOptions creates RouteAdvertisement with generic mutation options.
-func (builder *RouteAdvertisementBuilder) WithOptions(options ...RouteAdvertisementAdditionalOptions) *RouteAdvertisementBuilder {
+// WithAdvertisements sets the advertisements field in the RouteAdvertisement definition.
+func (builder *RouteAdvertisementBuilder) WithAdvertisements(advertisements []ovnv1.AdvertisementType) *RouteAdvertisementBuilder {
 	if valid, _ := builder.validate(); !valid {
 		return builder
 	}
 
-	glog.V(100).Infof("Setting RouteAdvertisement additional options")
+	glog.V(100).Infof("Setting RouteAdvertisement %s advertisements to %v", builder.Definition.Name, advertisements)
 
-	if builder.Definition == nil {
-		glog.V(100).Infof("The RouteAdvertisement is undefined")
+	if len(advertisements) == 0 {
+		glog.V(100).Infof("RouteAdvertisement 'advertisements' cannot be empty")
 
-		builder.errorMsg = msg.UndefinedCrdObjectErrString("RouteAdvertisement")
+		builder.errorMsg = "RouteAdvertisement 'advertisements' cannot be empty"
 
 		return builder
 	}
 
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-
-			if err != nil {
-				glog.V(100).Infof("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
+	builder.Definition.Spec.Advertisements = advertisements
 
 	return builder
 }
 
-// GetRouteAdvertisementGVR returns RouteAdvertisement's GroupVersionResource, which could be used for Clean function.
+// WithNodeSelector sets the nodeSelector field in the RouteAdvertisement definition.
+func (builder *RouteAdvertisementBuilder) WithNodeSelector(nodeSelector metav1.LabelSelector) *RouteAdvertisementBuilder {
+	if valid, _ := builder.validate(); !valid {
+		return builder
+	}
+
+	glog.V(100).Infof("Setting RouteAdvertisement %s nodeSelector to %v", builder.Definition.Name, nodeSelector)
+
+	builder.Definition.Spec.NodeSelector = nodeSelector
+
+	return builder
+}
+
+// WithFRRConfigurationSelector sets the frrConfigurationSelector field in the RouteAdvertisement definition.
+func (builder *RouteAdvertisementBuilder) WithFRRConfigurationSelector(frrConfigurationSelector metav1.LabelSelector) *RouteAdvertisementBuilder {
+	if valid, _ := builder.validate(); !valid {
+		return builder
+	}
+
+	glog.V(100).Infof("Setting RouteAdvertisement %s frrConfigurationSelector to %v", builder.Definition.Name, frrConfigurationSelector)
+
+	builder.Definition.Spec.FRRConfigurationSelector = frrConfigurationSelector
+
+	return builder
+}
+
+// WithNetworkSelectors sets the networkSelectors field in the RouteAdvertisement definition.
+func (builder *RouteAdvertisementBuilder) WithNetworkSelectors(networkSelectors types.NetworkSelectors) *RouteAdvertisementBuilder {
+	if valid, _ := builder.validate(); !valid {
+		return builder
+	}
+
+	glog.V(100).Infof("Setting RouteAdvertisement %s networkSelectors to %v", builder.Definition.Name, networkSelectors)
+
+	builder.Definition.Spec.NetworkSelectors = networkSelectors
+
+	return builder
+}
+
+// GetRouteAdvertisementGVR returns RouteAdvertisement's GroupVersionResource which could be used for Clean function.
 func GetRouteAdvertisementGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
-		Group: "k8s.ovn.org", Version: "v1", Resource: "routeadvertisements",
+		Group: ovnv1.GroupName, Version: ovnv1.SchemeGroupVersion.Version, Resource: "routeadvertisements",
 	}
 }
 
@@ -354,7 +317,7 @@ func (builder *RouteAdvertisementBuilder) validate() (bool, error) {
 	if builder.Definition == nil {
 		glog.V(100).Infof("The %s is undefined", resourceCRD)
 
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
+		return false, fmt.Errorf(msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
@@ -366,7 +329,7 @@ func (builder *RouteAdvertisementBuilder) validate() (bool, error) {
 	if builder.errorMsg != "" {
 		glog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
 
-		return false, fmt.Errorf("%s", builder.errorMsg)
+		return false, fmt.Errorf(builder.errorMsg)
 	}
 
 	return true, nil

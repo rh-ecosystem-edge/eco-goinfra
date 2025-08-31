@@ -4,445 +4,349 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	ovnv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ovn/routeadvertisement"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	ovnv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ovn/routeadvertisement/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ovn/types"
 )
 
 var (
-	defaultRouteAdvertisementName      = "test-routeadvertisement"
-	defaultRouteAdvertisementNamespace = "test-namespace"
-	defaultAdvertisements              = []ovnv1.AdvertisementType{ovnv1.PodNetworkAdvertisement}
+	defaultRouteAdvertisementName = "test-routeadvertisement"
+	defaultAdvertisements         = []ovnv1.AdvertisementType{ovnv1.PodNetwork}
+	defaultNodeSelector           = metav1.LabelSelector{
+		MatchLabels: map[string]string{"test": "label"},
+	}
+	defaultFRRConfigurationSelector = metav1.LabelSelector{
+		MatchLabels: map[string]string{"frr": "config"},
+	}
+	defaultNetworkSelectors = types.NetworkSelectors{
+		{
+			NetworkSelectionType: types.DefaultNetwork,
+		},
+	}
 )
 
 func TestNewRouteAdvertisementBuilder(t *testing.T) {
 	testCases := []struct {
-		name           string
-		routeName      string
-		namespace      string
-		advertisements []ovnv1.AdvertisementType
-		expectedErrMsg string
-		client         bool
+		name                     string
+		advertisements           []ovnv1.AdvertisementType
+		nodeSelector             metav1.LabelSelector
+		frrConfigurationSelector metav1.LabelSelector
+		networkSelectors         types.NetworkSelectors
+		expectedErrorText        string
 	}{
 		{
-			name:           "valid RouteAdvertisement",
-			routeName:      defaultRouteAdvertisementName,
-			namespace:      defaultRouteAdvertisementNamespace,
-			advertisements: defaultAdvertisements,
-			expectedErrMsg: "",
-			client:         true,
+			name:                     defaultRouteAdvertisementName,
+			advertisements:           defaultAdvertisements,
+			nodeSelector:             defaultNodeSelector,
+			frrConfigurationSelector: defaultFRRConfigurationSelector,
+			networkSelectors:         defaultNetworkSelectors,
+			expectedErrorText:        "",
 		},
 		{
-			name:           "empty RouteAdvertisement name",
-			routeName:      "",
-			namespace:      defaultRouteAdvertisementNamespace,
-			advertisements: defaultAdvertisements,
-			expectedErrMsg: "RouteAdvertisement 'name' cannot be empty",
-			client:         true,
+			name:                     "",
+			advertisements:           defaultAdvertisements,
+			nodeSelector:             defaultNodeSelector,
+			frrConfigurationSelector: defaultFRRConfigurationSelector,
+			networkSelectors:         defaultNetworkSelectors,
+			expectedErrorText:        "RouteAdvertisement 'name' cannot be empty",
 		},
 		{
-			name:           "empty RouteAdvertisement namespace",
-			routeName:      defaultRouteAdvertisementName,
-			namespace:      "",
-			advertisements: defaultAdvertisements,
-			expectedErrMsg: "RouteAdvertisement 'namespace' cannot be empty",
-			client:         true,
-		},
-		{
-			name:           "empty advertisements",
-			routeName:      defaultRouteAdvertisementName,
-			namespace:      defaultRouteAdvertisementNamespace,
-			advertisements: []ovnv1.AdvertisementType{},
-			expectedErrMsg: "RouteAdvertisement 'advertisements' cannot be empty",
-			client:         true,
-		},
-		{
-			name:      "too many advertisements",
-			routeName: defaultRouteAdvertisementName,
-			namespace: defaultRouteAdvertisementNamespace,
-			advertisements: []ovnv1.AdvertisementType{
-				ovnv1.PodNetworkAdvertisement,
-				ovnv1.EgressIPAdvertisement,
-				ovnv1.PodNetworkAdvertisement, // This makes it 3 items
-			},
-			expectedErrMsg: "RouteAdvertisement 'advertisements' cannot have more than 2 items",
-			client:         true,
-		},
-		{
-			name:      "duplicate advertisements",
-			routeName: defaultRouteAdvertisementName,
-			namespace: defaultRouteAdvertisementNamespace,
-			advertisements: []ovnv1.AdvertisementType{
-				ovnv1.PodNetworkAdvertisement,
-				ovnv1.PodNetworkAdvertisement, // Duplicate
-			},
-			expectedErrMsg: "RouteAdvertisement 'advertisements' cannot contain duplicates: PodNetwork",
-			client:         true,
-		},
-		{
-			name:           "nil client",
-			routeName:      defaultRouteAdvertisementName,
-			namespace:      defaultRouteAdvertisementNamespace,
-			advertisements: defaultAdvertisements,
-			expectedErrMsg: "",
-			client:         false,
+			name:                     defaultRouteAdvertisementName,
+			advertisements:           []ovnv1.AdvertisementType{},
+			nodeSelector:             defaultNodeSelector,
+			frrConfigurationSelector: defaultFRRConfigurationSelector,
+			networkSelectors:         defaultNetworkSelectors,
+			expectedErrorText:        "RouteAdvertisement 'advertisements' cannot be empty",
 		},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			var testSettings *clients.Settings
+		testSettings := clients.GetTestClients(clients.TestClientParams{})
+		testRouteAdvertisementBuilder := NewRouteAdvertisementBuilder(
+			testSettings.Client,
+			testCase.name,
+			testCase.advertisements,
+			testCase.nodeSelector,
+			testCase.frrConfigurationSelector,
+			testCase.networkSelectors)
 
-			if testCase.client {
-				testSettings = clients.GetTestClients(clients.TestClientParams{
-					K8sMockObjects: buildDummyRouteAdvertisement(),
-				})
+		if testCase.expectedErrorText == "" {
+			if testRouteAdvertisementBuilder == nil {
+				t.Errorf("Unexpected nil RouteAdvertisementBuilder")
 			}
 
-			builder := NewRouteAdvertisementBuilder(testSettings, testCase.routeName, testCase.namespace, testCase.advertisements)
-
-			if testCase.client {
-				assert.NotNil(t, builder)
-
-				if testCase.expectedErrMsg != "" {
-					assert.Equal(t, testCase.expectedErrMsg, builder.errorMsg)
-				}
-			} else {
-				assert.Nil(t, builder)
+			if testRouteAdvertisementBuilder.errorMsg != "" {
+				t.Errorf("Unexpected error message %s", testRouteAdvertisementBuilder.errorMsg)
 			}
-		})
+
+			if testRouteAdvertisementBuilder.Definition.Name != testCase.name {
+				t.Errorf("Expected RouteAdvertisement name %s, got %s",
+					testCase.name, testRouteAdvertisementBuilder.Definition.Name)
+			}
+		} else {
+			if testRouteAdvertisementBuilder == nil {
+				t.Errorf("Expected RouteAdvertisementBuilder, got nil")
+			}
+
+			if testRouteAdvertisementBuilder.errorMsg != testCase.expectedErrorText {
+				t.Errorf("Expected error message %s, got %s",
+					testCase.expectedErrorText, testRouteAdvertisementBuilder.errorMsg)
+			}
+		}
 	}
 }
 
 func TestRouteAdvertisementGet(t *testing.T) {
 	testCases := []struct {
-		name                string
-		routeAdvertisement  *ovnv1.RouteAdvertisement
-		expectedError       bool
-		addToRuntimeObjects bool
+		routeAdvertisement *ovnv1.RouteAdvertisements
+		expectedError      bool
 	}{
 		{
-			name:                "get existing RouteAdvertisement",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedError:       false,
-			addToRuntimeObjects: true,
+			routeAdvertisement: buildDummyRouteAdvertisement(defaultRouteAdvertisementName),
+			expectedError:      false,
 		},
 		{
-			name:                "get non-existing RouteAdvertisement",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedError:       true,
-			addToRuntimeObjects: false,
+			routeAdvertisement: buildDummyRouteAdvertisement(""),
+			expectedError:      true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			var runtimeObjects []runtime.Object
+		var (
+			runtimeObjects []runtime.Object
+		)
 
-			if testCase.addToRuntimeObjects {
-				runtimeObjects = append(runtimeObjects, testCase.routeAdvertisement)
-			}
+		if testCase.routeAdvertisement != nil {
+			runtimeObjects = append(runtimeObjects, testCase.routeAdvertisement)
+		}
 
-			testSettings := clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-
-			builder := buildValidRouteAdvertisementBuilder(testSettings)
-			obj, err := builder.Get()
-
-			if testCase.expectedError {
-				assert.NotNil(t, err)
-				assert.Nil(t, obj)
-			} else {
-				assert.Nil(t, err)
-				assert.NotNil(t, obj)
-			}
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects: runtimeObjects,
+			SchemeAttachers: []clients.SchemeAttacher{
+				ovnv1.AddToScheme,
+			},
 		})
+
+		routeAdvertisementBuilder, err := PullRouteAdvertisement(testSettings.Client, testCase.routeAdvertisement.Name)
+
+		if testCase.expectedError {
+			assert.NotNil(t, err)
+		} else {
+			assert.Nil(t, err)
+			assert.Equal(t, testCase.routeAdvertisement.Name, routeAdvertisementBuilder.Definition.Name)
+		}
 	}
 }
 
 func TestRouteAdvertisementExists(t *testing.T) {
 	testCases := []struct {
-		name                string
-		routeAdvertisement  *ovnv1.RouteAdvertisement
-		expectedStatus      bool
-		addToRuntimeObjects bool
+		testRouteAdvertisement *ovnv1.RouteAdvertisements
+		expectedStatus         bool
 	}{
 		{
-			name:                "existing RouteAdvertisement",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedStatus:      true,
-			addToRuntimeObjects: true,
+			testRouteAdvertisement: buildDummyRouteAdvertisement(defaultRouteAdvertisementName),
+			expectedStatus:         true,
 		},
 		{
-			name:                "non-existing RouteAdvertisement",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedStatus:      false,
-			addToRuntimeObjects: false,
+			testRouteAdvertisement: buildDummyRouteAdvertisement(""),
+			expectedStatus:         false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			var runtimeObjects []runtime.Object
+		var runtimeObjects []runtime.Object
 
-			if testCase.addToRuntimeObjects {
-				runtimeObjects = append(runtimeObjects, testCase.routeAdvertisement)
-			}
+		if testCase.testRouteAdvertisement != nil {
+			runtimeObjects = append(runtimeObjects, testCase.testRouteAdvertisement)
+		}
 
-			testSettings := clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-
-			builder := buildValidRouteAdvertisementBuilder(testSettings)
-			exists := builder.Exists()
-
-			assert.Equal(t, testCase.expectedStatus, exists)
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects: runtimeObjects,
+			SchemeAttachers: []clients.SchemeAttacher{
+				ovnv1.AddToScheme,
+			},
 		})
+
+		routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings.Client)
+
+		if testCase.testRouteAdvertisement != nil {
+			routeAdvertisementBuilder.Definition.Name = testCase.testRouteAdvertisement.Name
+		}
+
+		assert.Equal(t, testCase.expectedStatus, routeAdvertisementBuilder.Exists())
 	}
 }
 
 func TestRouteAdvertisementCreate(t *testing.T) {
 	testCases := []struct {
-		name          string
-		expectedError error
+		testRouteAdvertisement *ovnv1.RouteAdvertisements
+		expectedError          error
 	}{
 		{
-			name:          "create RouteAdvertisement",
-			expectedError: nil,
+			testRouteAdvertisement: buildDummyRouteAdvertisement(defaultRouteAdvertisementName),
+			expectedError:          nil,
+		},
+		{
+			testRouteAdvertisement: buildDummyRouteAdvertisement(""),
+			expectedError:          fmt.Errorf("RouteAdvertisement 'name' cannot be empty"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			testSettings := clients.GetTestClients(clients.TestClientParams{})
-
-			builder := buildValidRouteAdvertisementBuilder(testSettings)
-			result, err := builder.Create()
-
-			assert.Equal(t, testCase.expectedError, err)
-
-			if testCase.expectedError == nil {
-				assert.NotNil(t, result)
-			}
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			SchemeAttachers: []clients.SchemeAttacher{
+				ovnv1.AddToScheme,
+			},
 		})
+
+		routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings.Client)
+		routeAdvertisementBuilder.Definition = testCase.testRouteAdvertisement
+
+		result, err := routeAdvertisementBuilder.Create()
+
+		if testCase.expectedError == nil {
+			assert.Nil(t, err)
+			assert.NotNil(t, result)
+			assert.Equal(t, testCase.testRouteAdvertisement.Name, result.Definition.Name)
+		} else {
+			assert.Equal(t, testCase.expectedError.Error(), err.Error())
+		}
 	}
 }
 
 func TestRouteAdvertisementDelete(t *testing.T) {
 	testCases := []struct {
-		name                string
-		routeAdvertisement  *ovnv1.RouteAdvertisement
-		expectedError       bool
-		addToRuntimeObjects bool
+		testRouteAdvertisement *ovnv1.RouteAdvertisements
+		expectedError          error
 	}{
 		{
-			name:                "delete existing RouteAdvertisement",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedError:       false,
-			addToRuntimeObjects: true,
+			testRouteAdvertisement: buildDummyRouteAdvertisement(defaultRouteAdvertisementName),
+			expectedError:          nil,
 		},
 		{
-			name:                "delete non-existing RouteAdvertisement",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedError:       false,
-			addToRuntimeObjects: false,
+			testRouteAdvertisement: buildDummyRouteAdvertisement(""),
+			expectedError:          fmt.Errorf("RouteAdvertisement 'name' cannot be empty"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			var runtimeObjects []runtime.Object
+		var runtimeObjects []runtime.Object
 
-			if testCase.addToRuntimeObjects {
-				runtimeObjects = append(runtimeObjects, testCase.routeAdvertisement)
-			}
+		if testCase.testRouteAdvertisement != nil {
+			runtimeObjects = append(runtimeObjects, testCase.testRouteAdvertisement)
+		}
 
-			testSettings := clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-
-			builder := buildValidRouteAdvertisementBuilder(testSettings)
-			_, err := builder.Delete()
-
-			if testCase.expectedError {
-				assert.NotNil(t, err)
-			} else {
-				assert.Nil(t, err)
-			}
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects: runtimeObjects,
+			SchemeAttachers: []clients.SchemeAttacher{
+				ovnv1.AddToScheme,
+			},
 		})
+
+		routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings.Client)
+		routeAdvertisementBuilder.Definition = testCase.testRouteAdvertisement
+
+		err := routeAdvertisementBuilder.Delete()
+
+		if testCase.expectedError == nil {
+			assert.Nil(t, err)
+			assert.Nil(t, routeAdvertisementBuilder.Object)
+		} else {
+			assert.Equal(t, testCase.expectedError.Error(), err.Error())
+		}
 	}
 }
 
-func TestRouteAdvertisementUpdate(t *testing.T) {
-	testCases := []struct {
-		name                string
-		routeAdvertisement  *ovnv1.RouteAdvertisement
-		expectedError       bool
-		addToRuntimeObjects bool
-		force               bool
-	}{
-		{
-			name:                "update existing RouteAdvertisement",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			force:               false,
-		},
-		{
-			name:                "update non-existing RouteAdvertisement",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			force:               false,
-		},
+func TestRouteAdvertisementWithTargetVRF(t *testing.T) {
+	testSettings := clients.GetTestClients(clients.TestClientParams{})
+	routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings.Client)
+
+	targetVRF := "test-vrf"
+	routeAdvertisementBuilder.WithTargetVRF(targetVRF)
+
+	assert.Equal(t, targetVRF, routeAdvertisementBuilder.Definition.Spec.TargetVRF)
+}
+
+func TestRouteAdvertisementWithAdvertisements(t *testing.T) {
+	testSettings := clients.GetTestClients(clients.TestClientParams{})
+	routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings.Client)
+
+	advertisements := []ovnv1.AdvertisementType{ovnv1.PodNetwork, ovnv1.EgressIP}
+	routeAdvertisementBuilder.WithAdvertisements(advertisements)
+
+	assert.Equal(t, advertisements, routeAdvertisementBuilder.Definition.Spec.Advertisements)
+}
+
+func TestRouteAdvertisementWithNodeSelector(t *testing.T) {
+	testSettings := clients.GetTestClients(clients.TestClientParams{})
+	routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings.Client)
+
+	nodeSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{"node": "test"},
 	}
+	routeAdvertisementBuilder.WithNodeSelector(nodeSelector)
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			var runtimeObjects []runtime.Object
-
-			if testCase.addToRuntimeObjects {
-				runtimeObjects = append(runtimeObjects, testCase.routeAdvertisement)
-			}
-
-			testSettings := clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-
-			builder := buildValidRouteAdvertisementBuilder(testSettings)
-			_, err := builder.Update(testCase.force)
-
-			if testCase.expectedError {
-				assert.NotNil(t, err)
-			} else {
-				assert.Nil(t, err)
-			}
-		})
-	}
+	assert.Equal(t, nodeSelector, routeAdvertisementBuilder.Definition.Spec.NodeSelector)
 }
 
 func TestRouteAdvertisementWithFRRConfigurationSelector(t *testing.T) {
 	testSettings := clients.GetTestClients(clients.TestClientParams{})
+	routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings.Client)
 
-	builder := buildValidRouteAdvertisementBuilder(testSettings)
-
-	selector := &metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			"test": "label",
-		},
+	frrConfigurationSelector := metav1.LabelSelector{
+		MatchLabels: map[string]string{"frr": "test"},
 	}
+	routeAdvertisementBuilder.WithFRRConfigurationSelector(frrConfigurationSelector)
 
-	builder = builder.WithFRRConfigurationSelector(selector)
-
-	assert.NotNil(t, builder)
-	assert.Equal(t, selector, builder.Definition.Spec.FRRConfigurationSelector)
+	assert.Equal(t, frrConfigurationSelector, routeAdvertisementBuilder.Definition.Spec.FRRConfigurationSelector)
 }
 
-func TestRouteAdvertisementWithOptions(t *testing.T) {
+func TestRouteAdvertisementWithNetworkSelectors(t *testing.T) {
 	testSettings := clients.GetTestClients(clients.TestClientParams{})
+	routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings.Client)
 
-	builder := buildValidRouteAdvertisementBuilder(testSettings)
-
-	// Test with valid option
-	builder = builder.WithOptions(func(builder *RouteAdvertisementBuilder) (*RouteAdvertisementBuilder, error) {
-		return builder, nil
-	})
-
-	assert.NotNil(t, builder)
-	assert.Equal(t, "", builder.errorMsg)
-
-	// Test with option that returns error
-	builder = builder.WithOptions(func(builder *RouteAdvertisementBuilder) (*RouteAdvertisementBuilder, error) {
-		return builder, fmt.Errorf("test error")
-	})
-
-	assert.NotNil(t, builder)
-	assert.Equal(t, "test error", builder.errorMsg)
-}
-
-func TestPull(t *testing.T) {
-	testCases := []struct {
-		name                string
-		routeAdvertisement  *ovnv1.RouteAdvertisement
-		expectedError       bool
-		addToRuntimeObjects bool
-		client              bool
-	}{
+	networkSelectors := types.NetworkSelectors{
 		{
-			name:                "pull existing RouteAdvertisement",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "pull non-existing RouteAdvertisement",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-		{
-			name:                "pull with nil client",
-			routeAdvertisement:  buildValidRouteAdvertisement(),
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			client:              false,
+			NetworkSelectionType: types.ClusterUserDefinedNetworks,
+			ClusterUserDefinedNetworkSelector: &types.ClusterUserDefinedNetworkSelector{
+				NetworkSelector: metav1.LabelSelector{
+					MatchLabels: map[string]string{"network": "test"},
+				},
+			},
 		},
 	}
+	routeAdvertisementBuilder.WithNetworkSelectors(networkSelectors)
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			var runtimeObjects []runtime.Object
-			var testSettings *clients.Settings
-
-			if testCase.addToRuntimeObjects {
-				runtimeObjects = append(runtimeObjects, testCase.routeAdvertisement)
-			}
-
-			if testCase.client {
-				testSettings = clients.GetTestClients(clients.TestClientParams{
-					K8sMockObjects: runtimeObjects,
-				})
-			}
-
-			builder, err := Pull(testSettings, defaultRouteAdvertisementName, defaultRouteAdvertisementNamespace)
-
-			if testCase.expectedError {
-				assert.NotNil(t, err)
-				assert.Nil(t, builder)
-			} else {
-				assert.Nil(t, err)
-				assert.NotNil(t, builder)
-			}
-		})
-	}
+	assert.Equal(t, networkSelectors, routeAdvertisementBuilder.Definition.Spec.NetworkSelectors)
 }
 
-func buildValidRouteAdvertisement() *ovnv1.RouteAdvertisement {
-	return &ovnv1.RouteAdvertisement{
+func buildDummyRouteAdvertisement(name string) *ovnv1.RouteAdvertisements {
+	return &ovnv1.RouteAdvertisements{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultRouteAdvertisementName,
-			Namespace: defaultRouteAdvertisementNamespace,
+			Name: name,
 		},
-		Spec: ovnv1.RouteAdvertisementSpec{
-			Advertisements: defaultAdvertisements,
+		Spec: ovnv1.RouteAdvertisementsSpec{
+			Advertisements:           defaultAdvertisements,
+			NodeSelector:             defaultNodeSelector,
+			FRRConfigurationSelector: defaultFRRConfigurationSelector,
+			NetworkSelectors:         defaultNetworkSelectors,
 		},
 	}
 }
 
-func buildValidRouteAdvertisementBuilder(apiClient *clients.Settings) *RouteAdvertisementBuilder {
+func buildTestRouteAdvertisementBuilder(apiClient client.Client) *RouteAdvertisementBuilder {
 	return NewRouteAdvertisementBuilder(
 		apiClient,
 		defaultRouteAdvertisementName,
-		defaultRouteAdvertisementNamespace,
 		defaultAdvertisements,
+		defaultNodeSelector,
+		defaultFRRConfigurationSelector,
+		defaultNetworkSelectors,
 	)
-}
-
-func buildDummyRouteAdvertisement() []runtime.Object {
-	return append([]runtime.Object{}, buildValidRouteAdvertisement())
 }
