@@ -39,7 +39,7 @@ require (
 	github.com/openshift/custom-resource-status v1.1.3-0.20220503160415-f2fdb4999d87
 	github.com/openshift/elasticsearch-operator v0.0.0-20241202223819-cc1a232913d6 // release-5.8
 	github.com/openshift/local-storage-operator v0.0.0-20250401053348-567d4745bb07 // release-4.19
-	github.com/ovn-org/ovn-kubernetes/go-controller v0.0.0-20250716192743-2700eb06d1e8 // latest
+	github.com/ovn-org/ovn-kubernetes/go-controller latest
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.82.2
 	github.com/red-hat-storage/odf-operator v0.0.0-20250716125006-48092cb5468b // release-4.18
@@ -234,4 +234,3 @@ replace (
 	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
 )
 
-tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
