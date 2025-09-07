@@ -160,6 +160,43 @@ func (builder *Builder) GetDockerImage(imageTag string) (string, error) {
 		imageTag, builder.Definition.Name, builder.Definition.Namespace)
 }
 
+// HasTag checks if the imageStream has a specific tag.
+func (builder *Builder) HasTag(tagName string) (bool, error) {
+	if valid, err := builder.validate(); !valid {
+		return false, err
+	}
+
+	if tagName == "" {
+		return false, fmt.Errorf("imageStream 'tagName' cannot be empty")
+	}
+
+	// Get fresh object to ensure we have latest status
+	freshObj, err := builder.Get()
+	if err != nil {
+		return false, fmt.Errorf("imageStream object does not exist")
+	}
+
+	// Check spec tags
+	for _, tag := range freshObj.Spec.Tags {
+		if tag.Name == tagName {
+			glog.V(100).Infof("Found tag %s in imageStream spec", tagName)
+			return true, nil
+		}
+	}
+
+	// Check status tags (where pushed images appear)
+	for _, tag := range freshObj.Status.Tags {
+		if tag.Tag == tagName {
+			glog.V(100).Infof("Found tag %s in imageStream status", tagName)
+			return true, nil
+		}
+	}
+
+	glog.V(100).Infof("Tag %s not found in imageStream %s/%s", tagName,
+		builder.Definition.Namespace, builder.Definition.Name)
+	return false, nil
+}
+
 // validate will check that the builder and builder definition are properly initialized before
 // accessing any member fields.
 func (builder *Builder) validate() (bool, error) {
