@@ -194,7 +194,7 @@ func (builder *Builder) HasTag(tagName string) (bool, error) {
 		}
 	}
 
-	glog.V(100).Infof("Tag %s not found in imageStream %s/%s", tagName, 
+	glog.V(100).Infof("Tag %s not found in imageStream %s/%s", tagName,
 		builder.Definition.Namespace, builder.Definition.Name)
 
 	return false, nil
