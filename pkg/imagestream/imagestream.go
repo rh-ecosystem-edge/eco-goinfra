@@ -160,39 +160,36 @@ func (builder *Builder) GetDockerImage(imageTag string) (string, error) {
 		imageTag, builder.Definition.Name, builder.Definition.Namespace)
 }
 
-// HasTagInStatus checks if the imageStream has a specific tag in its status.
-func (builder *Builder) HasTagInStatus(tagName string) (bool, error) {
+// GetStatusTags returns the status tags from the imageStream as an array of tag names.
+func (builder *Builder) GetStatusTags() ([]string, error) {
 	if valid, err := builder.validate(); !valid {
-		return false, err
-	}
-
-	if tagName == "" {
-		return false, fmt.Errorf("imageStream 'tagName' cannot be empty")
+		return nil, err
 	}
 
 	// Get fresh object to ensure we have latest status
 	freshObj, err := builder.Get()
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			return false, nil
+			return nil, nil
 		}
 
-		return false, fmt.Errorf("getting ImageStream: %w", err)
+		return nil, fmt.Errorf("getting ImageStream: %w", err)
 	}
 
-	// Check status tags
+	if len(freshObj.Status.Tags) == 0 {
+		return nil, fmt.Errorf("imageStream object %s in namespace %s has no status tags",
+			builder.Definition.Name, builder.Definition.Namespace)
+	}
+
+	var tagNames []string
 	for _, tag := range freshObj.Status.Tags {
-		if tag.Tag == tagName {
-			glog.V(100).Infof("Found tag %s in imageStream status", tagName)
-
-			return true, nil
-		}
+		tagNames = append(tagNames, tag.Tag)
 	}
 
-	glog.V(100).Infof("Tag %s not found in imageStream %s/%s status",
-		tagName, builder.Definition.Namespace, builder.Definition.Name)
+	glog.V(100).Infof("Retrieved %d status tags from imageStream %s/%s: %v",
+		len(freshObj.Status.Tags), builder.Definition.Namespace, builder.Definition.Name, tagNames)
 
-	return false, nil
+	return tagNames, nil
 }
 
 // validate will check that the builder and builder definition are properly initialized before
