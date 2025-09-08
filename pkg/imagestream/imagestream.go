@@ -160,7 +160,7 @@ func (builder *Builder) GetDockerImage(imageTag string) (string, error) {
 		imageTag, builder.Definition.Name, builder.Definition.Namespace)
 }
 
-// HasTagInStatus checks if the imageStream has a specific tag in its status
+// HasTagInStatus checks if the imageStream has a specific tag in its status.
 func (builder *Builder) HasTagInStatus(tagName string) (bool, error) {
 	if valid, err := builder.validate(); !valid {
 		return false, err
