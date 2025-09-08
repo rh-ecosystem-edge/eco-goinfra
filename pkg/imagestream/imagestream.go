@@ -180,6 +180,7 @@ func (builder *Builder) HasTag(tagName string) (bool, error) {
 	for _, tag := range freshObj.Spec.Tags {
 		if tag.Name == tagName {
 			glog.V(100).Infof("Found tag %s in imageStream spec", tagName)
+
 			return true, nil
 		}
 	}
@@ -188,12 +189,14 @@ func (builder *Builder) HasTag(tagName string) (bool, error) {
 	for _, tag := range freshObj.Status.Tags {
 		if tag.Tag == tagName {
 			glog.V(100).Infof("Found tag %s in imageStream status", tagName)
+
 			return true, nil
 		}
 	}
 
-	glog.V(100).Infof("Tag %s not found in imageStream %s/%s", tagName,
+	glog.V(100).Infof("Tag %s not found in imageStream %s/%s", tagName, 
 		builder.Definition.Namespace, builder.Definition.Name)
+
 	return false, nil
 }
 
