@@ -173,7 +173,11 @@ func (builder *Builder) HasTagInStatus(tagName string) (bool, error) {
 	// Get fresh object to ensure we have latest status
 	freshObj, err := builder.Get()
 	if err != nil {
-		return false, fmt.Errorf("imageStream object does not exist")
+		if k8serrors.IsNotFound(err) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("getting ImageStream: %w", err)
 	}
 
 	// Check status tags
