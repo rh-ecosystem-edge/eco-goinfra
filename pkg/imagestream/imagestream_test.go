@@ -264,6 +264,34 @@ func TestImageStreamGetDockerImage(t *testing.T) {
 	}
 }
 
+func TestImageStreamGetStatusTags(t *testing.T) {
+	// Create a simple ImageStream with status tags
+	testImageStream := &imagev1.ImageStream{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      imageStreamName,
+			Namespace: imageStreamNamespace,
+		},
+		Status: imagev1.ImageStreamStatus{
+			Tags: []imagev1.NamedTagEventList{
+				{Tag: "5.14.0-427.81.1.el9_4.x86_64"},
+				{Tag: "5.14.0-427.85.1.el9_4.x86_64"},
+			},
+		},
+	}
+
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects:  []runtime.Object{testImageStream},
+		SchemeAttachers: testSchemes,
+	})
+
+	builder, err := Pull(testSettings, imageStreamName, imageStreamNamespace)
+	assert.NoError(t, err)
+
+	tags, err := builder.GetStatusTags()
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"5.14.0-427.81.1.el9_4.x86_64", "5.14.0-427.85.1.el9_4.x86_64"}, tags)
+}
+
 func buildValidImageStreamBuilder(apiClient *clients.Settings) *Builder {
 	imageStreamBuilder := newBuilder(
 		apiClient, imageStreamName, imageStreamNamespace)
