@@ -530,6 +530,58 @@ func TestBGPPeerWithGracefulRestart(t *testing.T) {
 	}
 }
 
+func TestBGPPeerWithDisableMP(t *testing.T) {
+	testCases := []struct {
+		testBGPPeer   *BGPPeerBuilder
+		disableMP     bool
+		expectedError string
+	}{
+		{
+			testBGPPeer: buildValidBGPPeerBuilder(buildBGPPeerTestClientWithDummyObject()),
+			disableMP:   true,
+		},
+		{
+			testBGPPeer: buildValidBGPPeerBuilder(buildBGPPeerTestClientWithDummyObject()),
+			disableMP:   false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		bgpPeerBuilder := testCase.testBGPPeer.WithDisableMP(testCase.disableMP)
+		assert.Equal(t, testCase.expectedError, bgpPeerBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.disableMP, bgpPeerBuilder.Definition.Spec.DisableMP)
+		}
+	}
+}
+
+func TestBGPPeerWithDualStackAddressFamily(t *testing.T) {
+	testCases := []struct {
+		testBGPPeer            *BGPPeerBuilder
+		dualStackAddressFamily bool
+		expectedError          string
+	}{
+		{
+			testBGPPeer:            buildValidBGPPeerBuilder(buildBGPPeerTestClientWithDummyObject()),
+			dualStackAddressFamily: true,
+		},
+		{
+			testBGPPeer:            buildValidBGPPeerBuilder(buildBGPPeerTestClientWithDummyObject()),
+			dualStackAddressFamily: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		bgpPeerBuilder := testCase.testBGPPeer.WithDualStackAddressFamily(testCase.dualStackAddressFamily)
+		assert.Equal(t, testCase.expectedError, bgpPeerBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.dualStackAddressFamily, bgpPeerBuilder.Definition.Spec.DualStackAddressFamily)
+		}
+	}
+}
+
 func TestBGPPeerWithOptions(t *testing.T) {
 	testSettings := buildBGPPeerTestClientWithDummyObject()
 	testBuilder := buildValidBGPPeerBuilder(testSettings).WithOptions(

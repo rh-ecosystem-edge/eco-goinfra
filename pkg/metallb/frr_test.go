@@ -394,6 +394,67 @@ func TestFrrConfigurationWithEBGPMultiHop(t *testing.T) {
 	}
 }
 
+func TestFrrConfigurationWithBGPNeighborDisableMP(t *testing.T) {
+	testCases := []struct {
+		testFrrConfiguration *FrrConfigurationBuilder
+		disableMP            bool
+		expectedError        string
+	}{
+		{
+			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
+			disableMP:            true,
+			expectedError:        "",
+		},
+		{
+			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
+			disableMP:            false,
+			expectedError:        "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
+			WithBGPNeighbor("10.46.73.131", 64500, 0).WithBGPNeighborDisableMP(testCase.disableMP, 0, 0)
+		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.disableMP,
+				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].DisableMP)
+		}
+	}
+}
+
+func TestFrrConfigurationWithBGPNeighborDualStackAddressFamily(t *testing.T) {
+	testCases := []struct {
+		testFrrConfiguration   *FrrConfigurationBuilder
+		dualStackAddressFamily bool
+		expectedError          string
+	}{
+		{
+			testFrrConfiguration:   buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
+			dualStackAddressFamily: true,
+			expectedError:          "",
+		},
+		{
+			testFrrConfiguration:   buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
+			dualStackAddressFamily: false,
+			expectedError:          "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
+			WithBGPNeighbor("10.46.73.131", 64500, 0).
+			WithBGPNeighborDualStackAddressFamily(testCase.dualStackAddressFamily, 0, 0)
+		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.dualStackAddressFamily,
+				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].DualStackAddressFamily)
+		}
+	}
+}
+
 func TestFrrConfigurationWithPort(t *testing.T) {
 	var (
 		portIDpass uint16 = 179
