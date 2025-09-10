@@ -166,12 +166,11 @@ func (builder *Builder) GetStatusTags() ([]string, error) {
 		return nil, err
 	}
 
+	if !builder.Exists() {
+		glog.V(100).Infof("ImageStream %s does not exist", builder.Definition.Name)
 
-    if !builder.Exists() {
-        glog.V(100).Infof("ImageStream %s does not exist",  builder.Definition.Name)
-        
-        return nil, fmt.Errorf("cannot get status tags from non-existent imageStream")
-    }
+		return nil, fmt.Errorf("cannot get status tags from non-existent imageStream")
+	}
 
 	if len(builder.Object.Status.Tags) == 0 {
 		return nil, fmt.Errorf("imageStream object %s in namespace %s has no status tags",
