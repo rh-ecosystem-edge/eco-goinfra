@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/golang/glog"
+	"k8s.io/klog/v2"
 
 	configV1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
@@ -254,7 +254,7 @@ func buildDummyNodesConfig() []runtime.Object {
 
 // newBuilder method creates new instance of builder (for the unit test propose only).
 func newBuilder(apiClient *clients.Settings, name string, cgroupMode configV1.CgroupMode) *Builder {
-	glog.V(100).Infof("Initializing new Builder structure with the name: %s", name)
+	klog.V(100).Infof("Initializing new Builder structure with the name: %s", name)
 
 	builder := &Builder{
 		apiClient: apiClient.Client,
@@ -270,7 +270,7 @@ func newBuilder(apiClient *clients.Settings, name string, cgroupMode configV1.Cg
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the nodesConfig is empty")
+		klog.V(100).Info("The name of the nodesConfig is empty")
 
 		builder.errorMsg = "the nodesConfig 'name' cannot be empty"
 

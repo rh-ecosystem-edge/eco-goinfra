@@ -487,14 +487,14 @@ func (h *heartbeat) start() {
 	for {
 		select {
 		case <-h.closer:
-			klog.V(8).Infof("closed channel--returning")
+			klog.V(8).Info("closed channel--returning")
 			return
 		case <-t.C:
 			// "WriteControl" does not need to be protected by a mutex. According to
 			// gorilla/websockets library docs: "The Close and WriteControl methods can
 			// be called concurrently with all other methods."
 			if err := h.conn.WriteControl(gwebsocket.PingMessage, h.message, time.Now().Add(pingReadDeadline)); err == nil {
-				klog.V(8).Infof("Websocket Ping succeeeded")
+				klog.V(8).Info("Websocket Ping succeeeded")
 			} else {
 				klog.Errorf("Websocket Ping failed: %v", err)
 				if errors.Is(err, gwebsocket.ErrCloseSent) {

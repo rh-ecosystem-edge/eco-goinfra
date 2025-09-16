@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang/glog"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"k8s.io/klog/v2"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,18 +28,18 @@ type Builder struct {
 
 // NewBuilder creates a new instance of Builder.
 func NewBuilder(apiClient *clients.Settings, name string, mirror configv1.ImageDigestMirrors) *Builder {
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Initializing new imagedigestmirrorset structure with the following params: "+
 			"name: %s, mirror: %v", name, mirror)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient cannot be nil")
+		klog.V(100).Info("The apiClient cannot be nil")
 
 		return nil
 	}
 
 	if err := apiClient.AttachScheme(configv1.AddToScheme); err != nil {
-		glog.V(100).Infof(
+		klog.V(100).Infof(
 			"Failed to add configv1 scheme to client schemes")
 
 		return nil
@@ -60,7 +60,7 @@ func NewBuilder(apiClient *clients.Settings, name string, mirror configv1.ImageD
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the imagedigestmirrorset is empty")
+		klog.V(100).Info("The name of the imagedigestmirrorset is empty")
 
 		builder.errorMsg = "imagedigestmirrorset 'name' cannot be empty"
 
@@ -72,17 +72,17 @@ func NewBuilder(apiClient *clients.Settings, name string, mirror configv1.ImageD
 
 // Pull retrieves an existing imagedigestmirrorset from the cluster.
 func Pull(apiClient *clients.Settings, name string) (*Builder, error) {
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Pulling existing imagedigestmirrorset with name %s", name)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is nil")
+		klog.V(100).Info("The apiClient is nil")
 
 		return nil, fmt.Errorf("apiClient cannot be nil")
 	}
 
 	if err := apiClient.AttachScheme(configv1.AddToScheme); err != nil {
-		glog.V(100).Infof(
+		klog.V(100).Infof(
 			"Failed to add configv1 scheme to client schemes")
 
 		return nil, fmt.Errorf("failed to add configv1 to client schemes")
@@ -98,7 +98,7 @@ func Pull(apiClient *clients.Settings, name string) (*Builder, error) {
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the imagedigestmirrorset is empty")
+		klog.V(100).Info("The name of the imagedigestmirrorset is empty")
 
 		return nil, fmt.Errorf("imagedigestmirrorset 'name' cannot be empty")
 	}
@@ -118,7 +118,7 @@ func (builder *Builder) WithMirror(mirror configv1.ImageDigestMirrors) *Builder 
 		return nil
 	}
 
-	glog.V(100).Infof("Adding imagedigestmirror to imagedigestmirrorset %s: %v",
+	klog.V(100).Infof("Adding imagedigestmirror to imagedigestmirrorset %s: %v",
 		builder.Definition.Name, mirror)
 
 	builder.Definition.Spec.ImageDigestMirrors = append(builder.Definition.Spec.ImageDigestMirrors, mirror)
@@ -132,7 +132,7 @@ func (builder *Builder) Get() (*configv1.ImageDigestMirrorSet, error) {
 		return nil, err
 	}
 
-	glog.V(100).Infof("Getting imagedigestmirrorset %s",
+	klog.V(100).Infof("Getting imagedigestmirrorset %s",
 		builder.Definition.Name)
 
 	imageDigestMirrorSet := &configv1.ImageDigestMirrorSet{}
@@ -153,7 +153,7 @@ func (builder *Builder) Create() (*Builder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Creating the imagedigestmirrorset %s",
+	klog.V(100).Infof("Creating the imagedigestmirrorset %s",
 		builder.Definition.Name)
 
 	var err error
@@ -173,11 +173,11 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Updating imagedigestmirrorset %s",
+	klog.V(100).Infof("Updating imagedigestmirrorset %s",
 		builder.Definition.Name)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("imagedigestmirrorset %s does not exist",
+		klog.V(100).Infof("imagedigestmirrorset %s does not exist",
 			builder.Definition.Name)
 
 		return builder, fmt.Errorf("cannot update non-existent imagedigestmirrorset")
@@ -186,13 +186,11 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 	err := builder.apiClient.Update(context.TODO(), builder.Definition)
 	if err != nil {
 		if force {
-			glog.V(100).Infof(
-				msg.FailToUpdateNotification("imagedigestmirrorset", builder.Definition.Name))
+			klog.V(100).Infof("%v", msg.FailToUpdateNotification("imagedigestmirrorset", builder.Definition.Name))
 
 			err := builder.Delete()
 			if err != nil {
-				glog.V(100).Infof(
-					msg.FailToUpdateError("imagedigestmirrorset", builder.Definition.Name))
+				klog.V(100).Infof("%v", msg.FailToUpdateError("imagedigestmirrorset", builder.Definition.Name))
 
 				return nil, err
 			}
@@ -214,11 +212,11 @@ func (builder *Builder) Delete() error {
 		return err
 	}
 
-	glog.V(100).Infof("Deleting the imagedigestmirrorset %s",
+	klog.V(100).Infof("Deleting the imagedigestmirrorset %s",
 		builder.Definition.Name)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("imagedigestmirrorset %s does not exist",
+		klog.V(100).Infof("imagedigestmirrorset %s does not exist",
 			builder.Definition.Name)
 
 		return nil
@@ -240,7 +238,7 @@ func (builder *Builder) Exists() bool {
 		return false
 	}
 
-	glog.V(100).Infof("Checking if imagedigestmirrorset %s exists",
+	klog.V(100).Infof("Checking if imagedigestmirrorset %s exists",
 		builder.Definition.Name)
 
 	var err error
@@ -256,25 +254,25 @@ func (builder *Builder) validate() (bool, error) {
 	resourceCRD := "ImageDigestMirrorSet"
 
 	if builder == nil {
-		glog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
 	}
 
 	if builder.Definition == nil {
-		glog.V(100).Infof("The %s is undefined", resourceCRD)
+		klog.V(100).Infof("The %s is undefined", resourceCRD)
 
 		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
-		glog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
+		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
 
 		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
 	}
 
 	if builder.errorMsg != "" {
-		glog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
+		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
 
 		return false, fmt.Errorf("%s", builder.errorMsg)
 	}

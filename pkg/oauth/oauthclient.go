@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang/glog"
 	oauthv1 "github.com/openshift/api/oauth/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -27,7 +27,7 @@ type OAuthClientBuilder struct {
 
 // PullOAuthClient loads an existing OAuthClient into Builder struct.
 func PullOAuthClient(apiClient *clients.Settings, name string) (*OAuthClientBuilder, error) {
-	glog.V(100).Infof("Pulling existing OAuthClient %s", name)
+	klog.V(100).Infof("Pulling existing OAuthClient %s", name)
 
 	if apiClient == nil {
 		return nil, fmt.Errorf("apiClient cannot be nil")
@@ -35,7 +35,7 @@ func PullOAuthClient(apiClient *clients.Settings, name string) (*OAuthClientBuil
 
 	err := apiClient.AttachScheme(oauthv1.AddToScheme)
 	if err != nil {
-		glog.V(100).Infof("Failed to add oauth v1 scheme to client schemes")
+		klog.V(100).Info("Failed to add oauth v1 scheme to client schemes")
 
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func PullOAuthClient(apiClient *clients.Settings, name string) (*OAuthClientBuil
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The OAuthClient 'name' is empty")
+		klog.V(100).Info("The OAuthClient 'name' is empty")
 
 		return nil, fmt.Errorf("error: OAuthClient 'name' cannot be empty")
 	}
@@ -70,7 +70,7 @@ func (builder *OAuthClientBuilder) Get() (*oauthv1.OAuthClient, error) {
 		return nil, err
 	}
 
-	glog.V(100).Infof("Fetching existing OAuthClient with name %s from cluster", builder.Definition.Name)
+	klog.V(100).Infof("Fetching existing OAuthClient with name %s from cluster", builder.Definition.Name)
 
 	oauthClient := &oauthv1.OAuthClient{}
 
@@ -90,7 +90,7 @@ func (builder *OAuthClientBuilder) Create() (*OAuthClientBuilder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Creating the OAuthClient %s", builder.Definition.Name)
+	klog.V(100).Infof("Creating the OAuthClient %s", builder.Definition.Name)
 
 	var err error
 	if !builder.Exists() {
@@ -109,7 +109,7 @@ func (builder *OAuthClientBuilder) Exists() bool {
 		return false
 	}
 
-	glog.V(100).Infof("Checking if OAuthClient %s exists", builder.Definition.Name)
+	klog.V(100).Infof("Checking if OAuthClient %s exists", builder.Definition.Name)
 
 	var err error
 
@@ -124,7 +124,7 @@ func (builder *OAuthClientBuilder) Update() (*OAuthClientBuilder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Updating the OAuthClient %s", builder.Definition.Name)
+	klog.V(100).Infof("Updating the OAuthClient %s", builder.Definition.Name)
 
 	if !builder.Exists() {
 		return nil, fmt.Errorf("error: OAuthClient object %s does not exist", builder.Definition.Name)
@@ -144,10 +144,10 @@ func (builder *OAuthClientBuilder) Delete() error {
 		return err
 	}
 
-	glog.V(100).Infof("Deleting the OAuthClient %s", builder.Definition.Name)
+	klog.V(100).Infof("Deleting the OAuthClient %s", builder.Definition.Name)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("OAuthClient %s cannot be deleted"+
+		klog.V(100).Infof("OAuthClient %s cannot be deleted"+
 			" because it does not exist", builder.Definition.Name)
 
 		builder.Object = nil
@@ -173,19 +173,19 @@ func (builder *OAuthClientBuilder) validate() (bool, error) {
 	resourceCRD := "OAuthClient"
 
 	if builder == nil {
-		glog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
 	}
 
 	if builder.Definition == nil {
-		glog.V(100).Infof("The %s is undefined", resourceCRD)
+		klog.V(100).Infof("The %s is undefined", resourceCRD)
 
 		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
-		glog.V(100).Infof("The %s builder apiClient is nil", resourceCRD)
+		klog.V(100).Infof("The %s builder apiClient is nil", resourceCRD)
 
 		return false, fmt.Errorf("error: %s builder cannot have nil apiClient", resourceCRD)
 	}

@@ -88,7 +88,6 @@ const (
 	defaultUsername = "user1"
 	defaultPassword = "pass1"
 
-	//nolint:lll // If the literal is broken in two parts with "+" it will be flagged with goconst...
 	secureBootFailFmt = "failed to get secure boot: failed to get redfish system: invalid system index %d (base-index=0, num systems=1)"
 )
 
@@ -829,7 +828,7 @@ func getAuthDataCallbackFn(t *testing.T, user *User) func(r *http.Request) {
 // it will be filled with the auth credentials received in the login request. All the responses, except the login one,
 // are sent using static json data from the testdata folder. The flag secureBootEnable is used to load the json response
 // for the secure boot api depending on wether we want it to be enabled or disabled for our test.
-func createFakeRedfishLocalServer(secureBootEnabled bool, callbacks redfishAPIResponseCallbacks) *httptest.Server { //nolint:funlen,lll
+func createFakeRedfishLocalServer(secureBootEnabled bool, callbacks redfishAPIResponseCallbacks) *httptest.Server { //nolint:funlen
 	sbEnabled := secureBootEnabled
 	mux := http.NewServeMux()
 	mux.HandleFunc("/redfish/v1/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

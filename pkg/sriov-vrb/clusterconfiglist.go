@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang/glog"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	sriovvrbtypes "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/fec/vrbtypes"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -16,20 +16,20 @@ func ListClusterConfig(
 	nsname string,
 	options ...client.ListOptions) ([]*ClusterConfigBuilder, error) {
 	if apiClient == nil {
-		glog.V(100).Infof("SriovVrbClusterConfigList 'apiClient' parameter can not be empty")
+		klog.V(100).Info("SriovVrbClusterConfigList 'apiClient' parameter can not be empty")
 
 		return nil, fmt.Errorf("failed to list SriovVrbClusterConfig, 'apiClient' parameter is empty")
 	}
 
 	err := apiClient.AttachScheme(sriovvrbtypes.AddToScheme)
 	if err != nil {
-		glog.V(100).Infof("Failed to add sriov-vrb scheme to client schemes")
+		klog.V(100).Info("Failed to add sriov-vrb scheme to client schemes")
 
 		return nil, err
 	}
 
 	if nsname == "" {
-		glog.V(100).Infof("SriovVrbClusterConfigList 'nsname' parameter can not be empty")
+		klog.V(100).Info("SriovVrbClusterConfigList 'nsname' parameter can not be empty")
 
 		return nil, fmt.Errorf("failed to list SriovVrbClusterConfig, 'nsname' parameter is empty")
 	}
@@ -38,7 +38,7 @@ func ListClusterConfig(
 	passedOptions := client.ListOptions{}
 
 	if len(options) > 1 {
-		glog.V(100).Infof("'options' parameter must be empty or single-valued")
+		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
@@ -48,7 +48,7 @@ func ListClusterConfig(
 		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
 	}
 
-	glog.V(100).Infof(logMessage)
+	klog.V(100).Infof("%v", logMessage)
 
 	passedOptions.Namespace = nsname
 
@@ -56,7 +56,7 @@ func ListClusterConfig(
 
 	err = apiClient.List(context.TODO(), sfncList, &passedOptions)
 	if err != nil {
-		glog.V(100).Infof("Failed to list SriovVrbClusterConfigs in the namespace %s due to %s", nsname, err.Error())
+		klog.V(100).Infof("Failed to list SriovVrbClusterConfigs in the namespace %s due to %s", nsname, err.Error())
 
 		return nil, err
 	}

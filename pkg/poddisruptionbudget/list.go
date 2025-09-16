@@ -6,21 +6,21 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/golang/glog"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	policyv1 "k8s.io/api/policy/v1"
+	"k8s.io/klog/v2"
 )
 
 // List returns podDisruptionBudget inventory in the given namespace.
 func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOptions) ([]*Builder, error) {
 	if apiClient == nil {
-		glog.V(100).Infof("podDisruptionBudget apiClient is empty")
+		klog.V(100).Info("podDisruptionBudget apiClient is empty")
 
 		return nil, fmt.Errorf("podDisruptionBudget 'apiClient' cannot be empty")
 	}
 
 	if nsname == "" {
-		glog.V(100).Infof("podDisruptionBudget 'nsname' parameter can not be empty")
+		klog.V(100).Info("podDisruptionBudget 'nsname' parameter can not be empty")
 
 		return nil, fmt.Errorf("failed to list podDisruptionBudgets, 'nsname' parameter is empty")
 	}
@@ -29,7 +29,7 @@ func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOpti
 	passedOptions := metav1.ListOptions{}
 
 	if len(options) > 1 {
-		glog.V(100).Infof("'options' parameter must be empty or single-valued")
+		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
@@ -39,7 +39,7 @@ func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOpti
 		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
 	}
 
-	glog.V(100).Infof(logMessage)
+	klog.V(100).Infof("%v", logMessage)
 
 	return list(apiClient, nsname, passedOptions)
 }
@@ -50,13 +50,13 @@ func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOpti
 	passedOptions := metav1.ListOptions{}
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is empty")
+		klog.V(100).Info("The apiClient is empty")
 
 		return nil, fmt.Errorf("podDisruptionBudget 'apiClient' cannot be empty")
 	}
 
 	if len(options) > 1 {
-		glog.V(100).Infof("'options' parameter must be empty or single-valued")
+		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
@@ -66,7 +66,7 @@ func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOpti
 		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
 	}
 
-	glog.V(100).Infof(logMessage)
+	klog.V(100).Infof("%v", logMessage)
 
 	return list(apiClient, "", passedOptions)
 }
@@ -75,14 +75,14 @@ func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOpti
 func list(apiClient *clients.Settings, nsname string, options metav1.ListOptions) ([]*Builder, error) {
 	err := apiClient.AttachScheme(policyv1.AddToScheme)
 	if err != nil {
-		glog.V(100).Infof("Failed to add policyv1 scheme to client schemes")
+		klog.V(100).Info("Failed to add policyv1 scheme to client schemes")
 
 		return nil, err
 	}
 
 	pdbList, err := apiClient.PodDisruptionBudgets(nsname).List(context.TODO(), options)
 	if err != nil {
-		glog.V(100).Infof("Failed to list podDisruptionBudget due to %s", err.Error())
+		klog.V(100).Infof("Failed to list podDisruptionBudget due to %s", err.Error())
 
 		return nil, err
 	}

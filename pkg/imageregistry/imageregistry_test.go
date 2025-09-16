@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang/glog"
+	"k8s.io/klog/v2"
 
 	imageregistryV1 "github.com/openshift/api/imageregistry/v1"
 	operatorV1 "github.com/openshift/api/operator/v1"
@@ -419,11 +419,11 @@ func buildDummyImageRegistryObject() []runtime.Object {
 
 // newBuilder method creates new instance of builder (for the unit test propose only).
 func newBuilder(apiClient *clients.Settings, name string, managementState operatorV1.ManagementState) *Builder {
-	glog.V(100).Infof("Initializing new Builder structure with the name: %s", name)
+	klog.V(100).Infof("Initializing new Builder structure with the name: %s", name)
 
 	err := apiClient.AttachScheme(imageregistryV1.Install)
 	if err != nil {
-		glog.V(100).Infof("Failed to attach imageregistry v1 scheme: %v", err)
+		klog.V(100).Infof("Failed to attach imageregistry v1 scheme: %v", err)
 
 		return nil
 	}
@@ -436,7 +436,7 @@ func newBuilder(apiClient *clients.Settings, name string, managementState operat
 	builder.Definition.ResourceVersion = "999"
 
 	if name == "" {
-		glog.V(100).Infof("The name of the imageRegistry is empty")
+		klog.V(100).Info("The name of the imageRegistry is empty")
 
 		builder.errorMsg = "the imageRegistry 'name' cannot be empty"
 

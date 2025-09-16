@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang/glog"
 	v1alpha1 "github.com/openshift/api/operator/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -30,20 +30,20 @@ type AdditionalOptions func(builder *ICSPBuilder) (*ICSPBuilder, error)
 
 // NewICSPBuilder creates a new instance of ICSPBuilder.
 func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []string) *ICSPBuilder {
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Initializing new ICSPBuilder structure with the following params: "+
 			"name: %s, source: %s, mirrors: %v",
 		name, source, mirrors)
 
 	if apiClient == nil {
-		glog.V(100).Info("ImageContentSourcePolicy apiClient cannot be nil")
+		klog.V(100).Info("ImageContentSourcePolicy apiClient cannot be nil")
 
 		return nil
 	}
 
 	err := apiClient.AttachScheme(v1alpha1.Install)
 	if err != nil {
-		glog.V(100).Info("Failed to add operator v1alpha1 scheme to client schemes")
+		klog.V(100).Info("Failed to add operator v1alpha1 scheme to client schemes")
 
 		return nil
 	}
@@ -66,7 +66,7 @@ func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the ImageContentSourcePolicy is empty")
+		klog.V(100).Info("The name of the ImageContentSourcePolicy is empty")
 
 		icspBuilder.errorMsg = "imageContentSourcePolicy 'name' cannot be empty"
 
@@ -74,7 +74,7 @@ func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []
 	}
 
 	if source == "" {
-		glog.V(100).Infof("The Source of the ImageContentSourcePolicy is empty")
+		klog.V(100).Info("The Source of the ImageContentSourcePolicy is empty")
 
 		icspBuilder.errorMsg = "imageContentSourcePolicy 'source' cannot be empty"
 
@@ -82,7 +82,7 @@ func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []
 	}
 
 	if len(mirrors) == 0 {
-		glog.V(100).Infof("The mirrors of the ImageContentSourcePolicy are empty")
+		klog.V(100).Info("The mirrors of the ImageContentSourcePolicy are empty")
 
 		icspBuilder.errorMsg = "imageContentSourcePolicy 'mirrors' cannot be empty"
 
@@ -94,17 +94,17 @@ func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []
 
 // Pull pulls object definition from cluster to ICSPBuilder struct.
 func Pull(apiClient *clients.Settings, name string) (*ICSPBuilder, error) {
-	glog.V(100).Infof("Pulling existing ImageContentSourcePolicy: %s", name)
+	klog.V(100).Infof("Pulling existing ImageContentSourcePolicy: %s", name)
 
 	if apiClient == nil {
-		glog.V(100).Info("ImageContentSourcePolicy apiClient cannot be nil")
+		klog.V(100).Info("ImageContentSourcePolicy apiClient cannot be nil")
 
 		return nil, fmt.Errorf("imageContentSourcePolicy 'apiClient' cannot be nil")
 	}
 
 	err := apiClient.AttachScheme(v1alpha1.Install)
 	if err != nil {
-		glog.V(100).Info("Failed to add operator v1alpha1 scheme to client schemes")
+		klog.V(100).Info("Failed to add operator v1alpha1 scheme to client schemes")
 
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func Pull(apiClient *clients.Settings, name string) (*ICSPBuilder, error) {
 	}
 
 	if name == "" {
-		glog.V(100).Info("The name of the ImageContentSourcePolicy is empty")
+		klog.V(100).Info("The name of the ImageContentSourcePolicy is empty")
 
 		return nil, fmt.Errorf("imageContentSourcePolicy 'name' cannot be empty")
 	}
@@ -139,13 +139,13 @@ func (builder *ICSPBuilder) Get() (*v1alpha1.ImageContentSourcePolicy, error) {
 		return nil, err
 	}
 
-	glog.V(100).Infof("Getting ImageContentSourcePolicy object %s", builder.Definition.Name)
+	klog.V(100).Infof("Getting ImageContentSourcePolicy object %s", builder.Definition.Name)
 
 	icsp := &v1alpha1.ImageContentSourcePolicy{}
 
 	err := builder.apiClient.Get(context.TODO(), runtimeclient.ObjectKey{Name: builder.Definition.Name}, icsp)
 	if err != nil {
-		glog.V(100).Infof("ImageContentSourcePolicy object %s does not exist", builder.Definition.Name)
+		klog.V(100).Infof("ImageContentSourcePolicy object %s does not exist", builder.Definition.Name)
 
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (builder *ICSPBuilder) Exists() bool {
 		return false
 	}
 
-	glog.V(100).Infof("Checking if ImageContentSourcePolicy %s exists", builder.Definition.Name)
+	klog.V(100).Infof("Checking if ImageContentSourcePolicy %s exists", builder.Definition.Name)
 
 	var err error
 
@@ -174,7 +174,7 @@ func (builder *ICSPBuilder) Create() (*ICSPBuilder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Creating ImageContentSourcePolicy %s", builder.Definition.Name)
+	klog.V(100).Infof("Creating ImageContentSourcePolicy %s", builder.Definition.Name)
 
 	var err error
 	if !builder.Exists() {
@@ -193,10 +193,10 @@ func (builder *ICSPBuilder) Delete() error {
 		return err
 	}
 
-	glog.V(100).Infof("Deleting ImageContentSourcePolicy %s", builder.Definition.Name)
+	klog.V(100).Infof("Deleting ImageContentSourcePolicy %s", builder.Definition.Name)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("ImageContentSourcePolicy %s cannot be deleted because it does not exist", builder.Definition.Name)
+		klog.V(100).Infof("ImageContentSourcePolicy %s cannot be deleted because it does not exist", builder.Definition.Name)
 
 		builder.Object = nil
 
@@ -219,11 +219,11 @@ func (builder *ICSPBuilder) Update() (*ICSPBuilder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Updating the ImageContentSourcePolicy %s with the definition in the ICSPbuilder", builder.Definition.Name)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("ImageContentSourcePolicy %s does not exist", builder.Definition.Name)
+		klog.V(100).Infof("ImageContentSourcePolicy %s does not exist", builder.Definition.Name)
 
 		return nil, fmt.Errorf("cannot update non-existent ImageContentSourcePolicy")
 	}
@@ -232,7 +232,7 @@ func (builder *ICSPBuilder) Update() (*ICSPBuilder, error) {
 
 	err := builder.apiClient.Update(context.TODO(), builder.Definition)
 	if err != nil {
-		glog.V(100).Infof("Failed to update ImageContentSourcePolicy %s", builder.Definition.Name)
+		klog.V(100).Infof("Failed to update ImageContentSourcePolicy %s", builder.Definition.Name)
 
 		return nil, err
 	}
@@ -248,12 +248,12 @@ func (builder *ICSPBuilder) WithRepositoryDigestMirror(source string, mirrors []
 		return builder
 	}
 
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Adding RepositoryDigestMirror with source %s and mirrors %v to ImageContentSourcePolicy %s",
 		source, mirrors, builder.Definition.Name)
 
 	if source == "" {
-		glog.V(100).Infof("The source is empty")
+		klog.V(100).Info("The source is empty")
 
 		builder.errorMsg = "imageContentSourcePolicy 'source' cannot be empty"
 
@@ -261,7 +261,7 @@ func (builder *ICSPBuilder) WithRepositoryDigestMirror(source string, mirrors []
 	}
 
 	if len(mirrors) == 0 {
-		glog.V(100).Infof("Mirrors is empty")
+		klog.V(100).Info("Mirrors is empty")
 
 		builder.errorMsg = "imageContentSourcePolicy 'mirrors' cannot be empty"
 
@@ -280,13 +280,13 @@ func (builder *ICSPBuilder) WithOptions(options ...AdditionalOptions) *ICSPBuild
 		return builder
 	}
 
-	glog.V(100).Infof("Setting ImageContentPolicy additional options")
+	klog.V(100).Info("Setting ImageContentPolicy additional options")
 
 	for _, option := range options {
 		if option != nil {
 			builder, err := option(builder)
 			if err != nil {
-				glog.V(100).Infof("Error occurred in mutation function")
+				klog.V(100).Info("Error occurred in mutation function")
 
 				builder.errorMsg = err.Error()
 
@@ -304,25 +304,25 @@ func (builder *ICSPBuilder) validate() (bool, error) {
 	resourceCRD := "ImageContentSourcePolicy"
 
 	if builder == nil {
-		glog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
 	}
 
 	if builder.Definition == nil {
-		glog.V(100).Infof("The %s is undefined", resourceCRD)
+		klog.V(100).Infof("The %s is undefined", resourceCRD)
 
 		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
-		glog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
+		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
 
 		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
 	}
 
 	if builder.errorMsg != "" {
-		glog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
+		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
 
 		return false, fmt.Errorf("%s", builder.errorMsg)
 	}

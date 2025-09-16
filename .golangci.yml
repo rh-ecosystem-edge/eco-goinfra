@@ -46,13 +46,13 @@ linters:
       rules:
         main:
           allow:
+            - k8s.io/klog/v2
             - k8s.io/apimachinery
             - k8s.io/api
             - k8s.io/kubectl/pkg/drain
             - k8s.io/kubelet
             - k8s.io/utils
             - k8s.io/client-go
-            - k8s.io/klog/v2
             - github.com/Masterminds/semver/v3
             - github.com/onsi/ginkgo
             - github.com/openshift
@@ -71,7 +71,6 @@ linters:
             - github.com/NVIDIA/gpu-operator/
             - github.com/operator-framework/api
             - github.com/argoproj-labs/argocd-operator/api
-            - github.com/golang/glog
             - github.com/rh-ecosystem-edge/kernel-module-management/
             - maistra.io/api/
             - open-cluster-management.io/governance-policy-propagator/api
@@ -130,6 +129,10 @@ linters:
       branch-max-lines: 2
       disable:
         - append
+    lll:
+      line-length: 140
+    wsl:
+      strict-append: false
   exclusions:
     generated: lax
     presets:

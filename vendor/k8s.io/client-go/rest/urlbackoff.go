@@ -64,7 +64,7 @@ func (n *NoBackoff) Sleep(d time.Duration) {
 // Disable makes the backoff trivial, i.e., sets it to zero.  This might be used
 // by tests which want to run 1000s of mock requests without slowing down.
 func (b *URLBackoff) Disable() {
-	klog.V(4).Infof("Disabling backoff strategy")
+	klog.V(4).Info("Disabling backoff strategy")
 	b.Backoff = flowcontrol.NewBackOff(0*time.Second, 0*time.Second)
 }
 

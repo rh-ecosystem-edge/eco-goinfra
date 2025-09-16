@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/golang/glog"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/klog/v2"
 )
 
 var (
@@ -267,7 +267,7 @@ func buildDummyConsoleOperator() []runtime.Object {
 
 // newBuilder method creates new instance of builder (for the unit test propose only).
 func newConsoleOperatorBuilder(apiClient *clients.Settings, name string, pluginsList []string) *ConsoleOperatorBuilder {
-	glog.V(100).Infof("Initializing new ConsoleOperatorBuilder structure with the name: %s", name)
+	klog.V(100).Infof("Initializing new ConsoleOperatorBuilder structure with the name: %s", name)
 
 	builder := &ConsoleOperatorBuilder{
 		apiClient: apiClient.Client,
@@ -283,7 +283,7 @@ func newConsoleOperatorBuilder(apiClient *clients.Settings, name string, plugins
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the consoleOperator is empty")
+		klog.V(100).Info("The name of the consoleOperator is empty")
 
 		builder.errorMsg = "the consoleOperator 'name' cannot be empty"
 
@@ -291,7 +291,7 @@ func newConsoleOperatorBuilder(apiClient *clients.Settings, name string, plugins
 	}
 
 	if len(pluginsList) == 0 {
-		glog.V(100).Infof("The pluginsList of the consoleOperator is empty")
+		klog.V(100).Info("The pluginsList of the consoleOperator is empty")
 
 		builder.errorMsg = "the consoleOperator 'pluginsList' cannot be empty"
 

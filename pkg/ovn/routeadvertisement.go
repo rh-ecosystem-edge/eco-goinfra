@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang/glog"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
@@ -32,19 +32,19 @@ type RouteAdvertisementBuilder struct {
 func NewRouteAdvertisementBuilder(
 	apiClient *clients.Settings,
 	name string) *RouteAdvertisementBuilder {
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Initializing new RouteAdvertisement structure with the following params: name: %s",
 		name)
 
 	if apiClient == nil {
-		glog.V(100).Infof("RouteAdvertisement 'apiClient' cannot be nil")
+		klog.V(100).Infof("RouteAdvertisement 'apiClient' cannot be nil")
 
 		return nil
 	}
 
 	err := apiClient.AttachScheme(ovnv1.AddToScheme)
 	if err != nil {
-		glog.V(100).Infof("Failed to add ovn scheme to client schemes: %v", err)
+		klog.V(100).Infof("Failed to add ovn scheme to client schemes: %v", err)
 
 		return nil
 	}
@@ -60,7 +60,7 @@ func NewRouteAdvertisementBuilder(
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the RouteAdvertisement is empty")
+		klog.V(100).Infof("The name of the RouteAdvertisement is empty")
 
 		builder.errorMsg = "RouteAdvertisement 'name' cannot be empty"
 
@@ -72,17 +72,17 @@ func NewRouteAdvertisementBuilder(
 
 // PullRouteAdvertisement pulls existing RouteAdvertisement from cluster.
 func PullRouteAdvertisement(apiClient *clients.Settings, name string) (*RouteAdvertisementBuilder, error) {
-	glog.V(100).Infof("Pulling existing RouteAdvertisement name %s from cluster", name)
+	klog.V(100).Infof("Pulling existing RouteAdvertisement name %s from cluster", name)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient cannot be nil")
+		klog.V(100).Infof("The apiClient cannot be nil")
 
 		return nil, fmt.Errorf("RouteAdvertisement 'apiClient' cannot be nil")
 	}
 
 	err := apiClient.AttachScheme(ovnv1.AddToScheme)
 	if err != nil {
-		glog.V(100).Infof("Failed to add ovn scheme to client schemes")
+		klog.V(100).Infof("Failed to add ovn scheme to client schemes")
 
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func PullRouteAdvertisement(apiClient *clients.Settings, name string) (*RouteAdv
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the RouteAdvertisement is empty")
+		klog.V(100).Infof("The name of the RouteAdvertisement is empty")
 
 		return nil, fmt.Errorf("RouteAdvertisement 'name' cannot be empty")
 	}
@@ -117,7 +117,7 @@ func (builder *RouteAdvertisementBuilder) Get() (*ovnv1.RouteAdvertisements, err
 		return nil, err
 	}
 
-	glog.V(100).Infof("Getting RouteAdvertisement %s", builder.Definition.Name)
+	klog.V(100).Infof("Getting RouteAdvertisement %s", builder.Definition.Name)
 
 	routeAdvertisement := &ovnv1.RouteAdvertisements{}
 
@@ -125,7 +125,7 @@ func (builder *RouteAdvertisementBuilder) Get() (*ovnv1.RouteAdvertisements, err
 		Name: builder.Definition.Name,
 	}, routeAdvertisement)
 	if err != nil {
-		glog.V(100).Infof("RouteAdvertisement object %s does not exist: %v (type: %T)", builder.Definition.Name, err, err)
+		klog.V(100).Infof("RouteAdvertisement object %s does not exist: %v (type: %T)", builder.Definition.Name, err, err)
 
 		return nil, err
 	}
@@ -139,22 +139,22 @@ func (builder *RouteAdvertisementBuilder) Create() (*RouteAdvertisementBuilder, 
 		return builder, err
 	}
 
-	glog.V(100).Infof("Creating the RouteAdvertisement %s", builder.Definition.Name)
+	klog.V(100).Infof("Creating the RouteAdvertisement %s", builder.Definition.Name)
 
 	var err error
 
 	if !builder.Exists() {
-		glog.V(100).Infof("RouteAdvertisement %s does not exist, attempting to create", builder.Definition.Name)
+		klog.V(100).Infof("RouteAdvertisement %s does not exist, attempting to create", builder.Definition.Name)
 
 		err = builder.apiClient.Create(context.TODO(), builder.Definition)
 		if err != nil {
-			glog.V(100).Infof("FAILED to create RouteAdvertisement %s: %v", builder.Definition.Name, err)
+			klog.V(100).Infof("FAILED to create RouteAdvertisement %s: %v", builder.Definition.Name, err)
 
 			return builder, fmt.Errorf("failed to create RouteAdvertisement %s: %w", builder.Definition.Name, err)
 		}
 
 		if err == nil {
-			glog.V(100).Infof("Created RouteAdvertisement %s", builder.Definition.Name)
+			klog.V(100).Infof("Created RouteAdvertisement %s", builder.Definition.Name)
 			builder.Object = builder.Definition
 		}
 	}
@@ -168,10 +168,10 @@ func (builder *RouteAdvertisementBuilder) Delete() error {
 		return err
 	}
 
-	glog.V(100).Infof("Deleting the RouteAdvertisement %s", builder.Definition.Name)
+	klog.V(100).Infof("Deleting the RouteAdvertisement %s", builder.Definition.Name)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("RouteAdvertisement %s cannot be deleted because it does not exist",
+		klog.V(100).Infof("RouteAdvertisement %s cannot be deleted because it does not exist",
 			builder.Definition.Name)
 
 		builder.Object = nil
@@ -181,7 +181,7 @@ func (builder *RouteAdvertisementBuilder) Delete() error {
 
 	err := builder.apiClient.Delete(context.TODO(), builder.Definition)
 	if err != nil {
-		glog.V(100).Infof("Failed to delete RouteAdvertisement %s: %v", builder.Definition.Name, err)
+		klog.V(100).Infof("Failed to delete RouteAdvertisement %s: %v", builder.Definition.Name, err)
 
 		return fmt.Errorf("can not delete RouteAdvertisement: %w", err)
 	}
@@ -197,15 +197,15 @@ func (builder *RouteAdvertisementBuilder) Exists() bool {
 		return false
 	}
 
-	glog.V(100).Infof("Checking if RouteAdvertisement %s exists", builder.Definition.Name)
+	klog.V(100).Infof("Checking if RouteAdvertisement %s exists", builder.Definition.Name)
 
 	var err error
 
 	builder.Object, err = builder.Get()
 	if err != nil {
-		glog.V(100).Infof("Get() failed for RouteAdvertisement %s: %v (type: %T)", builder.Definition.Name, err, err)
+		klog.V(100).Infof("Get() failed for RouteAdvertisement %s: %v (type: %T)", builder.Definition.Name, err, err)
 	} else {
-		glog.V(100).Infof("Get() succeeded for RouteAdvertisement %s", builder.Definition.Name)
+		klog.V(100).Infof("Get() succeeded for RouteAdvertisement %s", builder.Definition.Name)
 	}
 
 	return err == nil || !errors.IsNotFound(err)
@@ -217,7 +217,7 @@ func (builder *RouteAdvertisementBuilder) Update() (*RouteAdvertisementBuilder, 
 		return builder, err
 	}
 
-	glog.V(100).Infof("Updating the RouteAdvertisement object %s", builder.Definition.Name)
+	klog.V(100).Infof("Updating the RouteAdvertisement object %s", builder.Definition.Name)
 
 	if builder.Object == nil {
 		existing, err := builder.Get()
@@ -232,8 +232,7 @@ func (builder *RouteAdvertisementBuilder) Update() (*RouteAdvertisementBuilder, 
 
 	err := builder.apiClient.Update(context.TODO(), builder.Definition)
 	if err != nil {
-		glog.V(100).Infof(
-			msg.FailToUpdateNotification("RouteAdvertisement", builder.Definition.Name))
+		klog.V(100).Info(msg.FailToUpdateNotification("RouteAdvertisement", builder.Definition.Name))
 
 		return nil, err
 	}
@@ -249,7 +248,7 @@ func (builder *RouteAdvertisementBuilder) WithTargetVRF(targetVRF string) *Route
 		return builder
 	}
 
-	glog.V(100).Infof("Setting RouteAdvertisement %s targetVRF to %s", builder.Definition.Name, targetVRF)
+	klog.V(100).Infof("Setting RouteAdvertisement %s targetVRF to %s", builder.Definition.Name, targetVRF)
 
 	builder.Definition.Spec.TargetVRF = targetVRF
 
@@ -263,10 +262,10 @@ func (builder *RouteAdvertisementBuilder) WithAdvertisements(
 		return builder
 	}
 
-	glog.V(100).Infof("Setting RouteAdvertisement %s advertisements to %v", builder.Definition.Name, advertisements)
+	klog.V(100).Infof("Setting RouteAdvertisement %s advertisements to %v", builder.Definition.Name, advertisements)
 
 	if len(advertisements) == 0 {
-		glog.V(100).Infof("RouteAdvertisement 'advertisements' cannot be empty")
+		klog.V(100).Infof("RouteAdvertisement 'advertisements' cannot be empty")
 
 		builder.errorMsg = "RouteAdvertisement 'advertisements' cannot be empty"
 
@@ -285,7 +284,7 @@ func (builder *RouteAdvertisementBuilder) WithNodeSelector(
 		return builder
 	}
 
-	glog.V(100).Infof("Setting RouteAdvertisement %s nodeSelector to %v", builder.Definition.Name, nodeSelector)
+	klog.V(100).Infof("Setting RouteAdvertisement %s nodeSelector to %v", builder.Definition.Name, nodeSelector)
 
 	builder.Definition.Spec.NodeSelector = nodeSelector
 
@@ -299,7 +298,7 @@ func (builder *RouteAdvertisementBuilder) WithFRRConfigurationSelector(
 		return builder
 	}
 
-	glog.V(100).Infof("Setting RouteAdvertisement %s frrConfigurationSelector to %v",
+	klog.V(100).Infof("Setting RouteAdvertisement %s frrConfigurationSelector to %v",
 		builder.Definition.Name, frrConfigurationSelector)
 
 	builder.Definition.Spec.FRRConfigurationSelector = frrConfigurationSelector
@@ -314,10 +313,10 @@ func (builder *RouteAdvertisementBuilder) WithNetworkSelectors(
 		return builder
 	}
 
-	glog.V(100).Infof("Setting RouteAdvertisement %s networkSelectors to %v", builder.Definition.Name, networkSelectors)
+	klog.V(100).Infof("Setting RouteAdvertisement %s networkSelectors to %v", builder.Definition.Name, networkSelectors)
 
 	if len(networkSelectors) == 0 {
-		glog.V(100).Infof("RouteAdvertisement 'networkSelectors' cannot be empty")
+		klog.V(100).Infof("RouteAdvertisement 'networkSelectors' cannot be empty")
 
 		builder.errorMsg = "RouteAdvertisement 'networkSelectors' cannot be empty"
 
@@ -327,7 +326,7 @@ func (builder *RouteAdvertisementBuilder) WithNetworkSelectors(
 	// Validate each network selector has a valid NetworkSelectionType
 	for index, selector := range networkSelectors {
 		if selector.NetworkSelectionType == "" {
-			glog.V(100).Infof("RouteAdvertisement networkSelector[%d] has empty NetworkSelectionType", index)
+			klog.V(100).Infof("RouteAdvertisement networkSelector[%d] has empty NetworkSelectionType", index)
 
 			builder.errorMsg = "RouteAdvertisement 'networkSelectors' must have valid NetworkSelectionType"
 
@@ -341,7 +340,7 @@ func (builder *RouteAdvertisementBuilder) WithNetworkSelectors(
 			types.NetworkAttachmentDefinitions:
 			// Valid types - continue
 		default:
-			glog.V(100).Infof("RouteAdvertisement networkSelector[%d] has invalid NetworkSelectionType: %s",
+			klog.V(100).Infof("RouteAdvertisement networkSelector[%d] has invalid NetworkSelectionType: %s",
 				index, selector.NetworkSelectionType)
 
 			builder.errorMsg = fmt.Sprintf(
@@ -370,31 +369,31 @@ func (builder *RouteAdvertisementBuilder) validate() (bool, error) {
 	resourceCRD := "RouteAdvertisement"
 
 	if builder == nil {
-		glog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
 	}
 
 	if builder.Definition == nil {
-		glog.V(100).Infof("The %s is undefined", resourceCRD)
+		klog.V(100).Infof("The %s is undefined", resourceCRD)
 
 		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
-		glog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
+		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
 
 		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
 	}
 
 	if builder.Definition.Name == "" {
-		glog.V(100).Infof("The %s name is empty", resourceCRD)
+		klog.V(100).Infof("The %s name is empty", resourceCRD)
 
 		return false, fmt.Errorf("%s 'name' cannot be empty", resourceCRD)
 	}
 
 	if builder.errorMsg != "" {
-		glog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
+		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
 
 		return false, fmt.Errorf("%s", builder.errorMsg)
 	}

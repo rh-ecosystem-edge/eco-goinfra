@@ -6,13 +6,13 @@ import (
 
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/golang/glog"
 	imagev1 "github.com/openshift/api/image/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog/v2"
 )
 
 var (
@@ -389,7 +389,7 @@ func buildDummyImageStreamWithTag(imagestreamTags []imagev1.TagReference) *image
 
 // newBuilder method creates new instance of builder (for the unit test propose only).
 func newBuilder(apiClient *clients.Settings, name, namespace string) *Builder {
-	glog.V(100).Infof("Initializing new Builder structure with the name %s in namespace %s",
+	klog.V(100).Infof("Initializing new Builder structure with the name %s in namespace %s",
 		name, namespace)
 
 	var client goclient.Client
@@ -421,7 +421,7 @@ func newBuilder(apiClient *clients.Settings, name, namespace string) *Builder {
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the imageStream is empty")
+		klog.V(100).Info("The name of the imageStream is empty")
 
 		builder.errorMsg = "the imageStream 'name' cannot be empty"
 
@@ -429,7 +429,7 @@ func newBuilder(apiClient *clients.Settings, name, namespace string) *Builder {
 	}
 
 	if namespace == "" {
-		glog.V(100).Infof("The namespace of the imageStream is empty")
+		klog.V(100).Info("The namespace of the imageStream is empty")
 
 		builder.errorMsg = "the imageStream 'name' cannot be empty"
 

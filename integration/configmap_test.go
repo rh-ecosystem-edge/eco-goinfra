@@ -18,7 +18,7 @@ func TestConfigmapCreate(t *testing.T) {
 	assert.NotNil(t, client)
 
 	var (
-		testNamespace  = CreateRandomNamespace()
+		testNamespace = CreateRandomNamespace()
 		configmapName = "create-test"
 	)
 
@@ -51,7 +51,7 @@ func TestConfigmapDelete(t *testing.T) {
 	assert.NotNil(t, client)
 
 	var (
-		testNamespace  = CreateRandomNamespace()
+		testNamespace = CreateRandomNamespace()
 		configmapName = "delete-test"
 	)
 

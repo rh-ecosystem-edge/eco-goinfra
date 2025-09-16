@@ -12,7 +12,6 @@ require (
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/go-openapi/swag v0.23.1
 	github.com/go-openapi/validate v0.24.0
-	github.com/golang/glog v1.2.5
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/vault/api v1.20.0

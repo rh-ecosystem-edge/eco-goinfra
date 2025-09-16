@@ -451,7 +451,6 @@ func TestAgentServiceConfigWithMirrorRegistryRef(t *testing.T) {
 	}
 }
 
-//nolint:lll
 func TestAgentServiceConfigWithOSImage(t *testing.T) {
 	testCases := []struct {
 		osImages      []agentInstallV1Beta1.OSImage

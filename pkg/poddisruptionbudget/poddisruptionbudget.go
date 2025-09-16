@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang/glog"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	policyv1 "k8s.io/api/policy/v1"
@@ -12,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	policyv1typed "k8s.io/client-go/kubernetes/typed/policy/v1"
+	"k8s.io/klog/v2"
 )
 
 // Builder provides a struct for the PodDisruptionBudget object and definition.
@@ -30,11 +30,11 @@ type Builder struct {
 
 // NewBuilder creates a new PodDisruptionBudget builder.
 func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
-	glog.V(100).Infof("Initializing new PodDisruptionBudget structure with the following params: "+
+	klog.V(100).Infof("Initializing new PodDisruptionBudget structure with the following params: "+
 		"name=%s, namespace=%s", name, nsname)
 
 	if apiClient == nil {
-		glog.V(100).Info("API client is nil")
+		klog.V(100).Info("API client is nil")
 
 		return nil
 	}
@@ -50,7 +50,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 	}
 
 	if name == "" {
-		glog.V(100).Info("PodDisruptionBudget name is empty")
+		klog.V(100).Info("PodDisruptionBudget name is empty")
 
 		builder.errorMsg = "PodDisruptionBudget 'name' cannot be empty"
 
@@ -58,7 +58,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 	}
 
 	if nsname == "" {
-		glog.V(100).Info("PodDisruptionBudget namespace is empty")
+		klog.V(100).Info("PodDisruptionBudget namespace is empty")
 
 		builder.errorMsg = "PodDisruptionBudget 'namespace' cannot be empty"
 
@@ -71,12 +71,12 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 // Pull retrieves the PodDisruptionBudget from the cluster.
 func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	if apiClient == nil {
-		glog.V(100).Info("apiClient is nil")
+		klog.V(100).Info("apiClient is nil")
 
 		return nil, fmt.Errorf("apiClient is nil")
 	}
 
-	glog.V(100).Infof("Pulling PodDisruptionBudget with the following params: name=%s, namespace=%s",
+	klog.V(100).Infof("Pulling PodDisruptionBudget with the following params: name=%s, namespace=%s",
 		name, nsname)
 
 	builder := &Builder{
@@ -90,13 +90,13 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	}
 
 	if name == "" {
-		glog.V(100).Info("PodDisruptionBudget name is empty")
+		klog.V(100).Info("PodDisruptionBudget name is empty")
 
 		return nil, fmt.Errorf("PodDisruptionBudget 'name' cannot be empty")
 	}
 
 	if nsname == "" {
-		glog.V(100).Info("PodDisruptionBudget namespace is empty")
+		klog.V(100).Info("PodDisruptionBudget namespace is empty")
 
 		return nil, fmt.Errorf("PodDisruptionBudget 'namespace' cannot be empty")
 	}
@@ -116,7 +116,7 @@ func (builder *Builder) Create() (*Builder, error) {
 		return nil, err
 	}
 
-	glog.V(100).Infof("Creating pod disruption budget %s in namespace %s",
+	klog.V(100).Infof("Creating pod disruption budget %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
@@ -136,11 +136,11 @@ func (builder *Builder) Delete() error {
 		return err
 	}
 
-	glog.V(100).Infof("Deleting pod disruption budget %s in namespace %s",
+	klog.V(100).Infof("Deleting pod disruption budget %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("Pod disruption budget %s cannot be deleted because it does not exist",
+		klog.V(100).Infof("Pod disruption budget %s cannot be deleted because it does not exist",
 			builder.Definition.Name)
 
 		builder.Object = nil
@@ -161,7 +161,7 @@ func (builder *Builder) Delete() error {
 
 // Exists checks if the PodDisruptionBudget exists in the cluster.
 func (builder *Builder) Exists() bool {
-	glog.V(100).Info("Checking if the PodDisruptionBudget exists in the cluster")
+	klog.V(100).Info("Checking if the PodDisruptionBudget exists in the cluster")
 
 	var err error
 
@@ -179,7 +179,7 @@ func (builder *Builder) WithPDBSpec(spec policyv1.PodDisruptionBudgetSpec) *Buil
 		return builder
 	}
 
-	glog.V(100).Infof("Setting PodDisruptionBudgetSpec for PodDisruptionBudget %s in namespace %s",
+	klog.V(100).Infof("Setting PodDisruptionBudgetSpec for PodDisruptionBudget %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	builder.Definition.Spec = spec
@@ -193,7 +193,7 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Updating pod disruption budget %s in namespace %s",
+	klog.V(100).Infof("Updating pod disruption budget %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	if !builder.Exists() {
@@ -206,12 +206,12 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 		builder.Definition, metav1.UpdateOptions{})
 	if err != nil {
 		if force {
-			glog.V(100).Infof("Force updating pod disruption budget %s in namespace %s",
+			klog.V(100).Infof("Force updating pod disruption budget %s in namespace %s",
 				builder.Definition.Name, builder.Definition.Namespace)
 
 			err := builder.Delete()
 			if err != nil {
-				glog.V(100).Infof(msg.FailToUpdateError("pod disruption budget",
+				klog.V(100).Infof("%v", msg.FailToUpdateError("pod disruption budget",
 					builder.Definition.Name, builder.Definition.Namespace))
 
 				return nil, err
@@ -241,25 +241,25 @@ func (builder *Builder) validate() (bool, error) {
 	resourceCRD := "PodDisruptionBudget"
 
 	if builder == nil {
-		glog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
 	}
 
 	if builder.Definition == nil {
-		glog.V(100).Infof("The %s is undefined", resourceCRD)
+		klog.V(100).Infof("The %s is undefined", resourceCRD)
 
 		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
-		glog.V(100).Infof("The %s API client is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s API client is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
 	}
 
 	if builder.errorMsg != "" {
-		glog.V(100).Infof("The %s builder has error message: %s",
+		klog.V(100).Infof("The %s builder has error message: %s",
 			resourceCRD, builder.errorMsg)
 
 		return false, fmt.Errorf("%s", builder.errorMsg)
