@@ -6,12 +6,12 @@ import (
 
 	"k8s.io/utils/strings/slices"
 
-	"github.com/golang/glog"
 	performanceprofilev2 "github.com/openshift/cluster-node-tuning-operator/pkg/apis/performanceprofile/v2"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -30,19 +30,19 @@ type Builder struct {
 // NewBuilder creates a new instance of Builder.
 func NewBuilder(
 	apiClient *clients.Settings, name, cpuIsolated, cpuReserved string, nodeSelector map[string]string) *Builder {
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Initializing new PerformanceProfile structure with the following params: "+
 			"name: %s, cpu isolated: %s, cpu reserved %s, nodeSelector %v", name, cpuIsolated, cpuReserved, nodeSelector)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient cannot be nil")
+		klog.V(100).Info("The apiClient cannot be nil")
 
 		return nil
 	}
 
 	err := apiClient.AttachScheme(performanceprofilev2.AddToScheme)
 	if err != nil {
-		glog.V(100).Infof("Failed to add node-tuning-operator v2 scheme to client schemes")
+		klog.V(100).Info("Failed to add node-tuning-operator v2 scheme to client schemes")
 
 		return nil
 	}
@@ -67,7 +67,7 @@ func NewBuilder(
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the PerformanceProfile is empty")
+		klog.V(100).Info("The name of the PerformanceProfile is empty")
 
 		builder.errorMsg = "PerformanceProfile's name is empty"
 
@@ -75,7 +75,7 @@ func NewBuilder(
 	}
 
 	if cpuIsolated == "" {
-		glog.V(100).Infof("Isolated CPU of the PerformanceProfile is empty")
+		klog.V(100).Info("Isolated CPU of the PerformanceProfile is empty")
 
 		builder.errorMsg = "PerformanceProfile's 'cpuIsolated' is empty"
 
@@ -83,7 +83,7 @@ func NewBuilder(
 	}
 
 	if cpuReserved == "" {
-		glog.V(100).Infof("Reserved CPU of the PerformanceProfile is empty")
+		klog.V(100).Info("Reserved CPU of the PerformanceProfile is empty")
 
 		builder.errorMsg = "PerformanceProfile's 'cpuReserved' is empty"
 
@@ -91,7 +91,7 @@ func NewBuilder(
 	}
 
 	if len(nodeSelector) == 0 {
-		glog.V(100).Infof("NodeSelector of the PerformanceProfile is empty")
+		klog.V(100).Info("NodeSelector of the PerformanceProfile is empty")
 
 		builder.errorMsg = "PerformanceProfile's 'nodeSelector' is empty"
 
@@ -103,17 +103,17 @@ func NewBuilder(
 
 // Pull pulls existing PerformanceProfile from cluster.
 func Pull(apiClient *clients.Settings, name string) (*Builder, error) {
-	glog.V(100).Infof("Pulling existing PerformanceProfile name %s from cluster", name)
+	klog.V(100).Infof("Pulling existing PerformanceProfile name %s from cluster", name)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is empty")
+		klog.V(100).Info("The apiClient is empty")
 
 		return nil, fmt.Errorf("performanceProfile 'apiClient' cannot be empty")
 	}
 
 	err := apiClient.AttachScheme(performanceprofilev2.AddToScheme)
 	if err != nil {
-		glog.V(100).Infof("Failed to add node-tuning-operator v2 scheme to client schemes")
+		klog.V(100).Info("Failed to add node-tuning-operator v2 scheme to client schemes")
 
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func Pull(apiClient *clients.Settings, name string) (*Builder, error) {
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the PerformanceProfile is empty")
+		klog.V(100).Info("The name of the PerformanceProfile is empty")
 
 		return nil, fmt.Errorf("performanceProfile 'name' cannot be empty")
 	}
@@ -144,7 +144,7 @@ func Pull(apiClient *clients.Settings, name string) (*Builder, error) {
 
 // WithHugePages defines the HugePages in the PerformanceProfile. hugePageSize allowed values are 2M, 1G.
 func (builder *Builder) WithHugePages(hugePageSize string, hugePages []performanceprofilev2.HugePage) *Builder {
-	glog.V(100).Infof("Adding hugePages to PerformanceProfile %s, size %s, hugePages %v",
+	klog.V(100).Infof("Adding hugePages to PerformanceProfile %s, size %s, hugePages %v",
 		builder.Definition.Name, hugePageSize, hugePages)
 
 	if valid, _ := builder.validate(); !valid {
@@ -152,7 +152,7 @@ func (builder *Builder) WithHugePages(hugePageSize string, hugePages []performan
 	}
 
 	if hugePageSize == "" {
-		glog.V(100).Infof("The hugePageSize is empty")
+		klog.V(100).Info("The hugePageSize is empty")
 
 		builder.errorMsg = "'hugePageSize' argument cannot be empty"
 
@@ -161,7 +161,7 @@ func (builder *Builder) WithHugePages(hugePageSize string, hugePages []performan
 
 	allowedHugePageSize := []string{"2M", "1G"}
 	if !slices.Contains(allowedHugePageSize, hugePageSize) {
-		glog.V(100).Infof("'hugePageSize' has invalid parameter %s. Allowed parameters %v",
+		klog.V(100).Infof("'hugePageSize' has invalid parameter %s. Allowed parameters %v",
 			hugePageSize, allowedHugePageSize)
 
 		builder.errorMsg = fmt.Sprintf("'hugePageSize' argument is not in allowed list: %v", allowedHugePageSize)
@@ -170,7 +170,7 @@ func (builder *Builder) WithHugePages(hugePageSize string, hugePages []performan
 	}
 
 	if len(hugePages) == 0 {
-		glog.V(100).Infof("'hugePages' argument cannot be empty")
+		klog.V(100).Info("'hugePages' argument cannot be empty")
 
 		builder.errorMsg = "'hugePages' argument cannot be empty"
 
@@ -196,7 +196,7 @@ func (builder *Builder) WithHugePages(hugePageSize string, hugePages []performan
 
 // WithMachineConfigPoolSelector defines the MachineConfigPoolSelector in the PerformanceProfile.
 func (builder *Builder) WithMachineConfigPoolSelector(machineConfigPoolSelector map[string]string) *Builder {
-	glog.V(100).Infof("Adding MachineConfigPoolSelector %v to PerformanceProfile %s",
+	klog.V(100).Infof("Adding MachineConfigPoolSelector %v to PerformanceProfile %s",
 		machineConfigPoolSelector, builder.Definition.Name)
 
 	if valid, _ := builder.validate(); !valid {
@@ -204,7 +204,7 @@ func (builder *Builder) WithMachineConfigPoolSelector(machineConfigPoolSelector 
 	}
 
 	if len(machineConfigPoolSelector) == 0 {
-		glog.V(100).Infof("'machineConfigPoolSelector' argument cannot be empty")
+		klog.V(100).Info("'machineConfigPoolSelector' argument cannot be empty")
 
 		builder.errorMsg = "'machineConfigPoolSelector' argument cannot be empty"
 
@@ -218,7 +218,7 @@ func (builder *Builder) WithMachineConfigPoolSelector(machineConfigPoolSelector 
 
 // WithNodeSelector defines the nodeSelector in the PerformanceProfile.
 func (builder *Builder) WithNodeSelector(nodeSelector map[string]string) *Builder {
-	glog.V(100).Infof("Adding nodeSelector %v to PerformanceProfile %s",
+	klog.V(100).Infof("Adding nodeSelector %v to PerformanceProfile %s",
 		nodeSelector, builder.Definition.Name)
 
 	if valid, _ := builder.validate(); !valid {
@@ -226,7 +226,7 @@ func (builder *Builder) WithNodeSelector(nodeSelector map[string]string) *Builde
 	}
 
 	if len(nodeSelector) == 0 {
-		glog.V(100).Infof("'nodeSelector' argument cannot be empty")
+		klog.V(100).Info("'nodeSelector' argument cannot be empty")
 
 		builder.errorMsg = "'nodeSelector' argument cannot be empty"
 
@@ -240,7 +240,7 @@ func (builder *Builder) WithNodeSelector(nodeSelector map[string]string) *Builde
 
 // WithNumaTopology defines the NumaTopologyPolicy in the PerformanceProfile.
 func (builder *Builder) WithNumaTopology(topologyPolicy string) *Builder {
-	glog.V(100).Infof("Adding NumaTopologyPolicy %s to PerformanceProfile %s",
+	klog.V(100).Infof("Adding NumaTopologyPolicy %s to PerformanceProfile %s",
 		topologyPolicy, builder.Definition.Name)
 
 	if valid, _ := builder.validate(); !valid {
@@ -248,7 +248,7 @@ func (builder *Builder) WithNumaTopology(topologyPolicy string) *Builder {
 	}
 
 	if topologyPolicy == "" {
-		glog.V(100).Infof("The topologyPolicy is empty")
+		klog.V(100).Info("The topologyPolicy is empty")
 
 		builder.errorMsg = "'topologyPolicy' argument cannot be empty"
 
@@ -257,7 +257,7 @@ func (builder *Builder) WithNumaTopology(topologyPolicy string) *Builder {
 
 	allowedTopologyPolicies := []string{"best-effort", "restricted", "single-numa-node"}
 	if !slices.Contains(allowedTopologyPolicies, topologyPolicy) {
-		glog.V(100).Infof("'allowedTopologyPolicies' has invalid parameter %s. Allowed parameters %v",
+		klog.V(100).Infof("'allowedTopologyPolicies' has invalid parameter %s. Allowed parameters %v",
 			topologyPolicy, allowedTopologyPolicies)
 
 		builder.errorMsg = fmt.Sprintf("'allowedTopologyPolicies' argument is not in allowed list %v",
@@ -273,7 +273,7 @@ func (builder *Builder) WithNumaTopology(topologyPolicy string) *Builder {
 
 // WithRTKernel defines the Real Time Kernel in the PerformanceProfile.
 func (builder *Builder) WithRTKernel() *Builder {
-	glog.V(100).Infof("Adding RTKernel flag to PerformanceProfile %s", builder.Definition.Name)
+	klog.V(100).Infof("Adding RTKernel flag to PerformanceProfile %s", builder.Definition.Name)
 
 	if valid, _ := builder.validate(); !valid {
 		return builder
@@ -287,7 +287,7 @@ func (builder *Builder) WithRTKernel() *Builder {
 
 // WithGloballyDisableIrqLoadBalancing defines the globallyDisableIrqLoadBalancing in the PerformanceProfile.
 func (builder *Builder) WithGloballyDisableIrqLoadBalancing() *Builder {
-	glog.V(100).Infof("Adding globallyDisableIrqLoadBalancing flag to PerformanceProfile %s",
+	klog.V(100).Infof("Adding globallyDisableIrqLoadBalancing flag to PerformanceProfile %s",
 		builder.Definition.Name)
 
 	if valid, _ := builder.validate(); !valid {
@@ -302,7 +302,7 @@ func (builder *Builder) WithGloballyDisableIrqLoadBalancing() *Builder {
 
 // WithWorkloadHints defines the Workload Hints in the PerformanceProfile.
 func (builder *Builder) WithWorkloadHints(rtHint, perPodPowerMgmtHint, highPowerHint bool) *Builder {
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Adding WorkloadHints flags: RealTime=%t, PerPodPowerManagement=%t, HighPowerConsumption=%t to PerformanceProfile %s",
 		rtHint, perPodPowerMgmtHint, highPowerHint, builder.Definition.Name)
 
@@ -329,7 +329,7 @@ func (builder *Builder) WithWorkloadHints(rtHint, perPodPowerMgmtHint, highPower
 
 // WithAnnotations defines the annotations in the PerformanceProfile.
 func (builder *Builder) WithAnnotations(annotations map[string]string) *Builder {
-	glog.V(100).Infof("Adding annotations %v to the PerformanceProfile %s",
+	klog.V(100).Infof("Adding annotations %v to the PerformanceProfile %s",
 		annotations, builder.Definition.Name)
 
 	if valid, _ := builder.validate(); !valid {
@@ -337,7 +337,7 @@ func (builder *Builder) WithAnnotations(annotations map[string]string) *Builder 
 	}
 
 	if len(annotations) == 0 {
-		glog.V(100).Infof("'annotations' argument cannot be empty")
+		klog.V(100).Info("'annotations' argument cannot be empty")
 
 		builder.errorMsg = "'annotations' argument cannot be empty"
 
@@ -351,14 +351,14 @@ func (builder *Builder) WithAnnotations(annotations map[string]string) *Builder 
 
 // WithNet defines the net in the PerformanceProfile.
 func (builder *Builder) WithNet(userLevelNetworking bool, devices []performanceprofilev2.Device) *Builder {
-	glog.V(100).Infof("Adding net field to the PerformanceProfile %s", builder.Definition.Name)
+	klog.V(100).Infof("Adding net field to the PerformanceProfile %s", builder.Definition.Name)
 
 	if valid, _ := builder.validate(); !valid {
 		return builder
 	}
 
 	if len(devices) == 0 {
-		glog.V(100).Infof("'net' argument cannot be empty")
+		klog.V(100).Info("'net' argument cannot be empty")
 
 		builder.errorMsg = "'net' argument cannot be empty"
 
@@ -377,7 +377,7 @@ func (builder *Builder) WithNet(userLevelNetworking bool, devices []performancep
 
 // WithAdditionalKernelArgs defines the additionalKernelArgs in the PerformanceProfile.
 func (builder *Builder) WithAdditionalKernelArgs(additionalKernelArgs []string) *Builder {
-	glog.V(100).Infof("Adding additionalKernelArgs field to the PerformanceProfile %s",
+	klog.V(100).Infof("Adding additionalKernelArgs field to the PerformanceProfile %s",
 		builder.Definition.Name)
 
 	if valid, _ := builder.validate(); !valid {
@@ -385,7 +385,7 @@ func (builder *Builder) WithAdditionalKernelArgs(additionalKernelArgs []string) 
 	}
 
 	if len(additionalKernelArgs) == 0 {
-		glog.V(100).Infof("'additionalKernelArgs' argument cannot be empty")
+		klog.V(100).Info("'additionalKernelArgs' argument cannot be empty")
 
 		builder.errorMsg = "'additionalKernelArgs' argument cannot be empty"
 
@@ -403,7 +403,7 @@ func (builder *Builder) Create() (*Builder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Creating PerformanceProfile %s ", builder.Definition.Name)
+	klog.V(100).Infof("Creating PerformanceProfile %s ", builder.Definition.Name)
 
 	if !builder.Exists() {
 		err := builder.apiClient.Create(context.TODO(), builder.Definition)
@@ -428,7 +428,7 @@ func (builder *Builder) Exists() bool {
 		return false
 	}
 
-	glog.V(100).Infof("Checking if PerformanceProfile %s exists", builder.Definition.Name)
+	klog.V(100).Infof("Checking if PerformanceProfile %s exists", builder.Definition.Name)
 
 	var err error
 	builder.Object, err = builder.Get()
@@ -442,7 +442,7 @@ func (builder *Builder) Get() (*performanceprofilev2.PerformanceProfile, error) 
 		return nil, err
 	}
 
-	glog.V(100).Infof("Getting PerformanceProfile %s", builder.Definition.Name)
+	klog.V(100).Infof("Getting PerformanceProfile %s", builder.Definition.Name)
 
 	module := &performanceprofilev2.PerformanceProfile{}
 
@@ -463,10 +463,10 @@ func (builder *Builder) Delete() (*Builder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Deleting PerformanceProfile %s", builder.Definition.Name)
+	klog.V(100).Infof("Deleting PerformanceProfile %s", builder.Definition.Name)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("performanceprofile %s cannot be deleted because it does not exist",
+		klog.V(100).Infof("performanceprofile %s cannot be deleted because it does not exist",
 			builder.Definition.Name)
 
 		builder.Object = nil
@@ -491,20 +491,20 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Updating the PerformanceProfile object: %s", builder.Definition.Name)
+	klog.V(100).Infof("Updating the PerformanceProfile object: %s", builder.Definition.Name)
 
 	err := builder.apiClient.Update(context.TODO(), builder.Definition)
 
 	if err != nil {
 		if force {
-			glog.V(100).Infof(
+			klog.V(100).Infof(
 				"Failed to update the PerformanceProfile object %s. "+
 					"Note: Force flag set, executed delete/create methods instead", builder.Definition.Name)
 
 			builder, err := builder.Delete()
 
 			if err != nil {
-				glog.V(100).Infof(
+				klog.V(100).Infof(
 					"Failed to update the PerformanceProfile object %s, "+
 						"due to error in delete function", builder.Definition.Name)
 
@@ -528,25 +528,25 @@ func (builder *Builder) validate() (bool, error) {
 	resourceCRD := "PerformanceProfile"
 
 	if builder == nil {
-		glog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
 	}
 
 	if builder.Definition == nil {
-		glog.V(100).Infof("The %s is undefined", resourceCRD)
+		klog.V(100).Infof("The %s is undefined", resourceCRD)
 
 		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
-		glog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
+		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
 
 		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
 	}
 
 	if builder.errorMsg != "" {
-		glog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
+		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
 
 		return false, fmt.Errorf("%s", builder.errorMsg)
 	}

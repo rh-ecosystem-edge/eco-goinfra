@@ -6,23 +6,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 )
 
 // List returns pod inventory in the given namespace.
 func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOptions) ([]*Builder, error) {
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is empty")
+		klog.V(100).Info("The apiClient is empty")
 
 		return nil, fmt.Errorf("podList 'apiClient' cannot be empty")
 	}
 
 	if nsname == "" {
-		glog.V(100).Infof("pod 'nsname' parameter can not be empty")
+		klog.V(100).Info("pod 'nsname' parameter can not be empty")
 
 		return nil, fmt.Errorf("failed to list pods, 'nsname' parameter is empty")
 	}
@@ -34,17 +34,17 @@ func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOpti
 		passedOptions = options[0]
 		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
 	} else if len(options) > 1 {
-		glog.V(100).Infof("'options' parameter must be empty or single-valued")
+		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	glog.V(100).Infof(logMessage)
+	klog.V(100).Infof("%v", logMessage)
 
 	podList, err := apiClient.Pods(nsname).List(context.TODO(), passedOptions)
 
 	if err != nil {
-		glog.V(100).Infof("Failed to list pods in the nsname %s due to %s", nsname, err.Error())
+		klog.V(100).Infof("Failed to list pods in the nsname %s due to %s", nsname, err.Error())
 
 		return nil, err
 	}
@@ -71,13 +71,13 @@ func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOpti
 	passedOptions := metav1.ListOptions{}
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is empty")
+		klog.V(100).Info("The apiClient is empty")
 
 		return nil, fmt.Errorf("podList 'apiClient' cannot be empty")
 	}
 
 	if len(options) > 1 {
-		glog.V(100).Infof("'options' parameter must be empty or single-valued")
+		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
@@ -87,12 +87,12 @@ func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOpti
 		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
 	}
 
-	glog.V(100).Infof(logMessage)
+	klog.V(100).Infof("%v", logMessage)
 
 	podList, err := apiClient.Pods("").List(context.TODO(), passedOptions)
 
 	if err != nil {
-		glog.V(100).Infof("Failed to list all pods due to %s", err.Error())
+		klog.V(100).Infof("Failed to list all pods due to %s", err.Error())
 
 		return nil, err
 	}
@@ -115,16 +115,16 @@ func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOpti
 
 // ListByNamePattern returns pod inventory in the given namespace filtered by name pattern.
 func ListByNamePattern(apiClient *clients.Settings, namePattern, nsname string) ([]*Builder, error) {
-	glog.V(100).Infof("Listing pods in the nsname %s filtered by the name pattern %s", nsname, namePattern)
+	klog.V(100).Infof("Listing pods in the nsname %s filtered by the name pattern %s", nsname, namePattern)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is empty")
+		klog.V(100).Info("The apiClient is empty")
 
 		return nil, fmt.Errorf("podList 'apiClient' cannot be empty")
 	}
 
 	if nsname == "" {
-		glog.V(100).Infof("pod 'nsname' parameter can not be empty")
+		klog.V(100).Info("pod 'nsname' parameter can not be empty")
 
 		return nil, fmt.Errorf("failed to list pods, 'nsname' parameter is empty")
 	}
@@ -132,7 +132,7 @@ func ListByNamePattern(apiClient *clients.Settings, namePattern, nsname string) 
 	podList, err := apiClient.Pods(nsname).List(context.TODO(), metav1.ListOptions{})
 
 	if err != nil {
-		glog.V(100).Infof("Failed to list pods filtered by the name pattern %s in the nsname %s due to %s",
+		klog.V(100).Infof("Failed to list pods filtered by the name pattern %s in the nsname %s due to %s",
 			namePattern, nsname, err.Error())
 
 		return nil, err
@@ -163,13 +163,13 @@ func WaitForAllPodsInNamespaceRunning(
 	timeout time.Duration,
 	options ...metav1.ListOptions) (bool, error) {
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is empty")
+		klog.V(100).Info("The apiClient is empty")
 
 		return false, fmt.Errorf("podList 'apiClient' cannot be empty")
 	}
 
 	if nsname == "" {
-		glog.V(100).Infof("'nsname' parameter can not be empty")
+		klog.V(100).Info("'nsname' parameter can not be empty")
 
 		return false, fmt.Errorf("failed to list pods, 'nsname' parameter is empty")
 	}
@@ -178,7 +178,7 @@ func WaitForAllPodsInNamespaceRunning(
 	passedOptions := metav1.ListOptions{}
 
 	if len(options) > 1 {
-		glog.V(100).Infof("'options' parameter must be empty or single-valued")
+		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return false, fmt.Errorf("error: more than one ListOptions was passed")
 	}
@@ -188,11 +188,11 @@ func WaitForAllPodsInNamespaceRunning(
 		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
 	}
 
-	glog.V(100).Infof(logMessage + " are in running state")
+	klog.V(100).Infof("%s are in running state", logMessage)
 
 	podList, err := List(apiClient, nsname, passedOptions)
 	if err != nil {
-		glog.V(100).Infof("Failed to list all pods due to %s", err.Error())
+		klog.V(100).Infof("Failed to list all pods due to %s", err.Error())
 
 		return false, err
 	}
@@ -200,7 +200,7 @@ func WaitForAllPodsInNamespaceRunning(
 	for _, podObj := range podList {
 		err = podObj.WaitUntilRunning(timeout)
 		if err != nil {
-			glog.V(100).Infof("Timout was reached while waiting for all pods in running state: %s", err.Error())
+			klog.V(100).Infof("Timout was reached while waiting for all pods in running state: %s", err.Error())
 
 			return false, err
 		}
@@ -217,13 +217,13 @@ func WaitForPodsInNamespacesHealthy(
 	passedOptions := metav1.ListOptions{}
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is nil")
+		klog.V(100).Info("The apiClient is nil")
 
 		return fmt.Errorf("podList 'apiClient' cannot be empty")
 	}
 
 	if len(options) > 1 {
-		glog.V(100).Infof("'options' parameter must be empty or single-valued")
+		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return fmt.Errorf("error: more than one ListOptions was passed")
 	}
@@ -233,7 +233,7 @@ func WaitForPodsInNamespacesHealthy(
 		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
 	}
 
-	glog.V(100).Info(logMessage)
+	klog.V(100).Info(logMessage)
 
 	return wait.PollUntilContextTimeout(
 		context.TODO(), 15*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
@@ -271,7 +271,7 @@ func listPodsInNamespaces(
 	for _, namespace := range namespaces {
 		namespacePods, err := List(apiClient, namespace, options...)
 		if err != nil {
-			glog.V(100).Infof("Failed to list pods in namespace %s: %v", namespace, err)
+			klog.V(100).Infof("Failed to list pods in namespace %s: %v", namespace, err)
 
 			return nil, err
 		}

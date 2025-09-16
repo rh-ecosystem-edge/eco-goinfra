@@ -125,7 +125,7 @@ func (f *FakeWatcher) Stop() {
 	f.Lock()
 	defer f.Unlock()
 	if !f.stopped {
-		klog.V(4).Infof("Stopping fake watcher.")
+		klog.V(4).Info("Stopping fake watcher.")
 		close(f.result)
 		f.stopped = true
 	}
@@ -192,7 +192,7 @@ func (f *RaceFreeFakeWatcher) Stop() {
 	f.Lock()
 	defer f.Unlock()
 	if !f.Stopped {
-		klog.V(4).Infof("Stopping fake watcher.")
+		klog.V(4).Info("Stopping fake watcher.")
 		close(f.result)
 		f.Stopped = true
 	}

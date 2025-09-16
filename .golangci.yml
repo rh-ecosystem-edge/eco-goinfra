@@ -46,6 +46,7 @@ linters:
       rules:
         main:
           allow:
+            - k8s.io/klog/v2
             - k8s.io/apimachinery
             - k8s.io/api
             - k8s.io/kubectl/pkg/drain
@@ -123,6 +124,8 @@ linters:
         - -SA1006
         - -ST1000
         - ST1001
+    lll:
+      line-length: 140
     wsl:
       strict-append: false
   exclusions:

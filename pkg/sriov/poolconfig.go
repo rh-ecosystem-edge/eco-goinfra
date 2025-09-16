@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"k8s.io/klog/v2"
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
@@ -34,18 +34,18 @@ type PoolConfigBuilder struct {
 
 // NewPoolConfigBuilder creates a new instance of PoolConfigBuilder.
 func NewPoolConfigBuilder(apiClient *clients.Settings, name, nsname string) *PoolConfigBuilder {
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Initializing new SriovNetworkPoolConfig structure with the name %s in the namespace %s", name, nsname)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient cannot be nil")
+		klog.V(100).Info("The apiClient cannot be nil")
 
 		return nil
 	}
 
 	err := apiClient.AttachScheme(srIovV1.AddToScheme)
 	if err != nil {
-		glog.V(100).Infof("Failed to add sriovv1 scheme to client schemes")
+		klog.V(100).Info("Failed to add sriovv1 scheme to client schemes")
 
 		return nil
 	}
@@ -80,7 +80,7 @@ func (builder *PoolConfigBuilder) Create() (*PoolConfigBuilder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Creating the SriovNetworkPoolConfig %s in namespace %s", builder.Definition.Name,
 		builder.Definition.Namespace)
 
@@ -103,11 +103,11 @@ func (builder *PoolConfigBuilder) Delete() error {
 		return err
 	}
 
-	glog.V(100).Infof("Deleting the SriovNetworkPoolConfig object %s in namespace %s",
+	klog.V(100).Infof("Deleting the SriovNetworkPoolConfig object %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("SriovNetworkPoolConfig %s does not exist in namespace %s",
+		klog.V(100).Infof("SriovNetworkPoolConfig %s does not exist in namespace %s",
 			builder.Definition.Name, builder.Definition.Namespace)
 
 		builder.Object = nil
@@ -132,7 +132,7 @@ func (builder *PoolConfigBuilder) Exists() bool {
 		return false
 	}
 
-	glog.V(100).Infof("Checking if SriovNetworkPoolConfig %s exists in namespace %s",
+	klog.V(100).Infof("Checking if SriovNetworkPoolConfig %s exists in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
@@ -147,7 +147,7 @@ func (builder *PoolConfigBuilder) Get() (*srIovV1.SriovNetworkPoolConfig, error)
 		return nil, err
 	}
 
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Collecting SriovNetworkPoolConfig object %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
@@ -158,7 +158,7 @@ func (builder *PoolConfigBuilder) Get() (*srIovV1.SriovNetworkPoolConfig, error)
 	}, poolConfig)
 
 	if err != nil {
-		glog.V(100).Infof("Failed to get SriovNetworkPoolConfig %s in namespace %s", builder.Definition.Name,
+		klog.V(100).Infof("Failed to get SriovNetworkPoolConfig %s in namespace %s", builder.Definition.Name,
 			builder.Definition.Namespace)
 
 		return nil, err
@@ -173,13 +173,13 @@ func (builder *PoolConfigBuilder) Update() (*PoolConfigBuilder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Updating the SriovNetworkPoolConfig object %s in namespace %s", builder.Definition.Name,
+	klog.V(100).Infof("Updating the SriovNetworkPoolConfig object %s in namespace %s", builder.Definition.Name,
 		builder.Definition.Namespace)
 
 	err := builder.apiClient.Update(context.TODO(), builder.Definition)
 
 	if err != nil {
-		glog.V(100).Infof("Failed to update SriovNetworkPoolConfig %s in namespace %s", builder.Definition.Name,
+		klog.V(100).Infof("Failed to update SriovNetworkPoolConfig %s in namespace %s", builder.Definition.Name,
 			builder.Definition.Namespace)
 
 		return nil, err
@@ -196,7 +196,7 @@ func (builder *PoolConfigBuilder) WithNodeSelector(nodeSelector map[string]strin
 		return builder
 	}
 
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Creating SriovNetworkPoolConfig %s in namespace %s with Node selector: %v", builder.Definition.Name,
 		builder.Definition.Namespace, nodeSelector)
 
@@ -217,7 +217,7 @@ func (builder *PoolConfigBuilder) WithMaxUnavailable(maxUnavailable intstrutil.I
 		return builder
 	}
 
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Creating SriovNetworkPoolConfig %s in namespace %s with MaxUnavailable: %v", builder.Definition.Name,
 		builder.Definition.Namespace, maxUnavailable)
 
@@ -262,7 +262,7 @@ func (builder *PoolConfigBuilder) WithRDMAMode(mode string) *PoolConfigBuilder {
 	}
 
 	if mode == "" {
-		glog.V(100).Info("PoolConfig RdmaMode cannot be empty")
+		klog.V(100).Info("PoolConfig RdmaMode cannot be empty")
 
 		builder.errorMsg = "rdmaMode cannot be empty"
 
@@ -270,7 +270,7 @@ func (builder *PoolConfigBuilder) WithRDMAMode(mode string) *PoolConfigBuilder {
 	}
 
 	if mode != "shared" && mode != "exclusive" {
-		glog.V(100).Info("Invalid RdmaMode. Acceptable values: shared or exclusive")
+		klog.V(100).Info("Invalid RdmaMode. Acceptable values: shared or exclusive")
 
 		builder.errorMsg = "invalid value for rdmaMode. It should be 'shared' or 'exclusive'"
 
@@ -284,17 +284,17 @@ func (builder *PoolConfigBuilder) WithRDMAMode(mode string) *PoolConfigBuilder {
 
 // PullPoolConfig pulls existing SriovNetworkPoolConfig from cluster.
 func PullPoolConfig(apiClient *clients.Settings, name, nsname string) (*PoolConfigBuilder, error) {
-	glog.V(100).Infof("Pulling existing SriovNetworkPoolConfig name %s under namespace %s from cluster", name, nsname)
+	klog.V(100).Infof("Pulling existing SriovNetworkPoolConfig name %s under namespace %s from cluster", name, nsname)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is empty")
+		klog.V(100).Info("The apiClient is empty")
 
 		return nil, fmt.Errorf("SriovNetworkPoolConfig 'apiClient' cannot be empty")
 	}
 
 	err := apiClient.AttachScheme(srIovV1.AddToScheme)
 	if err != nil {
-		glog.V(100).Infof("Failed to add sriovv1 scheme to client schemes")
+		klog.V(100).Info("Failed to add sriovv1 scheme to client schemes")
 
 		return nil, err
 	}
@@ -310,13 +310,13 @@ func PullPoolConfig(apiClient *clients.Settings, name, nsname string) (*PoolConf
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the SriovNetworkPoolConfig is empty")
+		klog.V(100).Info("The name of the SriovNetworkPoolConfig is empty")
 
 		return nil, errors.New("SriovNetworkPoolConfig 'name' cannot be empty")
 	}
 
 	if nsname == "" {
-		glog.V(100).Infof("The namespace of the SriovNetworkPoolConfig is empty")
+		klog.V(100).Info("The namespace of the SriovNetworkPoolConfig is empty")
 
 		return nil, errors.New("SriovNetworkPoolConfig 'namespace' cannot be empty")
 	}
@@ -336,25 +336,25 @@ func (builder *PoolConfigBuilder) validate() (bool, error) {
 	resourceCRD := "SriovNetworkPoolConfig"
 
 	if builder == nil {
-		glog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
 	}
 
 	if builder.Definition == nil {
-		glog.V(100).Infof("The %s is undefined", resourceCRD)
+		klog.V(100).Infof("The %s is undefined", resourceCRD)
 
 		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
-		glog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
+		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
 
 		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
 	}
 
 	if builder.errorMsg != "" {
-		glog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
+		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
 
 		return false, fmt.Errorf("%s", builder.errorMsg)
 	}
