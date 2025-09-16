@@ -27,7 +27,7 @@ func WaitForFeatureGatesReady(ctx context.Context, featureGateAccess featuregate
 				klog.Infof("FeatureGates initialized: enabled=%v, disabled=%v", enabled, disabled)
 				return nil
 			}
-			klog.Infof("Waiting for FeatureGates to be ready...")
+			klog.Info("Waiting for FeatureGates to be ready...")
 			time.Sleep(1 * time.Second)
 		}
 	}

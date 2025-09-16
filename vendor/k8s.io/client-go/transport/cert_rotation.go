@@ -88,7 +88,7 @@ func (c *dynamicClientCert) loadClientCert() (*tls.Certificate, error) {
 		return cert, nil
 	}
 
-	klog.V(1).Infof("certificate rotation detected, shutting down client connections to start using new credentials")
+	klog.V(1).Info("certificate rotation detected, shutting down client connections to start using new credentials")
 	c.connDialer.CloseAll()
 
 	return cert, nil
@@ -137,8 +137,8 @@ func (c *dynamicClientCert) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 
-	klog.V(3).Infof("Starting client certificate rotation controller")
-	defer klog.V(3).Infof("Shutting down client certificate rotation controller")
+	klog.V(3).Info("Starting client certificate rotation controller")
+	defer klog.V(3).Info("Shutting down client certificate rotation controller")
 
 	go wait.Until(c.runWorker, time.Second, stopCh)
 

@@ -40,14 +40,14 @@ var ErrWaitTimeout = ErrorInterrupted(errors.New("timed out waiting for the cond
 //
 //	err := wait.Poll(...)
 //	if err == wait.ErrWaitTimeout {
-//	    log.Infof("Wait for operation exceeded")
+//	    log.Info("Wait for operation exceeded")
 //	} else ...
 //
 // Use:
 //
 //	err := wait.Poll(...)
 //	if wait.Interrupted(err) {
-//	    log.Infof("Wait for operation exceeded")
+//	    log.Info("Wait for operation exceeded")
 //	} else ...
 func Interrupted(err error) bool {
 	switch {

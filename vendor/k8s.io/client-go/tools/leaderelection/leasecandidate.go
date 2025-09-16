@@ -163,18 +163,18 @@ func (c *LeaseCandidate) enqueueLease() {
 func (c *LeaseCandidate) ensureLease(ctx context.Context) error {
 	lease, err := c.leaseClient.Get(ctx, c.name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		klog.V(2).Infof("Creating lease candidate")
+		klog.V(2).Info("Creating lease candidate")
 		// lease does not exist, create it.
 		leaseToCreate := c.newLeaseCandidate()
 		if _, err := c.leaseClient.Create(ctx, leaseToCreate, metav1.CreateOptions{}); err != nil {
 			return err
 		}
-		klog.V(2).Infof("Created lease candidate")
+		klog.V(2).Info("Created lease candidate")
 		return nil
 	} else if err != nil {
 		return err
 	}
-	klog.V(2).Infof("lease candidate exists. Renewing.")
+	klog.V(2).Info("lease candidate exists. Renewing.")
 	clone := lease.DeepCopy()
 	clone.Spec.RenewTime = &metav1.MicroTime{Time: c.clock.Now()}
 	_, err = c.leaseClient.Update(ctx, clone, metav1.UpdateOptions{})
