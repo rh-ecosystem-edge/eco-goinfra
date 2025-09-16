@@ -1,6 +1,7 @@
 package pod
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"testing"
@@ -646,6 +647,119 @@ func TestPodIsHealthy(t *testing.T) {
 		testBuilder := buildValidPodTestBuilder(testSettings)
 
 		assert.Equal(t, testCase.expectedHealthy, testBuilder.IsHealthy())
+	}
+}
+
+// TestPodExecCommandWithTimeout tests the ExecCommandWithTimeout method validation.
+func TestPodExecCommandWithTimeout(t *testing.T) {
+	testCases := []struct {
+		name          string
+		command       []string
+		timeout       time.Duration
+		containerName []string
+		testBuilder   *Builder
+		expectedError string
+	}{
+		{
+			name:          "empty command",
+			command:       []string{},
+			timeout:       5 * time.Second,
+			containerName: []string{},
+			testBuilder:   buildValidPodTestBuilder(buildTestClientWithDummyPod()),
+			expectedError: "command must be provided",
+		},
+		{
+			name:          "zero timeout",
+			command:       []string{"echo", "test"},
+			timeout:       0,
+			containerName: []string{},
+			testBuilder:   buildValidPodTestBuilder(buildTestClientWithDummyPod()),
+			expectedError: "timeout must be greater than 0",
+		},
+		{
+			name:          "negative timeout",
+			command:       []string{"echo", "test"},
+			timeout:       -1 * time.Second,
+			containerName: []string{},
+			testBuilder:   buildValidPodTestBuilder(buildTestClientWithDummyPod()),
+			expectedError: "timeout must be greater than 0",
+		},
+		{
+			name:          "invalid pod builder",
+			command:       []string{"echo", "test"},
+			timeout:       5 * time.Second,
+			containerName: []string{},
+			testBuilder:   buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
+			expectedError: "pod 'namespace' cannot be empty",
+		},
+		{
+			name:          "pod does not exist",
+			command:       []string{"echo", "test"},
+			timeout:       5 * time.Second,
+			containerName: []string{},
+			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			expectedError: "does not exist in namespace",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var (
+				buffer bytes.Buffer
+				err    error
+			)
+
+			if len(testCase.containerName) > 0 {
+				buffer, err = testCase.testBuilder.ExecCommandWithTimeout(
+					testCase.command, testCase.timeout, testCase.containerName[0])
+			} else {
+				buffer, err = testCase.testBuilder.ExecCommandWithTimeout(
+					testCase.command, testCase.timeout)
+			}
+
+			// All test cases expect errors (either validation errors or execution errors)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), testCase.expectedError)
+			assert.Empty(t, buffer.String())
+		})
+	}
+}
+
+// TestPodExecCommandWithTimeoutContainerSelection tests container name parameter handling.
+func TestPodExecCommandWithTimeoutContainerSelection(t *testing.T) {
+	testCases := []struct {
+		name          string
+		containerName []string
+	}{
+		{
+			name:          "no container specified - uses default",
+			containerName: []string{},
+		},
+		{
+			name:          "container specified",
+			containerName: []string{"custom-container"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Use a builder with non-existent pod to trigger the "does not exist" error
+			// This allows us to test parameter handling without hitting REST client issues
+			builder := buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+
+			var err error
+			if len(testCase.containerName) > 0 {
+				_, err = builder.ExecCommandWithTimeout(
+					[]string{"echo", "test"}, 5*time.Second, testCase.containerName...)
+			} else {
+				_, err = builder.ExecCommandWithTimeout(
+					[]string{"echo", "test"}, 5*time.Second)
+			}
+
+			// Should get "does not exist" error, not a parameter validation error
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "does not exist in namespace")
+		})
 	}
 }
 
