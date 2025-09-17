@@ -164,14 +164,6 @@ func TestNewNetworkBuilder(t *testing.T) {
 		{
 			networkName:       "sriovnetworktest",
 			networkNamespace:  "test-namespace",
-			targetNs:          "",
-			resName:           "sriovNetwork",
-			expectedErrorText: "SrIovNetwork 'targetNsname' cannot be empty",
-			client:            true,
-		},
-		{
-			networkName:       "sriovnetworktest",
-			networkNamespace:  "test-namespace",
 			targetNs:          "target-namespace",
 			resName:           "",
 			expectedErrorText: "SrIovNetwork 'resName' cannot be empty",
@@ -519,6 +511,54 @@ func TestWithOptions(t *testing.T) {
 	assert.Equal(t, "error", testBuilder.errorMsg)
 }
 
+func TestWithTargetNamespace(t *testing.T) {
+	testCases := []struct {
+		networkBuilder                    *NetworkBuilder
+		targetNs                          string
+		expectedError                     string
+		initialisedWithoutTargetNamespace bool
+	}{
+		{
+			networkBuilder: buildValidSriovNetworkTestBuilderWithoutTargetNamespace(
+				buildTestClientWithDummyObject(),
+			),
+			targetNs:      "new-target-ns",
+			expectedError: "",
+		},
+		{
+			networkBuilder: buildValidSriovNetworkTestBuilderWithoutTargetNamespace(
+				buildTestClientWithDummyObject(),
+			),
+			targetNs:      "",
+			expectedError: "SrIovNetwork 'targetNsname' cannot be empty",
+		},
+		{
+			networkBuilder: buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
+			targetNs:       "new-target-ns",
+			expectedError:  "",
+		},
+		{
+			networkBuilder: buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
+			targetNs:       "",
+			expectedError:  "SrIovNetwork 'targetNsname' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		initialNS := testCase.networkBuilder.Definition.Spec.NetworkNamespace
+		netBuilder := testCase.networkBuilder.WithTargetNamespace(testCase.targetNs)
+		assert.Equal(t, testCase.expectedError, netBuilder.errorMsg)
+
+		// If an error is expected, the namespace should remain unchanged; otherwise it should match targetNs
+		expectedNS := initialNS
+		if testCase.expectedError == "" {
+			expectedNS = testCase.targetNs
+		}
+
+		assert.Equal(t, expectedNS, netBuilder.Definition.Spec.NetworkNamespace)
+	}
+}
+
 func TestGet(t *testing.T) {
 	testCases := []struct {
 		networkBuilder *NetworkBuilder
@@ -708,7 +748,14 @@ func buildValidSriovNetworkTestBuilder(apiClient *clients.Settings) *NetworkBuil
 		apiClient, defaultNetName, defaultNetNsName, defaultNetTargetNsName, defaultNetResName)
 }
 
-// buildValidTestBuilder returns a valid Builder for testing purposes.
+// buildValidSriovNetworkTestBuilderWithoutTargetNamespace returns a valid Builder
+// without target namespace for testing purposes.
+func buildValidSriovNetworkTestBuilderWithoutTargetNamespace(apiClient *clients.Settings) *NetworkBuilder {
+	return NewNetworkBuilder(
+		apiClient, defaultNetName, defaultNetNsName, "", defaultNetResName)
+}
+
+// buildInvalidSrIovNetworkTestBuilder returns an invalid Builder without resource name for testing purposes.
 func buildInvalidSrIovNetworkTestBuilder(apiClient *clients.Settings) *NetworkBuilder {
 	return NewNetworkBuilder(
 		apiClient, defaultNetName, defaultNetNsName, defaultNetTargetNsName, "")
