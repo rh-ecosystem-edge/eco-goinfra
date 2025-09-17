@@ -164,14 +164,6 @@ func TestNewNetworkBuilder(t *testing.T) {
 		{
 			networkName:       "sriovnetworktest",
 			networkNamespace:  "test-namespace",
-			targetNs:          "",
-			resName:           "sriovNetwork",
-			expectedErrorText: "SrIovNetwork 'targetNsname' cannot be empty",
-			client:            true,
-		},
-		{
-			networkName:       "sriovnetworktest",
-			networkNamespace:  "test-namespace",
 			targetNs:          "target-namespace",
 			resName:           "",
 			expectedErrorText: "SrIovNetwork 'resName' cannot be empty",
@@ -519,6 +511,31 @@ func TestWithOptions(t *testing.T) {
 	assert.Equal(t, "error", testBuilder.errorMsg)
 }
 
+func TestWithTargetNamespace(t *testing.T) {
+	testCases := []struct {
+		networkBuilder *NetworkBuilder
+		targetNs       string
+		expectedError  string
+	}{
+		{
+			networkBuilder: buildValidSriovNetworkTestBuilderWithoutTargetNamespace(buildTestClientWithDummyObject()),
+			targetNs:       "new-target-ns",
+			expectedError:  "",
+		},
+		{
+			networkBuilder: buildValidSriovNetworkTestBuilderWithoutTargetNamespace(buildTestClientWithDummyObject()),
+			targetNs:       "",
+			expectedError:  "SrIovNetwork 'targetNsname' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		netBuilder := testCase.networkBuilder.WithTargetNamespace(testCase.targetNs)
+		assert.Equal(t, testCase.expectedError, netBuilder.errorMsg)
+		assert.Equal(t, testCase.targetNs, netBuilder.Definition.Spec.NetworkNamespace)
+	}
+}
+
 func TestGet(t *testing.T) {
 	testCases := []struct {
 		networkBuilder *NetworkBuilder
@@ -706,6 +723,12 @@ func TestUpdate(t *testing.T) {
 func buildValidSriovNetworkTestBuilder(apiClient *clients.Settings) *NetworkBuilder {
 	return NewNetworkBuilder(
 		apiClient, defaultNetName, defaultNetNsName, defaultNetTargetNsName, defaultNetResName)
+}
+
+// buildValidTestBuilder returns a valid Builder for testing purposes.
+func buildValidSriovNetworkTestBuilderWithoutTargetNamespace(apiClient *clients.Settings) *NetworkBuilder {
+	return NewNetworkBuilder(
+		apiClient, defaultNetName, defaultNetNsName, "", defaultNetResName)
 }
 
 // buildValidTestBuilder returns a valid Builder for testing purposes.
