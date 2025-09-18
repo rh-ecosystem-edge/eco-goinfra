@@ -16,6 +16,7 @@ var (
 
 func TestFrrNodeStateGet(t *testing.T) {
 	var runtimeObjects []runtime.Object
+
 	testCases := []struct {
 		testFrrNodeState    *FrrNodeStateBuilder
 		addToRuntimeObjects bool

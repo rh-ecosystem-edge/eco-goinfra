@@ -259,6 +259,7 @@ func (builder *Builder) Exists() bool {
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
+
 	builder.Object, err = builder.apiClient.ReplicaSets(builder.Definition.Namespace).Get(
 		context.TODO(), builder.Definition.Name, metav1.GetOptions{})
 
@@ -293,6 +294,7 @@ func (builder *Builder) Update() (*Builder, error) {
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
+
 	builder.Object, err = builder.apiClient.ReplicaSets(builder.Definition.Namespace).Update(
 		context.TODO(), builder.Definition, metav1.UpdateOptions{})
 
@@ -319,7 +321,6 @@ func (builder *Builder) Delete() error {
 
 	err := builder.apiClient.ReplicaSets(builder.Definition.Namespace).Delete(
 		context.TODO(), builder.Definition.Name, metav1.DeleteOptions{})
-
 	if err != nil {
 		return err
 	}
@@ -351,7 +352,6 @@ func (builder *Builder) CreateAndWaitUntilReady(timeout time.Duration) (*Builder
 		context.TODO(), retryInterval, timeout, true, func(ctx context.Context) (bool, error) {
 			builder.Object, err = builder.apiClient.ReplicaSets(builder.Definition.Namespace).Get(
 				context.TODO(), builder.Definition.Name, metav1.GetOptions{})
-
 			if err != nil {
 				return false, nil
 			}
@@ -362,7 +362,6 @@ func (builder *Builder) CreateAndWaitUntilReady(timeout time.Duration) (*Builder
 
 			return false, err
 		})
-
 	if err == nil {
 		return builder, nil
 	}
@@ -414,9 +413,9 @@ func (builder *Builder) IsReady(timeout time.Duration) bool {
 			}
 
 			var err error
+
 			builder.Object, err = builder.apiClient.ReplicaSets(builder.Definition.Namespace).Get(
 				context.TODO(), builder.Definition.Name, metav1.GetOptions{})
-
 			if err != nil {
 				glog.V(100).Infof("Failed to get replicaset from cluster. Error is: '%s'", err.Error())
 

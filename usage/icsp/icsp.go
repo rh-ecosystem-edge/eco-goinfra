@@ -31,7 +31,6 @@ func main() {
 	_, err = icspbuilder.WithRepositoryDigestMirror(
 		"newsource",
 		[]string{"Mirror1.io", "Mirror2.io", "Mirror3.io"}).Update()
-
 	if err != nil {
 		log.Fatal(err)
 	}

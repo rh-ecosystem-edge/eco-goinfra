@@ -89,8 +89,8 @@ func (builder *PtpConfigBuilder) GetE810Plugin(profileName string) (*E810Plugin,
 
 		if plugin, ok := profile.Plugins["e810"]; ok && plugin != nil {
 			e810Plugin := &E810Plugin{}
-			err := json.Unmarshal(plugin.Raw, e810Plugin)
 
+			err := json.Unmarshal(plugin.Raw, e810Plugin)
 			if err != nil {
 				glog.V(100).Infof("Failed to unmarshal E810 plugin: %v", err)
 
@@ -210,11 +210,11 @@ func (builder *PtpConfigBuilder) Get() (*ptpv1.PtpConfig, error) {
 		"Getting PtpConfig object %s in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
 
 	ptpConfig := &ptpv1.PtpConfig{}
+
 	err := builder.apiClient.Get(context.TODO(), goclient.ObjectKey{
 		Name:      builder.Definition.Name,
 		Namespace: builder.Definition.Namespace,
 	}, ptpConfig)
-
 	if err != nil {
 		return nil, err
 	}
@@ -232,8 +232,8 @@ func (builder *PtpConfigBuilder) Exists() bool {
 		"Checking if PtpConfig %s exists in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
-	builder.Object, err = builder.Get()
 
+	builder.Object, err = builder.Get()
 	if err != nil {
 		glog.V(100).Infof("Failed to get PtpConfig %s in namespace %s: %v",
 			builder.Definition.Name, builder.Definition.Namespace, err)

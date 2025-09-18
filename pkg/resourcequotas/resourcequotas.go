@@ -141,14 +141,12 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 	_, err := builder.apiClient.ResourceQuotas(
 		builder.Definition.Namespace).Update(context.TODO(),
 		builder.Definition, metav1.UpdateOptions{})
-
 	if err != nil {
 		if force {
 			glog.V(100).Infof(
 				msg.FailToUpdateNotification("resource quota", builder.Definition.Name, builder.Definition.Namespace))
 
 			err := builder.Delete()
-
 			if err != nil {
 				glog.V(100).Infof(msg.FailToUpdateError("resource quota",
 					builder.Definition.Name, builder.Definition.Namespace))
@@ -223,7 +221,6 @@ func (builder *Builder) Delete() error {
 
 	err := builder.apiClient.ResourceQuotas(builder.Definition.Namespace).Delete(context.TODO(),
 		builder.Definition.Name, metav1.DeleteOptions{})
-
 	if err != nil {
 		return err
 	}

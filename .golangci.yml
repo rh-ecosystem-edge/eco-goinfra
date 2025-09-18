@@ -40,8 +40,7 @@ linters:
     - unparam
     - usetesting
     - varnamelen
-    # Temporarily disable whitespace-stylistic linter due to high noise
-    # - wsl_v5
+    - wsl_v5
   settings:
     depguard:
       rules:
@@ -124,12 +123,12 @@ linters:
         - -SA1006
         - -ST1000
         - ST1001
-    # wsl_v5:
-    #   allow-first-in-block: true
-    #   allow-whole-block: false
-    #   branch-max-lines: 2
-    #   disable:
-    #     - append
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+      disable:
+        - append
   exclusions:
     generated: lax
     presets:

@@ -43,8 +43,8 @@ func ListPtpConfigs(
 	glog.V(100).Info(logMessage)
 
 	ptpConfigList := new(ptpv1.PtpConfigList)
-	err = apiClient.List(context.TODO(), ptpConfigList, &passedOptions)
 
+	err = apiClient.List(context.TODO(), ptpConfigList, &passedOptions)
 	if err != nil {
 		glog.V(100).Infof("Failed to list PtpConfigs in all namespaces due to %v", err)
 

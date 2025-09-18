@@ -36,7 +36,6 @@ func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOpti
 	glog.V(100).Infof(logMessage)
 
 	resourceQuotaList, err := apiClient.ResourceQuotas(nsname).List(context.TODO(), passedOptions)
-
 	if err != nil {
 		glog.V(100).Infof("Failed to list resource quotas in the namespace %s due to %s", nsname, err.Error())
 

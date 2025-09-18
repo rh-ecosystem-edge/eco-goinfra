@@ -276,6 +276,7 @@ func TestKACUpdate(t *testing.T) {
 		// the update will not fail.
 		if testCase.alreadyExists {
 			var err error
+
 			kacBuilder, err = kacBuilder.Create()
 
 			assert.Nil(t, err)

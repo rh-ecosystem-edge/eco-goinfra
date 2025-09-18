@@ -284,6 +284,7 @@ func TestSecretWithData(t *testing.T) {
 
 	for _, testCase := range testCases {
 		var runtimeObjects []runtime.Object
+
 		testBuilder, _ := buildTestBuilderWithFakeObjects(runtimeObjects, defaultSecretName, defaultSecretNamespace)
 
 		testBuilder.WithData(testCase.data)

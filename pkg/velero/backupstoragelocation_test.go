@@ -545,6 +545,7 @@ func generateBackupStorageLocationBuilderWithFakeObjects(objects []runtime.Objec
 
 func generateBackupStorageLocationBuilder() *BackupStorageLocationBuilder {
 	var runtimeObjects []runtime.Object
+
 	runtimeObjects = append(runtimeObjects, generateBackupStorageLocation())
 
 	return &BackupStorageLocationBuilder{

@@ -53,8 +53,8 @@ func ListNodeConfig(
 	passedOptions.Namespace = nsname
 
 	sfncList := new(sriovvrbtypes.SriovVrbNodeConfigList)
-	err = apiClient.List(context.TODO(), sfncList, &passedOptions)
 
+	err = apiClient.List(context.TODO(), sfncList, &passedOptions)
 	if err != nil {
 		glog.V(100).Infof("Failed to list SriovVrbNodeConfigs in the namespace %s due to %s", nsname, err.Error())
 

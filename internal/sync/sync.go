@@ -74,7 +74,6 @@ func syncRemoteRepo(repo *repo) {
 
 	if _, err := os.Stat(path.Join(basePath, repo.Name)); !os.IsNotExist(err) {
 		err := os.RemoveAll(path.Join(basePath, repo.Name))
-
 		if err != nil {
 			glog.V(100).Infof("Failed to remove cloned directory %s exit with error code 1",
 				path.Join(basePath, repo.Name))
@@ -105,7 +104,6 @@ func excludeAndRefactor(clonedDir, localDir string, repo *repo) {
 		fmt.Sprintf("package %s", path.Base(clonedDir)),
 		fmt.Sprintf("package %s", path.Base(localDir)),
 		clonedDir, "*.go")
-
 	if err != nil {
 		glog.V(100).Infof("Failed to replace package names due to %w. Exit with error 1", err)
 		os.Exit(1)
@@ -152,7 +150,6 @@ func gitClone(localPath string, repo *repo) {
 			"Local directory already exists for the project: %s. Removing directory", repo.Name)
 
 		err := os.RemoveAll(localDirectory)
-
 		if err != nil {
 			glog.V(100).Infof("Failed to remove repo directory %s due to %w exit with error code 1",
 				localDirectory, err)
@@ -164,21 +161,18 @@ func gitClone(localPath string, repo *repo) {
 		localPath,
 		"git",
 		[]string{"clone", "-n", "--depth=1", "--filter=tree:0", "-b", repo.Branch, repo.RepoLink, repo.Name})
-
 	if err != nil {
 		glog.V(100).Infof("Failed to clone repo due to cmd error. Exit with error code 1")
 		os.Exit(1)
 	}
 
 	err = execCmd(localDirectory, "git", []string{"sparse-checkout", "set", "--no-cone", repo.RemoteAPIDirectory})
-
 	if err != nil {
 		glog.V(100).Infof("Failed to sparse-checkout repo due to cmd error. Exit with error code 1")
 		os.Exit(1)
 	}
 
 	err = execCmd(localDirectory, "git", []string{"checkout"})
-
 	if err != nil {
 		glog.V(100).Infof("Failed to checkout repo due to cmd error. Exit with error code 1")
 		os.Exit(1)
@@ -195,7 +189,6 @@ func execCmd(dirName, binary string, args []string) error {
 	}
 
 	out, err := cmd.Output()
-
 	if err != nil {
 		glog.V(100).Infof("Failed to execute cmd due to %s. Output: %s", err, string(out))
 
@@ -215,8 +208,8 @@ func newConfig(pathToConfigFiles string) []repo {
 			glog.V(100).Infof("Loading config file %s", info.Name())
 
 			var config []repo
-			err := readFile(&config, path)
 
+			err := readFile(&config, path)
 			if err != nil {
 				glog.V(100).Infof("Error to read config file: %w", err)
 
@@ -228,7 +221,6 @@ func newConfig(pathToConfigFiles string) []repo {
 
 		return nil
 	})
-
 	if err != nil {
 		glog.V(100).Infof("Error to list files in directory %s due to %w", pathToConfigFiles, err)
 
@@ -253,8 +245,8 @@ func readFile(cfg *[]repo, cfgFile string) error {
 	defer openedCfgFile.Close()
 
 	decoder := yaml.NewDecoder(openedCfgFile)
-	err = decoder.Decode(&cfg)
 
+	err = decoder.Decode(&cfg)
 	if err != nil {
 		return err
 	}
@@ -280,8 +272,8 @@ func refactorFunc(oldLine, newLine string, filePatterns []string) fs.WalkDirFunc
 
 		for _, pattern := range filePatterns {
 			var err error
-			matched, err = filepath.Match(pattern, dirEntry.Name())
 
+			matched, err = filepath.Match(pattern, dirEntry.Name())
 			if err != nil {
 				return err
 			}

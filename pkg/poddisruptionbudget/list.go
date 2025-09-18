@@ -81,7 +81,6 @@ func list(apiClient *clients.Settings, nsname string, options metav1.ListOptions
 	}
 
 	pdbList, err := apiClient.PodDisruptionBudgets(nsname).List(context.TODO(), options)
-
 	if err != nil {
 		glog.V(100).Infof("Failed to list podDisruptionBudget due to %s", err.Error())
 

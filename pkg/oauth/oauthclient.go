@@ -73,10 +73,10 @@ func (builder *OAuthClientBuilder) Get() (*oauthv1.OAuthClient, error) {
 	glog.V(100).Infof("Fetching existing OAuthClient with name %s from cluster", builder.Definition.Name)
 
 	oauthClient := &oauthv1.OAuthClient{}
+
 	err := builder.apiClient.Get(context.TODO(), goclient.ObjectKey{
 		Name: builder.Definition.Name,
 	}, oauthClient)
-
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,6 @@ func (builder *OAuthClientBuilder) Create() (*OAuthClientBuilder, error) {
 	var err error
 	if !builder.Exists() {
 		err = builder.apiClient.Create(context.TODO(), builder.Definition)
-
 		if err == nil {
 			builder.Object = builder.Definition
 		}
@@ -113,6 +112,7 @@ func (builder *OAuthClientBuilder) Exists() bool {
 	glog.V(100).Infof("Checking if OAuthClient %s exists", builder.Definition.Name)
 
 	var err error
+
 	builder.Object, err = builder.Get()
 
 	return err == nil || !k8serrors.IsNotFound(err)
@@ -131,7 +131,6 @@ func (builder *OAuthClientBuilder) Update() (*OAuthClientBuilder, error) {
 	}
 
 	err := builder.apiClient.Update(context.TODO(), builder.Definition)
-
 	if err == nil {
 		builder.Object = builder.Definition
 	}
@@ -157,7 +156,6 @@ func (builder *OAuthClientBuilder) Delete() error {
 	}
 
 	err := builder.apiClient.Delete(context.TODO(), builder.Definition)
-
 	if err != nil {
 		return fmt.Errorf("error: cannot delete OAuthClient: %w", err)
 	}

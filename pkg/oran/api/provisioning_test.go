@@ -372,6 +372,7 @@ func TestProvisioningClientGroupVersionKindFor(t *testing.T) {
 			validateError: func(t *testing.T, err error) {
 				t.Helper()
 				assert.Error(t, err)
+
 				target := &unimplementedError{}
 				assert.ErrorAs(t, err, &target)
 				assert.Equal(t, ProvisioningClientType, target.clientType)
@@ -410,6 +411,7 @@ func TestProvisioningClientIsObjectNamespaced(t *testing.T) {
 			validateError: func(t *testing.T, err error) {
 				t.Helper()
 				assert.Error(t, err)
+
 				target := &unimplementedError{}
 				assert.ErrorAs(t, err, &target)
 				assert.Equal(t, ProvisioningClientType, target.clientType)

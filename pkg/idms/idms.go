@@ -136,10 +136,10 @@ func (builder *Builder) Get() (*configv1.ImageDigestMirrorSet, error) {
 		builder.Definition.Name)
 
 	imageDigestMirrorSet := &configv1.ImageDigestMirrorSet{}
+
 	err := builder.apiClient.Get(context.TODO(), runtimeClient.ObjectKey{
 		Name: builder.Definition.Name,
 	}, imageDigestMirrorSet)
-
 	if err != nil {
 		return nil, err
 	}
@@ -184,14 +184,12 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 	}
 
 	err := builder.apiClient.Update(context.TODO(), builder.Definition)
-
 	if err != nil {
 		if force {
 			glog.V(100).Infof(
 				msg.FailToUpdateNotification("imagedigestmirrorset", builder.Definition.Name))
 
 			err := builder.Delete()
-
 			if err != nil {
 				glog.V(100).Infof(
 					msg.FailToUpdateError("imagedigestmirrorset", builder.Definition.Name))
@@ -227,7 +225,6 @@ func (builder *Builder) Delete() error {
 	}
 
 	err := builder.apiClient.Delete(context.TODO(), builder.Definition)
-
 	if err != nil {
 		return fmt.Errorf("cannot delete imagedigestmirrorset: %w", err)
 	}
@@ -247,6 +244,7 @@ func (builder *Builder) Exists() bool {
 		builder.Definition.Name)
 
 	var err error
+
 	builder.Object, err = builder.Get()
 
 	return err == nil || !k8serrors.IsNotFound(err)

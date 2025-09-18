@@ -83,11 +83,11 @@ func (builder *PtpOperatorConfigBuilder) Get() (*ptpv1.PtpOperatorConfig, error)
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	ptpOpConfig := &ptpv1.PtpOperatorConfig{}
+
 	err := builder.apiClient.Get(context.TODO(), runtimeclient.ObjectKey{
 		Name:      builder.Definition.Name,
 		Namespace: builder.Definition.Namespace,
 	}, ptpOpConfig)
-
 	if err != nil {
 		return nil, err
 	}
@@ -105,8 +105,8 @@ func (builder *PtpOperatorConfigBuilder) Exists() bool {
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
-	builder.Object, err = builder.Get()
 
+	builder.Object, err = builder.Get()
 	if err != nil {
 		glog.V(100).Infof("Failed to get PtpOperatorConfig %s in namespace %s: %v",
 			builder.Definition.Name, builder.Definition.Namespace, err)

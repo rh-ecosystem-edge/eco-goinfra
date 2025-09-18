@@ -142,8 +142,8 @@ func (builder *ICSPBuilder) Get() (*v1alpha1.ImageContentSourcePolicy, error) {
 	glog.V(100).Infof("Getting ImageContentSourcePolicy object %s", builder.Definition.Name)
 
 	icsp := &v1alpha1.ImageContentSourcePolicy{}
-	err := builder.apiClient.Get(context.TODO(), runtimeclient.ObjectKey{Name: builder.Definition.Name}, icsp)
 
+	err := builder.apiClient.Get(context.TODO(), runtimeclient.ObjectKey{Name: builder.Definition.Name}, icsp)
 	if err != nil {
 		glog.V(100).Infof("ImageContentSourcePolicy object %s does not exist", builder.Definition.Name)
 
@@ -162,6 +162,7 @@ func (builder *ICSPBuilder) Exists() bool {
 	glog.V(100).Infof("Checking if ImageContentSourcePolicy %s exists", builder.Definition.Name)
 
 	var err error
+
 	builder.Object, err = builder.Get()
 
 	return err == nil || !k8serrors.IsNotFound(err)
@@ -228,8 +229,8 @@ func (builder *ICSPBuilder) Update() (*ICSPBuilder, error) {
 	}
 
 	builder.Definition.ResourceVersion = builder.Object.ResourceVersion
-	err := builder.apiClient.Update(context.TODO(), builder.Definition)
 
+	err := builder.apiClient.Update(context.TODO(), builder.Definition)
 	if err != nil {
 		glog.V(100).Infof("Failed to update ImageContentSourcePolicy %s", builder.Definition.Name)
 
@@ -284,7 +285,6 @@ func (builder *ICSPBuilder) WithOptions(options ...AdditionalOptions) *ICSPBuild
 	for _, option := range options {
 		if option != nil {
 			builder, err := option(builder)
-
 			if err != nil {
 				glog.V(100).Infof("Error occurred in mutation function")
 

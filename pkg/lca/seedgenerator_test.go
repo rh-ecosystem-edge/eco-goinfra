@@ -328,6 +328,7 @@ func TestSeedGeneratorWaitUntilComplete(t *testing.T) {
 		testSeedGenetator.Status = testCase.status
 
 		var runtimeObjects []runtime.Object
+
 		runtimeObjects = append(runtimeObjects, testSeedGenetator)
 
 		testSeedGeneratorBuilder := buildValidSeedGeneratorBuilder(

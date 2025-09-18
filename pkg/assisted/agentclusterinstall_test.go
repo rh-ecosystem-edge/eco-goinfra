@@ -413,18 +413,15 @@ func TestAgentClusterInstallWithOptions(t *testing.T) {
 				return builder, nil
 			},
 			validator: func(acib *AgentClusterInstallBuilder) bool {
-
 				return acib.Definition.Spec.IgnitionEndpoint.Url == "https://some.ign.endpoint.com"
 			},
 			expectedError: "",
 		},
 		{
 			option: func(builder *AgentClusterInstallBuilder) (*AgentClusterInstallBuilder, error) {
-
 				return builder, fmt.Errorf("agentclusterinstallbuilder contains error")
 			},
 			validator: func(acib *AgentClusterInstallBuilder) bool {
-
 				return acib.errorMsg != ""
 			},
 			expectedError: "agentclusterinstallbuilder contains error",

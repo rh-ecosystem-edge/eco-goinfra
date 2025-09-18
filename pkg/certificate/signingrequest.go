@@ -76,10 +76,10 @@ func (builder *SigningRequestBuilder) Get() (*certificatesv1.CertificateSigningR
 	glog.V(100).Infof("Collecting CertificateSigningRequest object %s", builder.Definition.Name)
 
 	signingRequest := &certificatesv1.CertificateSigningRequest{}
+
 	err := builder.apiClient.Get(context.TODO(), runtimeclient.ObjectKey{
 		Name: builder.Definition.Name,
 	}, signingRequest)
-
 	if err != nil {
 		glog.V(100).Infof("Failed to get CertificateSigningRequest object %s: %v", builder.Definition.Name, err)
 
@@ -98,6 +98,7 @@ func (builder *SigningRequestBuilder) Exists() bool {
 	glog.V(100).Infof("Checking if CertificateSigningRequest %s exists", builder.Definition.Name)
 
 	var err error
+
 	builder.Object, err = builder.Get()
 
 	return err == nil || !k8serrors.IsNotFound(err)

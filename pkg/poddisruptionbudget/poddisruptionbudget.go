@@ -120,6 +120,7 @@ func (builder *Builder) Create() (*Builder, error) {
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
+
 	if !builder.Exists() {
 		builder.Object, err = builder.apiClient.PodDisruptionBudgets(
 			builder.Definition.Namespace).Create(context.TODO(),
@@ -149,7 +150,6 @@ func (builder *Builder) Delete() error {
 
 	err := builder.apiClient.PodDisruptionBudgets(builder.Definition.Namespace).Delete(context.TODO(),
 		builder.Definition.Name, metav1.DeleteOptions{})
-
 	if err != nil {
 		return err
 	}
@@ -164,6 +164,7 @@ func (builder *Builder) Exists() bool {
 	glog.V(100).Info("Checking if the PodDisruptionBudget exists in the cluster")
 
 	var err error
+
 	builder.Object, err = builder.apiClient.PodDisruptionBudgets(
 		builder.Definition.Namespace).Get(context.TODO(),
 		builder.Definition.Name,
@@ -203,14 +204,12 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 	_, err := builder.apiClient.PodDisruptionBudgets(
 		builder.Definition.Namespace).Update(context.TODO(),
 		builder.Definition, metav1.UpdateOptions{})
-
 	if err != nil {
 		if force {
 			glog.V(100).Infof("Force updating pod disruption budget %s in namespace %s",
 				builder.Definition.Name, builder.Definition.Namespace)
 
 			err := builder.Delete()
-
 			if err != nil {
 				glog.V(100).Infof(msg.FailToUpdateError("pod disruption budget",
 					builder.Definition.Name, builder.Definition.Namespace))

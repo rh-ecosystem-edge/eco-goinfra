@@ -45,8 +45,8 @@ func ListImageDigestMirrorSets(
 	glog.V(100).Infof(logMessage)
 
 	imageDigestMirrorSets := new(configv1.ImageDigestMirrorSetList)
-	err := apiClient.List(context.TODO(), imageDigestMirrorSets, &passedOptions)
 
+	err := apiClient.List(context.TODO(), imageDigestMirrorSets, &passedOptions)
 	if err != nil {
 		glog.V(100).Infof("Failed to list all imageDigestMirrorSets due to %s", err.Error())
 

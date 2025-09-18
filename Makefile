@@ -6,7 +6,7 @@ vet:
 
 lint:
 	@echo "Running go lint"
-	scripts/golangci-lint.sh
+	env -u BASH_ENV scripts/golangci-lint.sh
 
 deps-update:
 	go mod tidy && \

@@ -309,8 +309,8 @@ func newNodeNetworkStateBuilder(apiClient *clients.Settings, name string) *State
 		},
 	}
 	byteDesiredState, _ := yaml.Marshal(desiredState)
-	err := apiClient.AttachScheme(nmstateV1beta1.AddToScheme)
 
+	err := apiClient.AttachScheme(nmstateV1beta1.AddToScheme)
 	if err != nil {
 		return nil
 	}

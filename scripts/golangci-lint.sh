@@ -58,7 +58,7 @@ function RunGolangCiLint() {
 
 	echo "Running golangci-lint"
 
-	if golangci-lint run -v; then
+	if golangci-lint run -v --max-issues-per-linter=0 --max-same-issues=0; then
 		return 0;
 	fi
 
