@@ -1,6 +1,6 @@
 version: "2"
 run:
-  go: "1.24"
+  go: "1.25"
 linters:
   enable:
     - asciicheck
@@ -40,7 +40,8 @@ linters:
     - unparam
     - usetesting
     - varnamelen
-    - wsl
+    # Temporarily disable whitespace-stylistic linter due to high noise
+    # - wsl_v5
   settings:
     depguard:
       rules:
@@ -123,8 +124,12 @@ linters:
         - -SA1006
         - -ST1000
         - ST1001
-    wsl:
-      strict-append: false
+    # wsl_v5:
+    #   allow-first-in-block: true
+    #   allow-whole-block: false
+    #   branch-max-lines: 2
+    #   disable:
+    #     - append
   exclusions:
     generated: lax
     presets:
