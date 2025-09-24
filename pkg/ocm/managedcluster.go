@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ocm/clusterv1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -29,18 +29,18 @@ type ManagedClusterAdditionalOptions func(builder *ManagedClusterBuilder) (*Mana
 
 // NewManagedClusterBuilder creates a new instance of ManagedClusterBuilder.
 func NewManagedClusterBuilder(apiClient *clients.Settings, name string) *ManagedClusterBuilder {
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Initializing new ManagedCluster structure with the following params: name: %s", name)
 
 	if apiClient == nil {
-		glog.V(100).Info("The apiClient of the ManagedCluster is nil")
+		klog.V(100).Info("The apiClient of the ManagedCluster is nil")
 
 		return nil
 	}
 
 	err := apiClient.AttachScheme(clusterv1.Install)
 	if err != nil {
-		glog.V(100).Info("Failed to add ManagedCluster scheme to client schemes")
+		klog.V(100).Info("Failed to add ManagedCluster scheme to client schemes")
 
 		return nil
 	}
@@ -55,7 +55,7 @@ func NewManagedClusterBuilder(apiClient *clients.Settings, name string) *Managed
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the ManagedCluster is empty")
+		klog.V(100).Info("The name of the ManagedCluster is empty")
 
 		builder.errorMsg = "managedCluster 'name' cannot be empty"
 
@@ -71,7 +71,7 @@ func (builder *ManagedClusterBuilder) WithHubAcceptsClient(accept bool) *Managed
 		return builder
 	}
 
-	glog.V(100).Infof("Setting ManagedCluster hubAcceptsClient field to %t", accept)
+	klog.V(100).Infof("Setting ManagedCluster hubAcceptsClient field to %t", accept)
 
 	builder.Definition.Spec.HubAcceptsClient = accept
 
@@ -84,13 +84,13 @@ func (builder *ManagedClusterBuilder) WithOptions(options ...ManagedClusterAddit
 		return builder
 	}
 
-	glog.V(100).Infof("Setting ManagedCluster additional options")
+	klog.V(100).Info("Setting ManagedCluster additional options")
 
 	for _, option := range options {
 		if option != nil {
 			builder, err := option(builder)
 			if err != nil {
-				glog.V(100).Infof("Error occurred in mutation function")
+				klog.V(100).Info("Error occurred in mutation function")
 
 				builder.errorMsg = err.Error()
 
@@ -104,17 +104,17 @@ func (builder *ManagedClusterBuilder) WithOptions(options ...ManagedClusterAddit
 
 // PullManagedCluster loads an existing ManagedCluster into ManagedClusterBuilder struct.
 func PullManagedCluster(apiClient *clients.Settings, name string) (*ManagedClusterBuilder, error) {
-	glog.V(100).Infof("Pulling existing ManagedCluster name: %s", name)
+	klog.V(100).Infof("Pulling existing ManagedCluster name: %s", name)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient for the ManagedCluster is empty")
+		klog.V(100).Info("The apiClient for the ManagedCluster is empty")
 
 		return nil, fmt.Errorf("managedCluster 'apiClient' cannot be empty")
 	}
 
 	err := apiClient.AttachScheme(clusterv1.Install)
 	if err != nil {
-		glog.V(100).Info("Failed to add ManagedCluster scheme to client schemes")
+		klog.V(100).Info("Failed to add ManagedCluster scheme to client schemes")
 
 		return nil, err
 	}
@@ -129,13 +129,13 @@ func PullManagedCluster(apiClient *clients.Settings, name string) (*ManagedClust
 	}
 
 	if name == "" {
-		glog.V(100).Info("The name of the ManagedCluster is empty")
+		klog.V(100).Info("The name of the ManagedCluster is empty")
 
 		return nil, fmt.Errorf("managedCluster 'name' cannot be empty")
 	}
 
 	if !builder.Exists() {
-		glog.V(100).Info("The ManagedCluster does not exist")
+		klog.V(100).Info("The ManagedCluster does not exist")
 
 		return nil, fmt.Errorf("managedCluster object %s does not exist", name)
 	}
@@ -151,10 +151,10 @@ func (builder *ManagedClusterBuilder) Update() (*ManagedClusterBuilder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Updating ManagedCluster %s", builder.Definition.Name)
+	klog.V(100).Infof("Updating ManagedCluster %s", builder.Definition.Name)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("ManagedCluster %s does not exist", builder.Definition.Name)
+		klog.V(100).Infof("ManagedCluster %s does not exist", builder.Definition.Name)
 
 		return nil, fmt.Errorf("cannot update non-existent managedCluster")
 	}
@@ -177,7 +177,7 @@ func (builder *ManagedClusterBuilder) Delete() error {
 		return err
 	}
 
-	glog.V(100).Infof("Deleting the ManagedCluster %s", builder.Definition.Name)
+	klog.V(100).Infof("Deleting the ManagedCluster %s", builder.Definition.Name)
 
 	if !builder.Exists() {
 		builder.Object = nil
@@ -202,7 +202,7 @@ func (builder *ManagedClusterBuilder) DeleteAndWait(timeout time.Duration) error
 		return err
 	}
 
-	glog.V(100).Infof("Deleting cluster %s and waiting up to %s until it is deleted",
+	klog.V(100).Infof("Deleting cluster %s and waiting up to %s until it is deleted",
 		builder.Definition.Name, timeout)
 
 	err := builder.Delete()
@@ -222,7 +222,7 @@ func (builder *ManagedClusterBuilder) Get() (*clusterv1.ManagedCluster, error) {
 		return nil, err
 	}
 
-	glog.V(100).Infof("Getting ManagedCluster object %s", builder.Definition.Name)
+	klog.V(100).Infof("Getting ManagedCluster object %s", builder.Definition.Name)
 
 	managedCluster := &clusterv1.ManagedCluster{}
 
@@ -230,7 +230,7 @@ func (builder *ManagedClusterBuilder) Get() (*clusterv1.ManagedCluster, error) {
 		Name: builder.Definition.Name,
 	}, managedCluster)
 	if err != nil {
-		glog.V(100).Infof("Failed to get ManagedCluster object %s: %v", builder.Definition.Name, err)
+		klog.V(100).Infof("Failed to get ManagedCluster object %s: %v", builder.Definition.Name, err)
 
 		return nil, err
 	}
@@ -244,7 +244,7 @@ func (builder *ManagedClusterBuilder) Exists() bool {
 		return false
 	}
 
-	glog.V(100).Infof("Checking if ManagedCluster %s exists", builder.Definition.Name)
+	klog.V(100).Infof("Checking if ManagedCluster %s exists", builder.Definition.Name)
 
 	var err error
 
@@ -259,7 +259,7 @@ func (builder *ManagedClusterBuilder) Create() (*ManagedClusterBuilder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Creating the managedcluster %s",
+	klog.V(100).Infof("Creating the managedcluster %s",
 		builder.Definition.Name)
 
 	if builder.Exists() {
@@ -283,10 +283,10 @@ func (builder *ManagedClusterBuilder) WaitForLabel(
 		return nil, err
 	}
 
-	glog.V(100).Infof("Waiting up to %s until ManageddCluster %s has label %s", timeout, builder.Definition.Name, label)
+	klog.V(100).Infof("Waiting up to %s until ManageddCluster %s has label %s", timeout, builder.Definition.Name, label)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("ManagedCluster %s does not exist", builder.Definition.Name)
+		klog.V(100).Infof("ManagedCluster %s does not exist", builder.Definition.Name)
 
 		return nil, fmt.Errorf("managedCluster object %s does not exist", builder.Definition.Name)
 	}
@@ -297,7 +297,7 @@ func (builder *ManagedClusterBuilder) WaitForLabel(
 
 			builder.Object, err = builder.Get()
 			if err != nil {
-				glog.V(100).Info("Failed to get ManagedCluster %s: %v", builder.Definition.Name, err)
+				klog.V(100).Infof("Failed to get ManagedCluster %s: %v", builder.Definition.Name, err)
 
 				return false, nil
 			}
@@ -325,25 +325,25 @@ func (builder *ManagedClusterBuilder) validate() (bool, error) {
 	resourceCRD := "managedCluster"
 
 	if builder == nil {
-		glog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
 	}
 
 	if builder.Definition == nil {
-		glog.V(100).Infof("The %s is undefined", resourceCRD)
+		klog.V(100).Infof("The %s is undefined", resourceCRD)
 
 		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
-		glog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
+		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
 
 		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
 	}
 
 	if builder.errorMsg != "" {
-		glog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
+		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
 
 		return false, fmt.Errorf("%s", builder.errorMsg)
 	}
