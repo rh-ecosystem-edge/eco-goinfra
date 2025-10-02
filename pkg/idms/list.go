@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang/glog"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"k8s.io/klog/v2"
 
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -19,20 +19,20 @@ func ListImageDigestMirrorSets(
 	logMessage := "Listing all imagedigestmirrorsets"
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is nil")
+		klog.V(100).Info("The apiClient is nil")
 
 		return nil, fmt.Errorf("apiClient cannot be nil")
 	}
 
 	if err := apiClient.AttachScheme(configv1.AddToScheme); err != nil {
-		glog.V(100).Infof(
+		klog.V(100).Infof(
 			"Failed to add configv1 scheme to client schemes")
 
 		return nil, fmt.Errorf("failed to add configv1 to client schemes")
 	}
 
 	if len(options) > 1 {
-		glog.V(100).Infof("'options' parameter must be empty or single-valued")
+		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
@@ -42,13 +42,13 @@ func ListImageDigestMirrorSets(
 		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
 	}
 
-	glog.V(100).Infof(logMessage)
+	klog.V(100).Infof("%v", logMessage)
 
 	imageDigestMirrorSets := new(configv1.ImageDigestMirrorSetList)
 
 	err := apiClient.List(context.TODO(), imageDigestMirrorSets, &passedOptions)
 	if err != nil {
-		glog.V(100).Infof("Failed to list all imageDigestMirrorSets due to %s", err.Error())
+		klog.V(100).Infof("Failed to list all imageDigestMirrorSets due to %s", err.Error())
 
 		return nil, err
 	}

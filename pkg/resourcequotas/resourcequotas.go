@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/golang/glog"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	corev1 "k8s.io/api/core/v1"
@@ -12,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	corev1Typed "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/klog/v2"
 )
 
 // Builder provides struct for resource quotas containing connection to the cluster.
@@ -30,11 +30,11 @@ type Builder struct {
 
 // NewBuilder creates a new resource quota builder.
 func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
-	glog.V(100).Infof("Initializing new resource quota structure with the following params: "+
+	klog.V(100).Infof("Initializing new resource quota structure with the following params: "+
 		"name=%s, namespace=%s", name, nsname)
 
 	if apiClient == nil {
-		glog.V(100).Info("API client is nil")
+		klog.V(100).Info("API client is nil")
 
 		return nil
 	}
@@ -50,7 +50,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 	}
 
 	if name == "" {
-		glog.V(100).Info("Resource Quota name is empty")
+		klog.V(100).Info("Resource Quota name is empty")
 
 		builder.errorMsg = "resource quota 'name' cannot be empty"
 
@@ -58,7 +58,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 	}
 
 	if nsname == "" {
-		glog.V(100).Info("Resource Quota namespace is empty")
+		klog.V(100).Info("Resource Quota namespace is empty")
 
 		builder.errorMsg = "resource quota 'namespace' cannot be empty"
 
@@ -71,12 +71,12 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 // Pull retrieves the resource quota from the cluster.
 func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	if apiClient == nil {
-		glog.V(100).Info("apiClient is nil")
+		klog.V(100).Info("apiClient is nil")
 
 		return nil, fmt.Errorf("apiClient is nil")
 	}
 
-	glog.V(100).Infof("Pulling resource quota with the following params: name=%s, namespace=%s", name, nsname)
+	klog.V(100).Infof("Pulling resource quota with the following params: name=%s, namespace=%s", name, nsname)
 
 	builder := &Builder{
 		apiClient: apiClient.CoreV1Interface,
@@ -89,13 +89,13 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	}
 
 	if name == "" {
-		glog.V(100).Info("Resource Quota name is empty")
+		klog.V(100).Info("Resource Quota name is empty")
 
 		return nil, fmt.Errorf("resource quota 'name' cannot be empty")
 	}
 
 	if nsname == "" {
-		glog.V(100).Info("Resource Quota namespace is empty")
+		klog.V(100).Info("Resource Quota namespace is empty")
 
 		return nil, fmt.Errorf("resource quota 'namespace' cannot be empty")
 	}
@@ -116,7 +116,7 @@ func (builder *Builder) WithQuotaSpec(quotaSpec corev1.ResourceQuotaSpec) *Build
 		return builder
 	}
 
-	glog.V(100).Infof("Setting resource quota spec for %s in namespace %s",
+	klog.V(100).Infof("Setting resource quota spec for %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	builder.Definition.Spec = quotaSpec
@@ -130,7 +130,7 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Updating resource quota %s in namespace %s",
+	klog.V(100).Infof("Updating resource quota %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	if !builder.Exists() {
@@ -143,12 +143,11 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 		builder.Definition, metav1.UpdateOptions{})
 	if err != nil {
 		if force {
-			glog.V(100).Infof(
-				msg.FailToUpdateNotification("resource quota", builder.Definition.Name, builder.Definition.Namespace))
+			klog.V(100).Infof("%v", msg.FailToUpdateNotification("resource quota", builder.Definition.Name, builder.Definition.Namespace))
 
 			err := builder.Delete()
 			if err != nil {
-				glog.V(100).Infof(msg.FailToUpdateError("resource quota",
+				klog.V(100).Infof("%v", msg.FailToUpdateError("resource quota",
 					builder.Definition.Name, builder.Definition.Namespace))
 
 				return nil, err
@@ -171,7 +170,7 @@ func (builder *Builder) Exists() bool {
 		return false
 	}
 
-	glog.V(100).Infof("Checking if resource quota %s exists in namespace %s",
+	klog.V(100).Infof("Checking if resource quota %s exists in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
@@ -189,7 +188,7 @@ func (builder *Builder) Create() (*Builder, error) {
 		return nil, err
 	}
 
-	glog.V(100).Infof("Creating resource quota %s in namespace %s",
+	klog.V(100).Infof("Creating resource quota %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
@@ -207,11 +206,11 @@ func (builder *Builder) Delete() error {
 		return err
 	}
 
-	glog.V(100).Infof("Deleting resource quota %s in namespace %s",
+	klog.V(100).Infof("Deleting resource quota %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("Resource quota %s cannot be deleted because it does not exist",
+		klog.V(100).Infof("Resource quota %s cannot be deleted because it does not exist",
 			builder.Definition.Name)
 
 		builder.Object = nil
@@ -243,25 +242,25 @@ func (builder *Builder) validate() (bool, error) {
 	resourceCRD := "ResourceQuota"
 
 	if builder == nil {
-		glog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
 	}
 
 	if builder.Definition == nil {
-		glog.V(100).Infof("The %s is undefined", resourceCRD)
+		klog.V(100).Infof("The %s is undefined", resourceCRD)
 
 		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
-		glog.V(100).Infof("The %s API client is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s API client is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
 	}
 
 	if builder.errorMsg != "" {
-		glog.V(100).Infof("The %s builder has error message: %s",
+		klog.V(100).Infof("The %s builder has error message: %s",
 			resourceCRD, builder.errorMsg)
 
 		return false, fmt.Errorf("%s", builder.errorMsg)

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	appsv1 "k8s.io/api/apps/v1"
@@ -14,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 )
 
 // Builder provides struct for replicaset object containing connection to the cluster and the replicaset definitions.
@@ -39,13 +39,13 @@ func NewBuilder(
 	name, nsname string,
 	labels map[string]string,
 	containerSpec []corev1.Container) *Builder {
-	glog.V(100).Infof(
+	klog.V(100).Infof(
 		"Initializing new replicaset structure with the following params: "+
 			"name: %s, namespace: %s, containerSpec %v",
 		name, nsname, containerSpec)
 
 	if apiClient == nil {
-		glog.V(100).Infof("replicaset 'apiClient' cannot be empty")
+		klog.V(100).Info("replicaset 'apiClient' cannot be empty")
 
 		return nil
 	}
@@ -69,7 +69,7 @@ func NewBuilder(
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the replicaset is empty")
+		klog.V(100).Info("The name of the replicaset is empty")
 
 		builder.errorMsg = "replicaset 'name' cannot be empty"
 
@@ -77,7 +77,7 @@ func NewBuilder(
 	}
 
 	if nsname == "" {
-		glog.V(100).Infof("The namespace of the replicaset is empty")
+		klog.V(100).Info("The namespace of the replicaset is empty")
 
 		builder.errorMsg = "replicaset 'nsname' cannot be empty"
 
@@ -85,7 +85,7 @@ func NewBuilder(
 	}
 
 	if len(labels) == 0 {
-		glog.V(100).Infof("The labels of the replicaset is empty")
+		klog.V(100).Info("The labels of the replicaset is empty")
 
 		builder.errorMsg = "replicaset 'labels' cannot be empty"
 
@@ -93,7 +93,7 @@ func NewBuilder(
 	}
 
 	if len(containerSpec) == 0 {
-		glog.V(100).Infof("The containerSpec of the replicaset is empty")
+		klog.V(100).Info("The containerSpec of the replicaset is empty")
 
 		builder.errorMsg = "replicaset 'containerSpec' cannot be empty"
 
@@ -105,10 +105,10 @@ func NewBuilder(
 
 // Pull loads an existing replicaset into the Builder struct.
 func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
-	glog.V(100).Infof("Pulling existing replicaset name:%s under namespace:%s", name, nsname)
+	klog.V(100).Infof("Pulling existing replicaset name:%s under namespace:%s", name, nsname)
 
 	if apiClient == nil {
-		glog.V(100).Infof("The apiClient is empty")
+		klog.V(100).Info("The apiClient is empty")
 
 		return nil, fmt.Errorf("replicaset 'apiClient' cannot be empty")
 	}
@@ -146,10 +146,10 @@ func (builder *Builder) WithLabel(labels map[string]string) *Builder {
 		return builder
 	}
 
-	glog.V(100).Infof(fmt.Sprintf("Defining replicaset's labels to %v", labels))
+	klog.V(100).Infof("%v", fmt.Sprintf("Defining replicaset's labels to %v", labels))
 
 	if len(labels) == 0 {
-		glog.V(100).Infof("The 'labels' of the replicaset is empty")
+		klog.V(100).Info("The 'labels' of the replicaset is empty")
 
 		builder.errorMsg = "can not apply empty labels"
 
@@ -158,7 +158,7 @@ func (builder *Builder) WithLabel(labels map[string]string) *Builder {
 
 	for labelKey := range labels {
 		if labelKey == "" {
-			glog.V(100).Infof("The 'labels' labelKey cannot be empty")
+			klog.V(100).Info("The 'labels' labelKey cannot be empty")
 
 			builder.errorMsg = "can not apply labels with an empty labelKey value"
 
@@ -177,11 +177,11 @@ func (builder *Builder) WithNodeSelector(nodeSelector map[string]string) *Builde
 		return builder
 	}
 
-	glog.V(100).Infof("Applying nodeSelector %s to replicaset %s in namespace %s",
+	klog.V(100).Infof("Applying nodeSelector %s to replicaset %s in namespace %s",
 		nodeSelector, builder.Definition.Name, builder.Definition.Namespace)
 
 	if len(nodeSelector) == 0 {
-		glog.V(100).Infof("The 'nodeSelector' of the replicaset is empty")
+		klog.V(100).Info("The 'nodeSelector' of the replicaset is empty")
 
 		builder.errorMsg = "can not apply empty nodeSelector"
 
@@ -190,7 +190,7 @@ func (builder *Builder) WithNodeSelector(nodeSelector map[string]string) *Builde
 
 	for key := range nodeSelector {
 		if key == "" {
-			glog.V(100).Infof("The 'nodeSelector' key value cannot be empty")
+			klog.V(100).Info("The 'nodeSelector' key value cannot be empty")
 
 			builder.errorMsg = "can not apply a nodeSelector with an empty key value"
 
@@ -210,14 +210,14 @@ func (builder *Builder) WithVolume(rsVolume corev1.Volume) *Builder {
 	}
 
 	if rsVolume.Name == "" {
-		glog.V(100).Infof("The Volume name parameter is empty")
+		klog.V(100).Info("The Volume name parameter is empty")
 
 		builder.errorMsg = "volume name parameter is empty"
 
 		return builder
 	}
 
-	glog.V(100).Infof("Adding volume %s for replicaset %s container template in namespace %s",
+	klog.V(100).Infof("Adding volume %s for replicaset %s container template in namespace %s",
 		rsVolume.Name, builder.Definition.Name, builder.Definition.Namespace)
 
 	builder.Definition.Spec.Template.Spec.Volumes = append(
@@ -233,11 +233,11 @@ func (builder *Builder) WithAdditionalContainerSpecs(specs []corev1.Container) *
 		return builder
 	}
 
-	glog.V(100).Infof("Appending a list of container specs %v to replicaset %s in namespace %s",
+	klog.V(100).Infof("Appending a list of container specs %v to replicaset %s in namespace %s",
 		specs, builder.Definition.Name, builder.Definition.Namespace)
 
 	if len(specs) == 0 {
-		glog.V(100).Infof("The container specs are empty")
+		klog.V(100).Info("The container specs are empty")
 
 		builder.errorMsg = "cannot accept empty list as container specs"
 
@@ -255,7 +255,7 @@ func (builder *Builder) Exists() bool {
 		return false
 	}
 
-	glog.V(100).Infof("Checking if replicaset %s exists in namespace %s",
+	klog.V(100).Infof("Checking if replicaset %s exists in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
@@ -272,7 +272,7 @@ func (builder *Builder) Create() (*Builder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Creating replicaset %s in namespace %s",
+	klog.V(100).Infof("Creating replicaset %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
@@ -290,7 +290,7 @@ func (builder *Builder) Update() (*Builder, error) {
 		return builder, err
 	}
 
-	glog.V(100).Infof("Updating replicaset %s in namespace %s",
+	klog.V(100).Infof("Updating replicaset %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
@@ -307,11 +307,11 @@ func (builder *Builder) Delete() error {
 		return err
 	}
 
-	glog.V(100).Infof("Deleting replicaset %s in namespace %s",
+	klog.V(100).Infof("Deleting replicaset %s in namespace %s",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	if !builder.Exists() {
-		glog.V(100).Infof("ReplicaSet %s in namespaces %s does not exist",
+		klog.V(100).Infof("ReplicaSet %s in namespaces %s does not exist",
 			builder.Definition.Name, builder.Definition.Namespace)
 
 		builder.Object = nil
@@ -336,13 +336,13 @@ func (builder *Builder) CreateAndWaitUntilReady(timeout time.Duration) (*Builder
 		return builder, err
 	}
 
-	glog.V(100).Infof("Creating replicaset %s in namespace %s and waiting for the defined period "+
+	klog.V(100).Infof("Creating replicaset %s in namespace %s and waiting for the defined period "+
 		"until it is ready",
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	_, err := builder.Create()
 	if err != nil {
-		glog.V(100).Infof("Failed to create replicaset. Error is: '%s'", err.Error())
+		klog.V(100).Infof("Failed to create replicaset. Error is: '%s'", err.Error())
 
 		return nil, err
 	}
@@ -375,7 +375,7 @@ func (builder *Builder) DeleteAndWait(timeout time.Duration) error {
 		return err
 	}
 
-	glog.V(100).Infof("Deleting replicaset %s in namespace %s and waiting for the defined period "+
+	klog.V(100).Infof("Deleting replicaset %s in namespace %s and waiting for the defined period "+
 		"until it is removed",
 		builder.Definition.Name, builder.Definition.Namespace)
 
@@ -402,7 +402,7 @@ func (builder *Builder) IsReady(timeout time.Duration) bool {
 		return false
 	}
 
-	glog.V(100).Infof("Running periodic check until replicaset %s in namespace %s is ready or "+
+	klog.V(100).Infof("Running periodic check until replicaset %s in namespace %s is ready or "+
 		"timeout %s exceeded", builder.Definition.Name, builder.Definition.Namespace, timeout.String())
 
 	// Polls every retryInterval to determine if replicaset is available.
@@ -417,7 +417,7 @@ func (builder *Builder) IsReady(timeout time.Duration) bool {
 			builder.Object, err = builder.apiClient.ReplicaSets(builder.Definition.Namespace).Get(
 				context.TODO(), builder.Definition.Name, metav1.GetOptions{})
 			if err != nil {
-				glog.V(100).Infof("Failed to get replicaset from cluster. Error is: '%s'", err.Error())
+				klog.V(100).Infof("Failed to get replicaset from cluster. Error is: '%s'", err.Error())
 
 				return false, nil
 			}
@@ -443,25 +443,25 @@ func (builder *Builder) validate() (bool, error) {
 	resourceCRD := "ReplicaSet"
 
 	if builder == nil {
-		glog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
+		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
 
 		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
 	}
 
 	if builder.Definition == nil {
-		glog.V(100).Infof("The %s is undefined", resourceCRD)
+		klog.V(100).Infof("The %s is undefined", resourceCRD)
 
 		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
 	}
 
 	if builder.apiClient == nil {
-		glog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
+		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
 
 		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
 	}
 
 	if builder.errorMsg != "" {
-		glog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
+		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
 
 		return false, fmt.Errorf("%s", builder.errorMsg)
 	}

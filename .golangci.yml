@@ -46,6 +46,7 @@ linters:
       rules:
         main:
           allow:
+            - k8s.io/klog/v2
             - k8s.io/apimachinery
             - k8s.io/api
             - k8s.io/kubectl/pkg/drain
@@ -129,6 +130,10 @@ linters:
       branch-max-lines: 2
       disable:
         - append
+    lll:
+      line-length: 140
+    wsl:
+      strict-append: false
   exclusions:
     generated: lax
     presets:

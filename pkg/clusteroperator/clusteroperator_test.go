@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/golang/glog"
 	configV1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/klog/v2"
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -294,7 +294,7 @@ func createFakeClusterOperatorStatus(
 
 // newBuilder method creates new instance of builder (for the unit test propose only).
 func newBuilder(apiClient *clients.Settings, name string, status configV1.ClusterOperatorStatus) *Builder {
-	glog.V(100).Infof("Initializing new Builder structure with the name: %s", name)
+	klog.V(100).Infof("Initializing new Builder structure with the name: %s", name)
 
 	var client runtimeClient.Client
 
@@ -314,7 +314,7 @@ func newBuilder(apiClient *clients.Settings, name string, status configV1.Cluste
 	}
 
 	if name == "" {
-		glog.V(100).Infof("The name of the clusterOperator is empty")
+		klog.V(100).Info("The name of the clusterOperator is empty")
 
 		builder.errorMsg = "the clusterOperator 'name' cannot be empty"
 
