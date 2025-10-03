@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-func TestIngressPull(t *testing.T) {
+func TestIngressControllerPull(t *testing.T) {
 	testCases := []struct {
 		ingressName         string
 		ingressNamespace    string
@@ -81,7 +81,7 @@ func TestIngressPull(t *testing.T) {
 	}
 }
 
-func TestIngressCreate(t *testing.T) {
+func TestIngressControllerCreate(t *testing.T) {
 	testCases := []struct {
 		ingressExistsAlready bool
 		name                 string
@@ -122,7 +122,7 @@ func TestIngressCreate(t *testing.T) {
 	}
 }
 
-func TestIngressDelete(t *testing.T) {
+func TestIngressControllerDelete(t *testing.T) {
 	testCases := []struct {
 		ingressExistsAlready bool
 		name                 string
@@ -163,7 +163,7 @@ func TestIngressDelete(t *testing.T) {
 	}
 }
 
-func TestIngressValidate(t *testing.T) {
+func TestIngressControllerValidate(t *testing.T) {
 	testCases := []struct {
 		builderNil    bool
 		definitionNil bool
@@ -223,7 +223,7 @@ func TestIngressValidate(t *testing.T) {
 	}
 }
 
-func TestIngressGet(t *testing.T) {
+func TestIngressControllerGet(t *testing.T) {
 	testCases := []struct {
 		ingressExistsAlready bool
 		name                 string
@@ -266,7 +266,7 @@ func TestIngressGet(t *testing.T) {
 	}
 }
 
-func TestIngressExists(t *testing.T) {
+func TestIngressControllerExists(t *testing.T) {
 	testCases := []struct {
 		ingressExistsAlready bool
 		name                 string
