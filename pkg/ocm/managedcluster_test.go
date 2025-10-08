@@ -549,3 +549,92 @@ func buildValidManagedClusterTestBuilder(apiClient *clients.Settings) *ManagedCl
 func buildInvalidManagedClusterTestBuilder(apiClient *clients.Settings) *ManagedClusterBuilder {
 	return NewManagedClusterBuilder(apiClient, "")
 }
+
+func TestManagedClusterWaitForCondition(t *testing.T) {
+	testCases := []struct {
+		exists        bool
+		valid         bool
+		hasCondition  bool
+		condition     metav1.Condition
+		expectedError error
+	}{
+		{
+			exists:       true,
+			valid:        true,
+			hasCondition: true,
+			condition: metav1.Condition{
+				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
+			},
+			expectedError: nil,
+		},
+		{
+			exists:       false,
+			valid:        true,
+			hasCondition: true,
+			condition: metav1.Condition{
+				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
+			},
+			expectedError: fmt.Errorf("cannot wait for non-existent ManagedCluster"),
+		},
+		{
+			exists:       true,
+			valid:        false,
+			hasCondition: true,
+			condition: metav1.Condition{
+				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
+			},
+			expectedError: fmt.Errorf("managedCluster 'name' cannot be empty"),
+		},
+		{
+			exists:       true,
+			valid:        true,
+			hasCondition: false,
+			condition: metav1.Condition{
+				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
+			},
+			expectedError: context.DeadlineExceeded,
+		},
+		{
+			exists:       true,
+			valid:        true,
+			hasCondition: true,
+			condition: metav1.Condition{
+				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
+				Reason:  "TestReason",
+				Message: "Test message",
+			},
+			expectedError: nil,
+		},
+	}
+
+	for _, testCase := range testCases {
+		var (
+			runtimeObjects []runtime.Object
+			testBuilder    *ManagedClusterBuilder
+		)
+
+		if testCase.exists {
+			mcl := buildDummyManagedCluster(defaultManagedClusterName)
+
+			if testCase.hasCondition {
+				mcl.Status.Conditions = []metav1.Condition{testCase.condition}
+			}
+
+			runtimeObjects = append(runtimeObjects, mcl)
+		}
+
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects:  runtimeObjects,
+			SchemeAttachers: clusterTestSchemes,
+		})
+
+		if testCase.valid {
+			testBuilder = buildValidManagedClusterTestBuilder(testSettings)
+		} else {
+			testBuilder = buildInvalidManagedClusterTestBuilder(testSettings)
+		}
+
+		_, err := testBuilder.WaitForCondition(testCase.condition, time.Second)
+		assert.Equal(t, testCase.expectedError, err)
+	}
+}
