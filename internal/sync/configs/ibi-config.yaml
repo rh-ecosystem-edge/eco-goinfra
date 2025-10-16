@@ -2,7 +2,7 @@
 - name: image-based-install-v1alpha1
   sync: true
   repo_link: "https://github.com/openshift/image-based-install-operator"
-  branch: backplane-2.7
+  branch: backplane-2.10
   remote_api_directory: api/v1alpha1
   local_api_directory: schemes/imagebasedinstall/api/hiveextensions/v1alpha1
   replace_imports:
