@@ -2,7 +2,7 @@
 - name: nfd-v1
   sync: true
   repo_link: "https://github.com/openshift/cluster-nfd-operator"
-  branch: master
+  branch: release-4.20
   remote_api_directory: api/v1
   local_api_directory: schemes/nfd/v1
   replace_imports:
@@ -17,7 +17,7 @@
 - name: nfd-v1alpha1
   sync: true
   repo_link: "https://github.com/openshift/cluster-nfd-operator"
-  branch: master
+  branch: release-4.20
   remote_api_directory: api/v1alpha1
   local_api_directory: schemes/nfd/v1alpha1
   replace_imports:
@@ -32,7 +32,7 @@
 - name: nfd-feature_v1alpha1
   sync: true
   repo_link: "https://github.com/openshift/node-feature-discovery/"
-  branch: master
+  branch: release-4.20
   remote_api_directory: api/nfd/v1alpha1
   local_api_directory: schemes/nfd/feature/v1alpha1
   replace_imports:
