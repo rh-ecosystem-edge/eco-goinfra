@@ -282,7 +282,7 @@ func TestRouteAdvertisementWithFRRConfigurationSelector(t *testing.T) {
 	}
 	routeAdvertisementBuilder.WithFRRConfigurationSelector(frrConfigurationSelector)
 
-	assert.Equal(t, frrConfigurationSelector, routeAdvertisementBuilder.Definition.Spec.FrrConfigurationSelector)
+	assert.Equal(t, frrConfigurationSelector, routeAdvertisementBuilder.Definition.Spec.FRRConfigurationSelector)
 }
 
 func TestRouteAdvertisementWithNetworkSelectors(t *testing.T) {
@@ -340,7 +340,7 @@ func buildDummyRouteAdvertisement(name string) *ovnv1.RouteAdvertisements {
 		Spec: ovnv1.RouteAdvertisementsSpec{
 			Advertisements:           defaultAdvertisements,
 			NodeSelector:             defaultNodeSelector,
-			FrrConfigurationSelector: defaultFrrConfigurationSelector,
+			FRRConfigurationSelector: defaultFrrConfigurationSelector,
 			NetworkSelectors:         defaultNetworkSelectors,
 		},
 	}

@@ -41,7 +41,7 @@ type NetworkSelector struct {
 
 	// networkAttachmentDefinitionSelector selects networks defined in the
 	// selected NetworkAttachmentDefinitions when NetworkSelectionType is
-	// 'NetworkAttachmentDefinitions'.
+	// 'SecondaryUserDefinedNetworks'.
 	// +kubebuilder:validation:Optional
 	NetworkAttachmentDefinitionSelector *NetworkAttachmentDefinitionSelector `json:"networkAttachmentDefinitionSelector,omitempty"`
 }
@@ -69,9 +69,9 @@ const (
 
 // ClusterUserDefinedNetworkSelector selects ClusterUserDefinedNetworks.
 type ClusterUserDefinedNetworkSelector struct {
-	// networkSelector selects ClusterUserDefinedNetworks by label.
-	// A null selector will not match anything, while an empty ({}) selector will
-	// match all.
+	// networkSelector selects ClusterUserDefinedNetworks by label. A null
+	// selector will mot match anything, while an empty ({}) selector will match
+	// all.
 	// +kubebuilder:validation:Required
 	NetworkSelector metav1.LabelSelector `json:"networkSelector"`
 }

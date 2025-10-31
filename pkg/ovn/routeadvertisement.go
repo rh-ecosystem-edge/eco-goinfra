@@ -302,7 +302,7 @@ func (builder *RouteAdvertisementBuilder) WithFRRConfigurationSelector(
 	glog.V(100).Infof("Setting RouteAdvertisement %s frrConfigurationSelector to %v",
 		builder.Definition.Name, frrConfigurationSelector)
 
-	builder.Definition.Spec.FrrConfigurationSelector = frrConfigurationSelector
+	builder.Definition.Spec.FRRConfigurationSelector = frrConfigurationSelector
 
 	return builder
 }
