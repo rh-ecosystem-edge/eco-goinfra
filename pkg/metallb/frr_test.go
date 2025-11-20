@@ -418,6 +418,7 @@ func TestFrrConfigurationWithBGPNeighborDisableMP(t *testing.T) {
 		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
 
 		if testCase.expectedError == "" {
+			//nolint:staticcheck // DisableMP is deprecated, keep for backwards compatibility.
 			assert.Equal(t, testCase.disableMP,
 				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].DisableMP)
 		}
