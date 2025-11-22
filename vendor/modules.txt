@@ -282,9 +282,6 @@ github.com/go-viper/mapstructure/v2/internal/errors
 ## explicit; go 1.15
 github.com/gogo/protobuf/proto
 github.com/gogo/protobuf/sortkeys
-# github.com/golang/protobuf v1.5.4
-## explicit; go 1.17
-github.com/golang/protobuf/proto
 # github.com/google/btree v1.1.3
 ## explicit; go 1.18
 github.com/google/btree
@@ -302,18 +299,14 @@ github.com/google/go-cmp/cmp/internal/diff
 github.com/google/go-cmp/cmp/internal/flags
 github.com/google/go-cmp/cmp/internal/function
 github.com/google/go-cmp/cmp/internal/value
-# github.com/google/gofuzz v1.2.0
-## explicit; go 1.12
-github.com/google/gofuzz
-github.com/google/gofuzz/bytesource
 # github.com/google/pprof v0.0.0-20251114195745-4902fdda35c8
 ## explicit; go 1.24.0
 github.com/google/pprof/profile
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
-# github.com/gorilla/websocket v1.5.3
-## explicit; go 1.12
+# github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+## explicit; go 1.20
 github.com/gorilla/websocket
 # github.com/grafana/loki/operator/apis/loki v0.0.0-20241021105923-5e970e50b166
 ## explicit; go 1.19
@@ -1000,7 +993,6 @@ google.golang.org/protobuf/internal/descfmt
 google.golang.org/protobuf/internal/descopts
 google.golang.org/protobuf/internal/detrand
 google.golang.org/protobuf/internal/editiondefaults
-google.golang.org/protobuf/internal/editionssupport
 google.golang.org/protobuf/internal/encoding/defval
 google.golang.org/protobuf/internal/encoding/messageset
 google.golang.org/protobuf/internal/encoding/tag
@@ -1018,13 +1010,11 @@ google.golang.org/protobuf/internal/set
 google.golang.org/protobuf/internal/strs
 google.golang.org/protobuf/internal/version
 google.golang.org/protobuf/proto
-google.golang.org/protobuf/reflect/protodesc
 google.golang.org/protobuf/reflect/protoreflect
 google.golang.org/protobuf/reflect/protoregistry
 google.golang.org/protobuf/runtime/protoiface
 google.golang.org/protobuf/runtime/protoimpl
 google.golang.org/protobuf/types/descriptorpb
-google.golang.org/protobuf/types/gofeaturespb
 google.golang.org/protobuf/types/known/anypb
 google.golang.org/protobuf/types/known/timestamppb
 # gopkg.in/evanphx/json-patch.v4 v4.12.0
@@ -1055,8 +1045,8 @@ gorm.io/gorm/internal/stmt_store
 gorm.io/gorm/logger
 gorm.io/gorm/schema
 gorm.io/gorm/utils
-# k8s.io/api v0.32.6
-## explicit; go 1.23.0
+# k8s.io/api v0.33.6
+## explicit; go 1.24.0
 k8s.io/api/admission/v1
 k8s.io/api/admission/v1beta1
 k8s.io/api/admissionregistration/v1
@@ -1109,6 +1099,7 @@ k8s.io/api/rbac/v1alpha1
 k8s.io/api/rbac/v1beta1
 k8s.io/api/resource/v1alpha3
 k8s.io/api/resource/v1beta1
+k8s.io/api/resource/v1beta2
 k8s.io/api/scheduling/v1
 k8s.io/api/scheduling/v1alpha1
 k8s.io/api/scheduling/v1beta1
@@ -1116,8 +1107,8 @@ k8s.io/api/storage/v1
 k8s.io/api/storage/v1alpha1
 k8s.io/api/storage/v1beta1
 k8s.io/api/storagemigration/v1alpha1
-# k8s.io/apiextensions-apiserver v0.32.6
-## explicit; go 1.23.0
+# k8s.io/apiextensions-apiserver v0.33.6
+## explicit; go 1.24.0
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1
@@ -1134,12 +1125,13 @@ k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions/apiextensio
 k8s.io/apiextensions-apiserver/pkg/client/informers/externalversions/internalinterfaces
 k8s.io/apiextensions-apiserver/pkg/client/listers/apiextensions/v1
 k8s.io/apiextensions-apiserver/pkg/client/listers/apiextensions/v1beta1
-# k8s.io/apimachinery v0.32.6
-## explicit; go 1.23.0
+# k8s.io/apimachinery v0.33.6
+## explicit; go 1.24.0
 k8s.io/apimachinery/pkg/api/equality
 k8s.io/apimachinery/pkg/api/errors
 k8s.io/apimachinery/pkg/api/meta
 k8s.io/apimachinery/pkg/api/meta/testrestmapper
+k8s.io/apimachinery/pkg/api/operation
 k8s.io/apimachinery/pkg/api/resource
 k8s.io/apimachinery/pkg/api/validation
 k8s.io/apimachinery/pkg/apis/meta/internalversion
@@ -1201,19 +1193,19 @@ k8s.io/apimachinery/pkg/watch
 k8s.io/apimachinery/third_party/forked/golang/json
 k8s.io/apimachinery/third_party/forked/golang/netutil
 k8s.io/apimachinery/third_party/forked/golang/reflect
-# k8s.io/apiserver v0.32.6
-## explicit; go 1.23.0
+# k8s.io/apiserver v0.33.6
+## explicit; go 1.24.0
 k8s.io/apiserver/pkg/apis/audit
 k8s.io/apiserver/pkg/apis/audit/v1
 k8s.io/apiserver/pkg/authentication/user
-# k8s.io/cli-runtime v0.32.6
-## explicit; go 1.23.0
+# k8s.io/cli-runtime v0.33.6
+## explicit; go 1.24.0
 k8s.io/cli-runtime/pkg/genericclioptions
 k8s.io/cli-runtime/pkg/genericiooptions
 k8s.io/cli-runtime/pkg/printers
 k8s.io/cli-runtime/pkg/resource
-# k8s.io/client-go v12.0.0+incompatible => k8s.io/client-go v0.32.6
-## explicit; go 1.23.0
+# k8s.io/client-go v12.0.0+incompatible => k8s.io/client-go v0.33.6
+## explicit; go 1.24.0
 k8s.io/client-go/applyconfigurations
 k8s.io/client-go/applyconfigurations/admissionregistration/v1
 k8s.io/client-go/applyconfigurations/admissionregistration/v1alpha1
@@ -1260,6 +1252,7 @@ k8s.io/client-go/applyconfigurations/rbac/v1alpha1
 k8s.io/client-go/applyconfigurations/rbac/v1beta1
 k8s.io/client-go/applyconfigurations/resource/v1alpha3
 k8s.io/client-go/applyconfigurations/resource/v1beta1
+k8s.io/client-go/applyconfigurations/resource/v1beta2
 k8s.io/client-go/applyconfigurations/scheduling/v1
 k8s.io/client-go/applyconfigurations/scheduling/v1alpha1
 k8s.io/client-go/applyconfigurations/scheduling/v1beta1
@@ -1336,6 +1329,7 @@ k8s.io/client-go/informers/rbac/v1beta1
 k8s.io/client-go/informers/resource
 k8s.io/client-go/informers/resource/v1alpha3
 k8s.io/client-go/informers/resource/v1beta1
+k8s.io/client-go/informers/resource/v1beta2
 k8s.io/client-go/informers/scheduling
 k8s.io/client-go/informers/scheduling/v1
 k8s.io/client-go/informers/scheduling/v1alpha1
@@ -1443,6 +1437,8 @@ k8s.io/client-go/kubernetes/typed/resource/v1alpha3
 k8s.io/client-go/kubernetes/typed/resource/v1alpha3/fake
 k8s.io/client-go/kubernetes/typed/resource/v1beta1
 k8s.io/client-go/kubernetes/typed/resource/v1beta1/fake
+k8s.io/client-go/kubernetes/typed/resource/v1beta2
+k8s.io/client-go/kubernetes/typed/resource/v1beta2/fake
 k8s.io/client-go/kubernetes/typed/scheduling/v1
 k8s.io/client-go/kubernetes/typed/scheduling/v1/fake
 k8s.io/client-go/kubernetes/typed/scheduling/v1alpha1
@@ -1500,6 +1496,7 @@ k8s.io/client-go/listers/rbac/v1alpha1
 k8s.io/client-go/listers/rbac/v1beta1
 k8s.io/client-go/listers/resource/v1alpha3
 k8s.io/client-go/listers/resource/v1beta1
+k8s.io/client-go/listers/resource/v1beta2
 k8s.io/client-go/listers/scheduling/v1
 k8s.io/client-go/listers/scheduling/v1alpha1
 k8s.io/client-go/listers/scheduling/v1beta1
@@ -1562,8 +1559,8 @@ k8s.io/client-go/util/keyutil
 k8s.io/client-go/util/retry
 k8s.io/client-go/util/watchlist
 k8s.io/client-go/util/workqueue
-# k8s.io/component-base v0.32.6
-## explicit; go 1.23.0
+# k8s.io/component-base v0.33.6
+## explicit; go 1.24.0
 k8s.io/component-base/cli/flag
 k8s.io/component-base/featuregate
 k8s.io/component-base/logs/api/v1
@@ -1608,8 +1605,8 @@ k8s.io/kube-openapi/pkg/spec3
 k8s.io/kube-openapi/pkg/util/proto
 k8s.io/kube-openapi/pkg/util/proto/validation
 k8s.io/kube-openapi/pkg/validation/spec
-# k8s.io/kubectl v0.32.6
-## explicit; go 1.23.0
+# k8s.io/kubectl v0.33.6
+## explicit; go 1.24.0
 k8s.io/kubectl/pkg/cmd/util
 k8s.io/kubectl/pkg/drain
 k8s.io/kubectl/pkg/scheme
@@ -1619,14 +1616,13 @@ k8s.io/kubectl/pkg/util/openapi
 k8s.io/kubectl/pkg/util/templates
 k8s.io/kubectl/pkg/util/term
 k8s.io/kubectl/pkg/validation
-# k8s.io/kubelet v0.32.6
-## explicit; go 1.23.0
+# k8s.io/kubelet v0.33.6
+## explicit; go 1.24.0
 k8s.io/kubelet/config/v1beta1
 # k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
 ## explicit; go 1.18
 k8s.io/utils/buffer
 k8s.io/utils/clock
-k8s.io/utils/clock/testing
 k8s.io/utils/cpuset
 k8s.io/utils/exec
 k8s.io/utils/internal/third_party/forked/golang/golang-lru
@@ -1818,5 +1814,5 @@ sigs.k8s.io/yaml
 sigs.k8s.io/yaml/goyaml.v2
 # github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
 # github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20250625093820-3b2381406672
-# k8s.io/client-go => k8s.io/client-go v0.32.6
+# k8s.io/client-go => k8s.io/client-go v0.33.6
 # sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
