@@ -456,7 +456,7 @@ func chooseHostInterfaceFromRoute(routes []Route, nw networkInterfacer, addressF
 			}
 		}
 	}
-	klog.V(4).Info("No active IP found by looking at default routes")
+	klog.V(4).Infof("No active IP found by looking at default routes")
 	return nil, fmt.Errorf("unable to select an IP from default routes.")
 }
 

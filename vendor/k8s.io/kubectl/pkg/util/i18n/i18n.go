@@ -116,7 +116,7 @@ func loadSystemLanguage() string {
 	}
 
 	if langStr == "" {
-		klog.V(3).Info("Couldn't find the LC_ALL, LC_MESSAGES or LANG environment variables, defaulting to en_US")
+		klog.V(3).Infof("Couldn't find the LC_ALL, LC_MESSAGES or LANG environment variables, defaulting to en_US")
 		return "default"
 	}
 	pieces := strings.Split(langStr, ".")

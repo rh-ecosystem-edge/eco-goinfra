@@ -85,7 +85,7 @@ func (d *CachedDiscoveryClient) ServerResourcesForGroupVersion(groupVersion stri
 		return liveResources, err
 	}
 	if liveResources == nil || len(liveResources.APIResources) == 0 {
-		klog.V(3).Info("skipped caching discovery info, no resources found")
+		klog.V(3).Infof("skipped caching discovery info, no resources found")
 		return liveResources, err
 	}
 
@@ -121,7 +121,7 @@ func (d *CachedDiscoveryClient) ServerGroups() (*metav1.APIGroupList, error) {
 		return liveGroups, err
 	}
 	if liveGroups == nil || len(liveGroups.Groups) == 0 {
-		klog.V(3).Info("skipped caching discovery info, no groups found")
+		klog.V(3).Infof("skipped caching discovery info, no groups found")
 		return liveGroups, err
 	}
 

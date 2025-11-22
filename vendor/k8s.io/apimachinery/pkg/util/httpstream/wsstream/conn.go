@@ -236,7 +236,7 @@ func (conn *Conn) Open(w http.ResponseWriter, req *http.Request) (string, []io.R
 	// "conn.ready" and then blocks until serving is complete.
 	select {
 	case <-conn.ready:
-		klog.V(8).Info("websocket server initialized--serving")
+		klog.V(8).Infof("websocket server initialized--serving")
 	case <-serveHTTPComplete:
 		// websocket server returned before completing initialization; cleanup and return error.
 		conn.closeNonThreadSafe() //nolint:errcheck

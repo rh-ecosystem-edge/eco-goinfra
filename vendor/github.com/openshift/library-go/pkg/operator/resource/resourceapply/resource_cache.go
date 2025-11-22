@@ -149,7 +149,7 @@ func (c *resourceCache) SafeToSkipApply(required runtime.Object, existing runtim
 		versionMatch = cached.resourceVersion == resourceVersion
 		hashMatch = cached.resourceHash == resourceHash
 		if versionMatch && hashMatch {
-			klog.V(4).Info("found matching resourceVersion & manifest hash")
+			klog.V(4).Infof("found matching resourceVersion & manifest hash")
 			return true
 		}
 	}

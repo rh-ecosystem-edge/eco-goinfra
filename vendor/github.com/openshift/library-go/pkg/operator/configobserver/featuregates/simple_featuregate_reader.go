@@ -168,8 +168,8 @@ func (c *defaultFeatureGateAccess) Run(ctx context.Context) {
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 
-	klog.Info("Starting feature-gate-detector")
-	defer klog.Info("Shutting down feature-gate-detector")
+	klog.Infof("Starting feature-gate-detector")
+	defer klog.Infof("Shutting down feature-gate-detector")
 
 	go wait.UntilWithContext(ctx, c.runWorker, time.Second)
 

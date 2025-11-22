@@ -120,7 +120,7 @@ func StartMetricsListener(addr string, stopCh <-chan struct{}, registerFunc func
 			klog.Errorf("error stopping metrics listener: %v", err)
 		}
 	} else {
-		klog.Info("Metrics listener successfully stopped")
+		klog.Infof("Metrics listener successfully stopped")
 	}
 }
 

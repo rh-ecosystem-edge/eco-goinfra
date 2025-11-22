@@ -2,20 +2,20 @@ module github.com/rh-ecosystem-edge/eco-goinfra
 
 go 1.25
 
-toolchain go1.25.0
+toolchain go1.25.4
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/blang/semver/v4 v4.0.0
 	github.com/containernetworking/cni v1.3.0
-	github.com/go-openapi/errors v0.22.1
-	github.com/go-openapi/strfmt v0.23.0
-	github.com/go-openapi/swag v0.23.1
-	github.com/go-openapi/validate v0.24.0
+	github.com/go-openapi/errors v0.22.4
+	github.com/go-openapi/strfmt v0.25.0
+	github.com/go-openapi/swag v0.25.3
+	github.com/go-openapi/validate v0.25.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/hashicorp/vault/api v1.20.0
-	github.com/hashicorp/vault/api/auth/approle v0.10.0
+	github.com/hashicorp/vault/api v1.22.0
+	github.com/hashicorp/vault/api/auth/approle v0.11.0
 	github.com/hashicorp/vault/api/auth/kubernetes v0.10.0
 	github.com/k8snetworkplumbingwg/multi-networkpolicy v1.0.1
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.7
@@ -27,7 +27,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/metal3-io/baremetal-operator/apis v0.10.2
 	github.com/nmstate/kubernetes-nmstate/api v0.0.0-20250711164732-0e728986112f
-	github.com/onsi/ginkgo/v2 v2.23.4
+	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/openshift-kni/cluster-group-upgrades-operator v0.0.0-20250715163214-56f0876892dc // release-4.19
 	github.com/openshift-kni/lifecycle-agent v0.0.0-20250715161102-71395a52711a // release-4.19
 	github.com/openshift-kni/numaresources-operator v0.4.18-0.2024100201.0.20250715062915-7cc48e4830bd // release-4.19
@@ -46,14 +46,14 @@ require (
 	github.com/red-hat-storage/odf-operator v0.0.0-20250716125006-48092cb5468b // release-4.18
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stmcginnis/gofish v0.20.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/thoas/go-funk v0.9.3
-	golang.org/x/crypto v0.40.0
-	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc
-	golang.org/x/net v0.42.0
+	golang.org/x/crypto v0.45.0
+	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6
+	golang.org/x/net v0.47.0
 	gopkg.in/k8snetworkplumbingwg/multus-cni.v4 v4.2.1
 	gopkg.in/yaml.v2 v2.4.0
-	gorm.io/gorm v1.30.0
+	gorm.io/gorm v1.31.1
 	k8s.io/api v0.32.6
 	k8s.io/apiextensions-apiserver v0.32.6
 	k8s.io/apimachinery v0.32.6
@@ -106,20 +106,20 @@ require (
 	github.com/getkin/kin-openapi v0.127.0 // indirect
 	github.com/ghodss/yaml v1.0.1-0.20220118164431-d8423dcdf344 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.1 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
-	github.com/go-openapi/analysis v0.23.0 // indirect
-	github.com/go-openapi/jsonpointer v0.21.1 // indirect
-	github.com/go-openapi/jsonreference v0.21.0 // indirect
-	github.com/go-openapi/loads v0.22.0 // indirect
-	github.com/go-openapi/spec v0.21.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
+	github.com/go-logr/logr v1.4.3
+	github.com/go-openapi/analysis v0.24.1 // indirect
+	github.com/go-openapi/jsonpointer v0.22.3 // indirect
+	github.com/go-openapi/jsonreference v0.21.3 // indirect
+	github.com/go-openapi/loads v0.23.2 // indirect
+	github.com/go-openapi/spec v0.22.1 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
-	github.com/google/pprof v0.0.0-20250403155104-27863c87afa6 // indirect
+	github.com/google/pprof v0.0.0-20251114195745-4902fdda35c8 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grafana/loki/operator/apis/loki v0.0.0-20241021105923-5e970e50b166
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
@@ -190,23 +190,22 @@ require (
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
 	github.com/xlab/treeprint v1.2.0 // indirect
-	go.mongodb.org/mongo-driver v1.17.3 // indirect
+	go.mongodb.org/mongo-driver v1.17.6 // indirect
 	go.opentelemetry.io/otel v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
-	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
-	golang.org/x/mod v0.26.0 // indirect
+	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
-	golang.org/x/term v0.33.0 // indirect
-	golang.org/x/text v0.27.0 // indirect
-	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.35.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/term v0.37.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
+	golang.org/x/time v0.14.0 // indirect
+	golang.org/x/tools v0.39.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
-	google.golang.org/protobuf v1.36.6 // indirect
+	google.golang.org/protobuf v1.36.7 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
@@ -226,7 +225,20 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.7.0 // indirect
 )
 
-require github.com/go-test/deep v1.1.0 // indirect
+require (
+	github.com/go-openapi/swag/cmdutils v0.25.3 // indirect
+	github.com/go-openapi/swag/conv v0.25.3 // indirect
+	github.com/go-openapi/swag/fileutils v0.25.3 // indirect
+	github.com/go-openapi/swag/jsonname v0.25.3 // indirect
+	github.com/go-openapi/swag/jsonutils v0.25.3 // indirect
+	github.com/go-openapi/swag/loading v0.25.3 // indirect
+	github.com/go-openapi/swag/mangling v0.25.3 // indirect
+	github.com/go-openapi/swag/netutils v0.25.3 // indirect
+	github.com/go-openapi/swag/stringutils v0.25.3 // indirect
+	github.com/go-openapi/swag/typeutils v0.25.3 // indirect
+	github.com/go-openapi/swag/yamlutils v0.25.3 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
+)
 
 replace (
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
