@@ -1267,7 +1267,7 @@ func GetGVR() schema.GroupVersionResource {
 // the websocket executor then falls back to using the SPDY executor with pings disabled. This should maximize
 // reliability by avoiding issues like kubernetes/kubernetes#60140 and kubernetes/kubernetes#124571.
 //
-//nolint:ireturn // remotecommand only returns interfaces, so we must too.
+//nolint:ireturn,nolintlint // remotecommand only returns interfaces, so we must too.
 func (builder *Builder) getExecutorFromRequest(req *rest.Request) (remotecommand.Executor, error) {
 	tlsConfig, err := rest.TLSConfigFor(builder.apiClient.Config)
 	if err != nil {

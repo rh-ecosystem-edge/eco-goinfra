@@ -50,7 +50,6 @@ require (
 	github.com/thoas/go-funk v0.9.3
 	golang.org/x/crypto v0.45.0
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6
-	golang.org/x/net v0.47.0
 	gopkg.in/k8snetworkplumbingwg/multus-cni.v4 v4.2.1
 	gopkg.in/yaml.v2 v2.4.0
 	gorm.io/gorm v1.31.1
@@ -232,6 +231,8 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.7.0 // indirect
 )
+
+require golang.org/x/net v0.47.0 // indirect
 
 replace (
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
