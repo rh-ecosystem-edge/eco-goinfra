@@ -36,7 +36,7 @@ require (
 	github.com/openshift/api v0.0.0-20251114171455-1886180ef430 // release-4.20
 	github.com/openshift/client-go v0.0.0-20250811163556-6193816ae379 // release-4.20
 	github.com/openshift/cluster-nfd-operator v0.0.0-20250929121503-98a074e63cd0 // release-4.20
-	github.com/openshift/cluster-node-tuning-operator v0.0.0-20250408112936-4f58be155c79 // 4f58be155c79b2c92e7e1c36f481f7163b7f2497
+	github.com/openshift/cluster-node-tuning-operator v0.0.0-20251108153041-2ed182ba5710 // release-4.20
 	github.com/openshift/custom-resource-status v1.1.3-0.20220503160415-f2fdb4999d87
 	github.com/openshift/elasticsearch-operator v0.0.0-20241202223819-cc1a232913d6 // release-5.8
 	github.com/openshift/local-storage-operator v0.0.0-20251006201529-b394d7760c51 // release-4.20
@@ -50,7 +50,7 @@ require (
 	github.com/thoas/go-funk v0.9.3
 	golang.org/x/crypto v0.45.0
 	golang.org/x/exp v0.0.0-20251113190631-e25ba8c21ef6
-	gopkg.in/k8snetworkplumbingwg/multus-cni.v4 v4.2.1
+	gopkg.in/k8snetworkplumbingwg/multus-cni.v4 v4.2.3
 	gopkg.in/yaml.v2 v2.4.0
 	gorm.io/gorm v1.31.1
 	k8s.io/api v0.33.6
@@ -204,6 +204,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
 	golang.org/x/mod v0.30.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/oauth2 v0.33.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
@@ -232,11 +233,9 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.7.0 // indirect
 )
 
-require golang.org/x/net v0.47.0 // indirect
-
 replace (
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
-	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20250625093820-3b2381406672 // release-4.18
+	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20251006174000-8767df23a420 // release-4.20
 	k8s.io/client-go => k8s.io/client-go v0.33.6
 	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
 )

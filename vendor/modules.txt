@@ -389,7 +389,7 @@ github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1b
 github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io
 github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1
 github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/utils
-# github.com/k8snetworkplumbingwg/sriov-network-operator v1.6.0 => github.com/openshift/sriov-network-operator v0.0.0-20250625093820-3b2381406672
+# github.com/k8snetworkplumbingwg/sriov-network-operator v1.6.0 => github.com/openshift/sriov-network-operator v0.0.0-20251006174000-8767df23a420
 ## explicit; go 1.23.0
 github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1
 github.com/k8snetworkplumbingwg/sriov-network-operator/pkg/consts
@@ -685,8 +685,8 @@ github.com/openshift/cluster-logging-operator/api/observability/v1
 # github.com/openshift/cluster-nfd-operator v0.0.0-20250929121503-98a074e63cd0
 ## explicit; go 1.23.0
 github.com/openshift/cluster-nfd-operator/api/v1
-# github.com/openshift/cluster-node-tuning-operator v0.0.0-20250408112936-4f58be155c79
-## explicit; go 1.22.0
+# github.com/openshift/cluster-node-tuning-operator v0.0.0-20251108153041-2ed182ba5710
+## explicit; go 1.24.0
 github.com/openshift/cluster-node-tuning-operator/pkg/apis/performanceprofile/v1
 github.com/openshift/cluster-node-tuning-operator/pkg/apis/performanceprofile/v2
 github.com/openshift/cluster-node-tuning-operator/pkg/apis/tuned
@@ -1021,8 +1021,8 @@ gopkg.in/evanphx/json-patch.v4
 # gopkg.in/inf.v0 v0.9.1
 ## explicit
 gopkg.in/inf.v0
-# gopkg.in/k8snetworkplumbingwg/multus-cni.v4 v4.2.1
-## explicit; go 1.21
+# gopkg.in/k8snetworkplumbingwg/multus-cni.v4 v4.2.3
+## explicit; go 1.24
 gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/logging
 gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types
 # gopkg.in/natefinch/lumberjack.v2 v2.2.1
@@ -1811,6 +1811,6 @@ sigs.k8s.io/structured-merge-diff/v4/value
 sigs.k8s.io/yaml
 sigs.k8s.io/yaml/goyaml.v2
 # github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
-# github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20250625093820-3b2381406672
+# github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20251006174000-8767df23a420
 # k8s.io/client-go => k8s.io/client-go v0.33.6
 # sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
