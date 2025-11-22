@@ -1,11 +1,11 @@
 package oauth
 
 import (
-	"context"
 	"fmt"
 
 	oauthv1 "github.com/openshift/api/oauth/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -74,7 +74,7 @@ func (builder *OAuthClientBuilder) Get() (*oauthv1.OAuthClient, error) {
 
 	oauthClient := &oauthv1.OAuthClient{}
 
-	err := builder.apiClient.Get(context.TODO(), goclient.ObjectKey{
+	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
 		Name: builder.Definition.Name,
 	}, oauthClient)
 	if err != nil {
@@ -94,7 +94,7 @@ func (builder *OAuthClientBuilder) Create() (*OAuthClientBuilder, error) {
 
 	var err error
 	if !builder.Exists() {
-		err = builder.apiClient.Create(context.TODO(), builder.Definition)
+		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
 		if err == nil {
 			builder.Object = builder.Definition
 		}
@@ -130,7 +130,7 @@ func (builder *OAuthClientBuilder) Update() (*OAuthClientBuilder, error) {
 		return nil, fmt.Errorf("error: OAuthClient object %s does not exist", builder.Definition.Name)
 	}
 
-	err := builder.apiClient.Update(context.TODO(), builder.Definition)
+	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
 	if err == nil {
 		builder.Object = builder.Definition
 	}
@@ -155,7 +155,7 @@ func (builder *OAuthClientBuilder) Delete() error {
 		return nil
 	}
 
-	err := builder.apiClient.Delete(context.TODO(), builder.Definition)
+	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
 	if err != nil {
 		return fmt.Errorf("error: cannot delete OAuthClient: %w", err)
 	}

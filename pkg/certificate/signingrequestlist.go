@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	certificatesv1 "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -48,7 +49,7 @@ func ListSigningRequests(
 
 	csrList := new(certificatesv1.CertificateSigningRequestList)
 
-	err = apiClient.List(context.TODO(), csrList, &passedOptions)
+	err = apiClient.List(logging.DiscardContext(), csrList, &passedOptions)
 	if err != nil {
 		klog.V(100).Infof("Failed to list CertificateSigningRequests: %v", err)
 

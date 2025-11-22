@@ -1,11 +1,11 @@
 package idms
 
 import (
-	"context"
 	"fmt"
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	"k8s.io/klog/v2"
 
@@ -137,7 +137,7 @@ func (builder *Builder) Get() (*configv1.ImageDigestMirrorSet, error) {
 
 	imageDigestMirrorSet := &configv1.ImageDigestMirrorSet{}
 
-	err := builder.apiClient.Get(context.TODO(), runtimeClient.ObjectKey{
+	err := builder.apiClient.Get(logging.DiscardContext(), runtimeClient.ObjectKey{
 		Name: builder.Definition.Name,
 	}, imageDigestMirrorSet)
 	if err != nil {
@@ -158,7 +158,7 @@ func (builder *Builder) Create() (*Builder, error) {
 
 	var err error
 	if !builder.Exists() {
-		err = builder.apiClient.Create(context.TODO(), builder.Definition)
+		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
 		if err == nil {
 			builder.Object = builder.Definition
 		}
@@ -183,7 +183,7 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 		return builder, fmt.Errorf("cannot update non-existent imagedigestmirrorset")
 	}
 
-	err := builder.apiClient.Update(context.TODO(), builder.Definition)
+	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
 	if err != nil {
 		if force {
 			klog.V(100).Infof("%v", msg.FailToUpdateNotification("imagedigestmirrorset", builder.Definition.Name))
@@ -222,7 +222,7 @@ func (builder *Builder) Delete() error {
 		return nil
 	}
 
-	err := builder.apiClient.Delete(context.TODO(), builder.Definition)
+	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
 	if err != nil {
 		return fmt.Errorf("cannot delete imagedigestmirrorset: %w", err)
 	}

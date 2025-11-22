@@ -1,10 +1,10 @@
 package ovn
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -121,7 +121,7 @@ func (builder *RouteAdvertisementBuilder) Get() (*ovnv1.RouteAdvertisements, err
 
 	routeAdvertisement := &ovnv1.RouteAdvertisements{}
 
-	err := builder.apiClient.Get(context.TODO(), client.ObjectKey{
+	err := builder.apiClient.Get(logging.DiscardContext(), client.ObjectKey{
 		Name: builder.Definition.Name,
 	}, routeAdvertisement)
 	if err != nil {
@@ -146,7 +146,7 @@ func (builder *RouteAdvertisementBuilder) Create() (*RouteAdvertisementBuilder, 
 	if !builder.Exists() {
 		klog.V(100).Infof("RouteAdvertisement %s does not exist, attempting to create", builder.Definition.Name)
 
-		err = builder.apiClient.Create(context.TODO(), builder.Definition)
+		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
 		if err != nil {
 			klog.V(100).Infof("FAILED to create RouteAdvertisement %s: %v", builder.Definition.Name, err)
 
@@ -179,7 +179,7 @@ func (builder *RouteAdvertisementBuilder) Delete() error {
 		return nil
 	}
 
-	err := builder.apiClient.Delete(context.TODO(), builder.Definition)
+	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
 	if err != nil {
 		klog.V(100).Infof("Failed to delete RouteAdvertisement %s: %v", builder.Definition.Name, err)
 
@@ -230,7 +230,7 @@ func (builder *RouteAdvertisementBuilder) Update() (*RouteAdvertisementBuilder, 
 
 	builder.Definition.ResourceVersion = builder.Object.ResourceVersion
 
-	err := builder.apiClient.Update(context.TODO(), builder.Definition)
+	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
 	if err != nil {
 		klog.V(100).Info(msg.FailToUpdateNotification("RouteAdvertisement", builder.Definition.Name))
 

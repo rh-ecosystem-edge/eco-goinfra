@@ -1,11 +1,11 @@
 package icsp
 
 import (
-	"context"
 	"fmt"
 
 	v1alpha1 "github.com/openshift/api/operator/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -143,7 +143,7 @@ func (builder *ICSPBuilder) Get() (*v1alpha1.ImageContentSourcePolicy, error) {
 
 	icsp := &v1alpha1.ImageContentSourcePolicy{}
 
-	err := builder.apiClient.Get(context.TODO(), runtimeclient.ObjectKey{Name: builder.Definition.Name}, icsp)
+	err := builder.apiClient.Get(logging.DiscardContext(), runtimeclient.ObjectKey{Name: builder.Definition.Name}, icsp)
 	if err != nil {
 		klog.V(100).Infof("ImageContentSourcePolicy object %s does not exist", builder.Definition.Name)
 
@@ -178,7 +178,7 @@ func (builder *ICSPBuilder) Create() (*ICSPBuilder, error) {
 
 	var err error
 	if !builder.Exists() {
-		err = builder.apiClient.Create(context.TODO(), builder.Definition)
+		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
 		if err == nil {
 			builder.Object = builder.Definition
 		}
@@ -203,7 +203,7 @@ func (builder *ICSPBuilder) Delete() error {
 		return nil
 	}
 
-	err := builder.apiClient.Delete(context.TODO(), builder.Object)
+	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Object)
 	if err != nil {
 		return err
 	}
@@ -230,7 +230,7 @@ func (builder *ICSPBuilder) Update() (*ICSPBuilder, error) {
 
 	builder.Definition.ResourceVersion = builder.Object.ResourceVersion
 
-	err := builder.apiClient.Update(context.TODO(), builder.Definition)
+	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
 	if err != nil {
 		klog.V(100).Infof("Failed to update ImageContentSourcePolicy %s", builder.Definition.Name)
 

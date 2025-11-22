@@ -1,10 +1,10 @@
 package resourcequotas
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -139,7 +139,7 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 	}
 
 	_, err := builder.apiClient.ResourceQuotas(
-		builder.Definition.Namespace).Update(context.TODO(),
+		builder.Definition.Namespace).Update(logging.DiscardContext(),
 		builder.Definition, metav1.UpdateOptions{})
 	if err != nil {
 		if force {
@@ -176,7 +176,7 @@ func (builder *Builder) Exists() bool {
 	var err error
 
 	builder.Object, err = builder.apiClient.ResourceQuotas(
-		builder.Definition.Namespace).Get(context.TODO(),
+		builder.Definition.Namespace).Get(logging.DiscardContext(),
 		builder.Definition.Name, metav1.GetOptions{})
 
 	return err == nil || !k8serrors.IsNotFound(err)
@@ -194,7 +194,7 @@ func (builder *Builder) Create() (*Builder, error) {
 	var err error
 	if !builder.Exists() {
 		builder.Object, err = builder.apiClient.ResourceQuotas(builder.Definition.Namespace).
-			Create(context.TODO(), builder.Definition, metav1.CreateOptions{})
+			Create(logging.DiscardContext(), builder.Definition, metav1.CreateOptions{})
 	}
 
 	return builder, err
@@ -218,7 +218,7 @@ func (builder *Builder) Delete() error {
 		return nil
 	}
 
-	err := builder.apiClient.ResourceQuotas(builder.Definition.Namespace).Delete(context.TODO(),
+	err := builder.apiClient.ResourceQuotas(builder.Definition.Namespace).Delete(logging.DiscardContext(),
 		builder.Definition.Name, metav1.DeleteOptions{})
 	if err != nil {
 		return err

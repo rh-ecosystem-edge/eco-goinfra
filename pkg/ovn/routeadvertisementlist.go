@@ -1,10 +1,10 @@
 package ovn
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	ovnv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ovn/routeadvertisement/v1"
 	"k8s.io/klog/v2"
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,7 +30,7 @@ func ListRouteAdvertisements(apiClient *clients.Settings,
 
 	routeAdvertisementList := &ovnv1.RouteAdvertisementsList{}
 
-	err = apiClient.List(context.TODO(), routeAdvertisementList, options...)
+	err = apiClient.List(logging.DiscardContext(), routeAdvertisementList, options...)
 	if err != nil {
 		klog.V(100).Infof("Failed to list RouteAdvertisements due to %s", err.Error())
 

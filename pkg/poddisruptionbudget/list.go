@@ -1,12 +1,12 @@
 package poddisruptionbudget
 
 import (
-	"context"
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/klog/v2"
 )
@@ -80,7 +80,7 @@ func list(apiClient *clients.Settings, nsname string, options metav1.ListOptions
 		return nil, err
 	}
 
-	pdbList, err := apiClient.PodDisruptionBudgets(nsname).List(context.TODO(), options)
+	pdbList, err := apiClient.PodDisruptionBudgets(nsname).List(logging.DiscardContext(), options)
 	if err != nil {
 		klog.V(100).Infof("Failed to list podDisruptionBudget due to %s", err.Error())
 
