@@ -1,7 +1,6 @@
 package webhook
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
