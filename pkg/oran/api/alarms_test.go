@@ -37,7 +37,12 @@ var (
 	// dummyAlarmServiceConfiguration is test configuration for use in tests.
 	dummyAlarmServiceConfiguration = AlarmServiceConfiguration{
 		RetentionPeriod: 30,
-		Extensions:      &map[string]string{"config1": "value1"},
+		Extensions:      map[string]string{"config1": "value1"},
+	}
+
+	// dummyAlarmServiceConfigurationPatch is test patch for use in tests.
+	dummyAlarmServiceConfigurationPatch = AlarmServiceConfigurationPatch{
+		RetentionPeriod: ptr.To(30),
 	}
 
 	// dummyAlarmSubscriptionInfo is test subscription for use in tests.
@@ -359,18 +364,18 @@ func TestPatchAlarmServiceConfiguration(t *testing.T) {
 
 	testCases := []struct {
 		name          string
-		config        alarms.AlarmServiceConfiguration
+		config        alarms.AlarmServiceConfigurationPatch
 		handler       http.HandlerFunc
 		expectedError string
 	}{
 		{
 			name:    "success",
-			config:  dummyAlarmServiceConfiguration,
+			config:  dummyAlarmServiceConfigurationPatch,
 			handler: jsonResponseHandler(dummyAlarmServiceConfiguration),
 		},
 		{
 			name:          "server error 500",
-			config:        dummyAlarmServiceConfiguration,
+			config:        dummyAlarmServiceConfigurationPatch,
 			handler:       jsonResponseHandler(dummyProblemDetails, http.StatusInternalServerError),
 			expectedError: "failed to patch service configuration: received error from api:",
 		},
@@ -705,7 +710,7 @@ func TestAlarmsNetworkError(t *testing.T) {
 		{
 			name: "PatchAlarmServiceConfiguration network error",
 			testFunc: func(client *AlarmsClient) error {
-				_, err := client.PatchAlarmServiceConfiguration(dummyAlarmServiceConfiguration)
+				_, err := client.PatchAlarmServiceConfiguration(dummyAlarmServiceConfigurationPatch)
 
 				return err
 			},
