@@ -4,8 +4,7 @@ import (
 	"fmt"
 )
 
-// ResourceKey is a standard set of information required to uniquely identify a resource in a cluster. Kind and Name are
-// required, while Namespace is required for namespaced resources.
+// ResourceKey is a standard set of information required to uniquely identify a resource in a cluster.
 type ResourceKey struct {
 	Kind      string
 	Name      string
@@ -13,6 +12,10 @@ type ResourceKey struct {
 }
 
 func (k ResourceKey) String() string {
+	if k.Name == "" {
+		return k.Kind
+	}
+
 	if k.Namespace == "" {
 		return fmt.Sprintf("%s %s", k.Kind, k.Name)
 	}

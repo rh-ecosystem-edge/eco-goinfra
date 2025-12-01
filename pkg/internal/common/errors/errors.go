@@ -5,6 +5,7 @@ package errors
 import (
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 )
@@ -182,4 +183,27 @@ func IsBuilderDefinitionNil(err error) bool {
 	var builderDefinitionNil *builderDefinitionNilError
 
 	return errors.As(err, &builderDefinitionNil)
+}
+
+type itemTypeMismatchError struct {
+	kind     string
+	itemType reflect.Type
+}
+
+var _ error = (*itemTypeMismatchError)(nil)
+
+// NewItemTypeMismatch creates a new error that indicates that an item type mismatch occurred.
+func NewItemTypeMismatch(kind string, itemType reflect.Type) *itemTypeMismatchError {
+	return &itemTypeMismatchError{kind: kind, itemType: itemType}
+}
+
+func (e *itemTypeMismatchError) Error() string {
+	return fmt.Sprintf("item has kind %s but type %s", e.kind, e.itemType.String())
+}
+
+// IsItemTypeMismatch returns true if an error, or any error in the error's tree, is due to an item type mismatch.
+func IsItemTypeMismatch(err error) bool {
+	var itemTypeMismatch *itemTypeMismatchError
+
+	return errors.As(err, &itemTypeMismatch)
 }
