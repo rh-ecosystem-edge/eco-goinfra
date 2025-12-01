@@ -9,6 +9,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -503,6 +504,77 @@ func Validate[O any, SO objectPointer[O]](builder Builder[O, SO]) error {
 	}
 
 	return nil
+}
+
+type listPointer[L any] interface {
+	*L
+	runtimeclient.ObjectList
+}
+
+// List lists the resources in the cluster and returns a list of builders for each resource.
+func List[O, L, B any, SO objectPointer[O], SL listPointer[L], SB builderPointer[B, O, SO]](
+	ctx context.Context,
+	apiClient runtimeclient.Client,
+	schemeAttacher clients.SchemeAttacher,
+	options ...runtimeclient.ListOption) ([]SB, error) {
+	var dummyBuilder SB = new(B)
+
+	resourceKey := key.NewResourceKey(dummyBuilder.GetGVK().Kind, "", "")
+
+	if isInterfaceNil(apiClient) {
+		klog.V(100).Infof("The apiClient provided for listing %s is nil", resourceKey.String())
+
+		return nil, errors.NewAPIClientNil(resourceKey)
+	}
+
+	err := schemeAttacher(apiClient.Scheme())
+	if err != nil {
+		klog.V(100).Infof("Failed to attach scheme for listing %s: %v", resourceKey.String(), err)
+
+		return nil, errors.NewSchemeAttacherFailed(resourceKey, err)
+	}
+
+	var list SL = new(L)
+
+	err = apiClient.List(ctx, list, options...)
+	if err != nil {
+		klog.V(100).Infof("Failed to list %s: %v", resourceKey.String(), err)
+
+		return nil, errors.NewAPICallFailed("list", resourceKey, err)
+	}
+
+	items, err := meta.ExtractList(list)
+	if err != nil {
+		klog.V(100).Infof("Failed to extract list for %s: %v", resourceKey.String(), err)
+
+		return nil, fmt.Errorf("failed to extract list: %w", err)
+	}
+
+	var builders []SB
+
+	for _, item := range items {
+		typedItem, ok := item.(SO)
+		if !ok {
+			klog.V(100).Infof("Item with type %T does not match expected type %s", item, resourceKey.String())
+
+			return nil, errors.NewItemTypeMismatch(resourceKey.Kind, reflect.TypeOf(item))
+		}
+
+		var builder SB = new(B)
+
+		builder.SetDefinition(typedItem)
+		builder.SetObject(typedItem)
+		builder.SetClient(apiClient)
+		builder.SetGVK(builder.GetGVK())
+
+		if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
+			mixinAttacher.AttachMixins()
+		}
+
+		builders = append(builders, builder)
+	}
+
+	return builders, nil
 }
 
 // isInterfaceNil checks if the interface is nil. It checks both equality against nil and the reflect.Value.IsNil

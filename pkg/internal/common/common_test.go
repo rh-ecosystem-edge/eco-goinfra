@@ -706,6 +706,106 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+//nolint:funlen // This function is only long because of the number of test cases.
+func TestList(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		clientNil        bool
+		schemeAttacher   clients.SchemeAttacher
+		objectsExist     bool
+		interceptorFuncs interceptor.Funcs
+		assertError      func(error) bool
+		expectedCount    int
+	}{
+		{
+			name:           "valid list with resources",
+			clientNil:      false,
+			schemeAttacher: testSchemeAttacher,
+			objectsExist:   true,
+			assertError:    isErrorNil,
+			expectedCount:  2,
+		},
+		{
+			name:           "valid list empty",
+			clientNil:      false,
+			schemeAttacher: testSchemeAttacher,
+			objectsExist:   false,
+			assertError:    isErrorNil,
+			expectedCount:  0,
+		},
+		{
+			name:           "nil client",
+			clientNil:      true,
+			schemeAttacher: testSchemeAttacher,
+			objectsExist:   false,
+			assertError:    errors.IsAPIClientNil,
+			expectedCount:  0,
+		},
+		{
+			name:           "scheme attachment failure",
+			clientNil:      false,
+			schemeAttacher: testFailingSchemeAttacher,
+			objectsExist:   false,
+			assertError:    errors.IsSchemeAttacherFailed,
+			expectedCount:  0,
+		},
+		{
+			name:             "failed list call",
+			clientNil:        false,
+			schemeAttacher:   testSchemeAttacher,
+			objectsExist:     false,
+			interceptorFuncs: interceptor.Funcs{List: testFailingList},
+			assertError:      isAPICallFailedWithVerb("list"),
+			expectedCount:    0,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				client  runtimeclient.Client
+				objects []runtime.Object
+			)
+
+			if !testCase.clientNil {
+				if testCase.objectsExist {
+					objects = append(objects,
+						buildDummyNamespacedResource("resource-1", defaultNamespace),
+						buildDummyNamespacedResource("resource-2", defaultNamespace),
+					)
+				}
+
+				client = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:   objects,
+					SchemeAttachers:  []clients.SchemeAttacher{testSchemeAttacher},
+					InterceptorFuncs: testCase.interceptorFuncs,
+				})
+			}
+
+			builders, err := List[corev1.ConfigMap, corev1.ConfigMapList, mockNamespacedBuilder](
+				t.Context(), client, testCase.schemeAttacher)
+
+			assert.Truef(t, testCase.assertError(err), "got error %v", err)
+
+			if err == nil {
+				assert.Len(t, builders, testCase.expectedCount)
+
+				for _, builder := range builders {
+					assert.NotNil(t, builder.GetDefinition())
+					assert.NotNil(t, builder.GetObject())
+					assert.NotNil(t, builder.GetClient())
+				}
+			} else {
+				assert.Empty(t, builders)
+			}
+		})
+	}
+}
+
 func TestValidate(t *testing.T) {
 	t.Parallel()
 

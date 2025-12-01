@@ -30,6 +30,7 @@ var (
 	errUpdateConflict = errors.New("simulated update conflict")
 	errDeleteFailure  = errors.New("simulated delete failure")
 	errCreateFailure  = errors.New("simulated create failure")
+	errListFailure    = errors.New("simulated list failure")
 
 	testFailingCreate = func(
 		ctx context.Context,
@@ -56,6 +57,15 @@ var (
 		opts ...runtimeclient.DeleteOption,
 	) error {
 		return errDeleteFailure
+	}
+
+	testFailingList = func(
+		ctx context.Context,
+		client runtimeclient.WithWatch,
+		list runtimeclient.ObjectList,
+		opts ...runtimeclient.ListOption,
+	) error {
+		return errListFailure
 	}
 )
 
