@@ -347,6 +347,184 @@ func TestBootModuleConfigWithOptions(t *testing.T) {
 	}
 }
 
+func TestBootModuleConfigWithMachineConfigName(t *testing.T) {
+	testCases := []struct {
+		mcName        string
+		expectedError string
+	}{
+		{
+			mcName:        "test-machine-config",
+			expectedError: "",
+		},
+		{
+			mcName:        "",
+			expectedError: "bootmoduleconfig 'machineConfigName' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
+		testBuilder.WithMachineConfigName(testCase.mcName)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.mcName, testBuilder.Definition.Spec.MachineConfigName)
+			assert.Equal(t, "", testBuilder.errorMsg)
+		} else {
+			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestBootModuleConfigWithMachineConfigPoolName(t *testing.T) {
+	testCases := []struct {
+		mcpName       string
+		expectedError string
+	}{
+		{
+			mcpName:       "worker",
+			expectedError: "",
+		},
+		{
+			mcpName:       "",
+			expectedError: "bootmoduleconfig 'machineConfigPoolName' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
+		testBuilder.WithMachineConfigPoolName(testCase.mcpName)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.mcpName, testBuilder.Definition.Spec.MachineConfigPoolName)
+			assert.Equal(t, "", testBuilder.errorMsg)
+		} else {
+			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestBootModuleConfigWithKernelModuleImage(t *testing.T) {
+	testCases := []struct {
+		image         string
+		expectedError string
+	}{
+		{
+			image:         "registry.example.com/driver:v1.0",
+			expectedError: "",
+		},
+		{
+			image:         "",
+			expectedError: "bootmoduleconfig 'kernelModuleImage' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
+		testBuilder.WithKernelModuleImage(testCase.image)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.image, testBuilder.Definition.Spec.KernelModuleImage)
+			assert.Equal(t, "", testBuilder.errorMsg)
+		} else {
+			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestBootModuleConfigWithKernelModuleName(t *testing.T) {
+	testCases := []struct {
+		moduleName    string
+		expectedError string
+	}{
+		{
+			moduleName:    "my_driver",
+			expectedError: "",
+		},
+		{
+			moduleName:    "",
+			expectedError: "bootmoduleconfig 'kernelModuleName' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
+		testBuilder.WithKernelModuleName(testCase.moduleName)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.moduleName, testBuilder.Definition.Spec.KernelModuleName)
+			assert.Equal(t, "", testBuilder.errorMsg)
+		} else {
+			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestBootModuleConfigWithInTreeModulesToRemove(t *testing.T) {
+	testCases := []struct {
+		modules []string
+	}{
+		{
+			modules: []string{"old_driver", "legacy_module"},
+		},
+		{
+			modules: []string{},
+		},
+		{
+			modules: nil,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
+		testBuilder.WithInTreeModulesToRemove(testCase.modules)
+
+		assert.Equal(t, testCase.modules, testBuilder.Definition.Spec.InTreeModulesToRemove)
+		assert.Equal(t, "", testBuilder.errorMsg)
+	}
+}
+
+func TestBootModuleConfigWithFirmwareFilesPath(t *testing.T) {
+	testCases := []struct {
+		path string
+	}{
+		{
+			path: "/lib/firmware",
+		},
+		{
+			path: "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
+		testBuilder.WithFirmwareFilesPath(testCase.path)
+
+		assert.Equal(t, testCase.path, testBuilder.Definition.Spec.FirmwareFilesPath)
+		assert.Equal(t, "", testBuilder.errorMsg)
+	}
+}
+
+func TestBootModuleConfigWithWorkerImage(t *testing.T) {
+	testCases := []struct {
+		image string
+	}{
+		{
+			image: "registry.example.com/kmm-worker:v1.0",
+		},
+		{
+			image: "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
+		testBuilder.WithWorkerImage(testCase.image)
+
+		assert.Equal(t, testCase.image, testBuilder.Definition.Spec.WorkerImage)
+		assert.Equal(t, "", testBuilder.errorMsg)
+	}
+}
+
 // buildValidBootModuleConfigBuilder returns a valid BootModuleConfigBuilder for testing.
 func buildValidBootModuleConfigBuilder(apiClient *clients.Settings) *BootModuleConfigBuilder {
 	return NewBootModuleConfigBuilder(
