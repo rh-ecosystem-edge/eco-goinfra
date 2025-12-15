@@ -271,6 +271,75 @@ func TestOperatorValidate(t *testing.T) {
 	}
 }
 
+func TestOperatorSetRouteAdvertisements(t *testing.T) {
+	// Note: These tests exercise the idempotent/no-op path where the desired state
+	// already matches. The update path (where state changes and triggers Update + WaitUntilInCondition)
+	// is not covered here, as it would require mocking status condition changes.
+	// WaitUntilInCondition itself has dedicated test coverage in TestOperatorWaitUntilInCondition.
+	testCases := []struct {
+		testBuilder   *OperatorBuilder
+		state         operatorv1.RouteAdvertisementsEnablement
+		ovnConfigNil  bool
+		alreadySet    bool
+		expectedError string
+	}{
+		{
+			// Test idempotent behavior - state already set, OVNKubernetesConfig pre-exists
+			testBuilder:   newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
+			state:         operatorv1.RouteAdvertisementsEnabled,
+			ovnConfigNil:  true,
+			alreadySet:    true,
+			expectedError: "",
+		},
+		{
+			// Test idempotent behavior - OVNKubernetesConfig exists, state already matches
+			testBuilder:   newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
+			state:         operatorv1.RouteAdvertisementsDisabled,
+			ovnConfigNil:  false,
+			alreadySet:    true,
+			expectedError: "",
+		},
+		{
+			// Test error path - network.operator doesn't exist
+			testBuilder:   newOperatorBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			state:         operatorv1.RouteAdvertisementsEnabled,
+			ovnConfigNil:  true,
+			alreadySet:    false,
+			expectedError: "network.operator object cluster does not exist",
+		},
+	}
+
+	for _, testCase := range testCases {
+		if !testCase.ovnConfigNil {
+			testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig = &operatorv1.OVNKubernetesConfig{}
+		}
+
+		// Pre-set the state to match desired state so no actual change triggers waiting
+		if testCase.alreadySet {
+			if testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig == nil {
+				testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig = &operatorv1.OVNKubernetesConfig{}
+			}
+
+			testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig.RouteAdvertisements = testCase.state
+		}
+
+		testCase.testBuilder.Definition.ResourceVersion = "999"
+
+		testBuilder, err := testCase.testBuilder.SetRouteAdvertisements(testCase.state, time.Second)
+
+		if testCase.expectedError == "" {
+			assert.Nil(t, err)
+			assert.NotNil(t, testBuilder)
+			assert.NotNil(t, testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig)
+			assert.Equal(t, testCase.state,
+				testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig.RouteAdvertisements)
+		} else {
+			assert.NotNil(t, err)
+			assert.Contains(t, err.Error(), testCase.expectedError)
+		}
+	}
+}
+
 // buildDummyNetworkOperator builds a dummy network.operator object. It uses the clusterNetworkName.
 func buildDummyNetworkOperator() *operatorv1.Network {
 	return &operatorv1.Network{
