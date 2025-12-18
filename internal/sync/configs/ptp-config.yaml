@@ -9,5 +9,5 @@
   branch: main
   remote_api_directory: api/v1
   local_api_directory: schemes/ptp/v1
-  excludes:
-    - "*_webhook.go"
+  # excludes:
+  #   - "*_webhook.go"
