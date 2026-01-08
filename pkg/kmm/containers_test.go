@@ -249,6 +249,300 @@ func TestModuleLoaderContainerBuildModuleLoaderContainerCfg(t *testing.T) {
 	}
 }
 
+func TestNewDevicePluginContainerBuilder(t *testing.T) {
+	testCases := []struct {
+		image         string
+		expectedError string
+	}{
+		{
+			image:         "quay.io/myrepo/device-plugin:v1.0",
+			expectedError: "",
+		},
+		{
+			image:         "",
+			expectedError: "invalid parameter 'image' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDevicePluginContainerBuilder(testCase.image)
+
+		assert.NotNil(t, testBuilder)
+		assert.NotNil(t, testBuilder.definition)
+		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.image, testBuilder.definition.Image)
+		}
+	}
+}
+
+func TestDevicePluginContainerWithEnv(t *testing.T) {
+	testCases := []struct {
+		name          string
+		value         string
+		expectedError string
+	}{
+		{
+			name:          "MY_ENV_VAR",
+			value:         "my-value",
+			expectedError: "",
+		},
+		{
+			name:          "",
+			value:         "some-value",
+			expectedError: "'name' can not be empty for DevicePlugin Env",
+		},
+		{
+			name:          "some-name",
+			value:         "",
+			expectedError: "'value' can not be empty for DevicePlugin Env",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDevicePluginContainerBuilder("test-image:latest")
+		testBuilder.WithEnv(testCase.name, testCase.value)
+
+		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Len(t, testBuilder.definition.Env, 1)
+			assert.Equal(t, testCase.name, testBuilder.definition.Env[0].Name)
+			assert.Equal(t, testCase.value, testBuilder.definition.Env[0].Value)
+		}
+	}
+}
+
+func TestDevicePluginContainerWithEnvMultiple(t *testing.T) {
+	testBuilder := NewDevicePluginContainerBuilder("test-image:latest")
+	testBuilder.WithEnv("ENV1", "value1")
+	testBuilder.WithEnv("ENV2", "value2")
+
+	assert.Equal(t, "", testBuilder.errorMsg)
+	assert.Len(t, testBuilder.definition.Env, 2)
+	assert.Equal(t, "ENV1", testBuilder.definition.Env[0].Name)
+	assert.Equal(t, "value1", testBuilder.definition.Env[0].Value)
+	assert.Equal(t, "ENV2", testBuilder.definition.Env[1].Name)
+	assert.Equal(t, "value2", testBuilder.definition.Env[1].Value)
+}
+
+func TestDevicePluginContainerWithVolumeMount(t *testing.T) {
+	testCases := []struct {
+		mountPath     string
+		name          string
+		expectedError string
+	}{
+		{
+			mountPath:     "/dev/vfio",
+			name:          "vfio-volume",
+			expectedError: "",
+		},
+		{
+			mountPath:     "/some/path",
+			name:          "",
+			expectedError: "'name' can not be empty for DevicePlugin mountPath",
+		},
+		{
+			mountPath:     "",
+			name:          "some-name",
+			expectedError: "'mountPath' can not be empty for DevicePlugin mountPath",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDevicePluginContainerBuilder("test-image:latest")
+		testBuilder.WithVolumeMount(testCase.mountPath, testCase.name)
+
+		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Len(t, testBuilder.definition.VolumeMounts, 1)
+			assert.Equal(t, testCase.name, testBuilder.definition.VolumeMounts[0].Name)
+			assert.Equal(t, testCase.mountPath, testBuilder.definition.VolumeMounts[0].MountPath)
+		}
+	}
+}
+
+func TestDevicePluginContainerWithVolumeMountMultiple(t *testing.T) {
+	testBuilder := NewDevicePluginContainerBuilder("test-image:latest")
+	testBuilder.WithVolumeMount("/dev/vfio", "vfio-volume")
+	testBuilder.WithVolumeMount("/var/run/plugin", "plugin-socket")
+
+	assert.Equal(t, "", testBuilder.errorMsg)
+	assert.Len(t, testBuilder.definition.VolumeMounts, 2)
+	assert.Equal(t, "vfio-volume", testBuilder.definition.VolumeMounts[0].Name)
+	assert.Equal(t, "/dev/vfio", testBuilder.definition.VolumeMounts[0].MountPath)
+	assert.Equal(t, "plugin-socket", testBuilder.definition.VolumeMounts[1].Name)
+	assert.Equal(t, "/var/run/plugin", testBuilder.definition.VolumeMounts[1].MountPath)
+}
+
+func TestGetDevicePluginContainerConfig(t *testing.T) {
+	testCases := []struct {
+		image         string
+		expectedError string
+	}{
+		{
+			image:         "test-image:latest",
+			expectedError: "",
+		},
+		{
+			image:         "",
+			expectedError: "error building DevicePluginContainerSpec config due to :invalid parameter 'image' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDevicePluginContainerBuilder(testCase.image)
+		config, err := testBuilder.GetDevicePluginContainerConfig()
+
+		if testCase.expectedError == "" {
+			assert.Nil(t, err)
+			assert.NotNil(t, config)
+			assert.Equal(t, testCase.image, config.Image)
+		} else {
+			assert.NotNil(t, err)
+			assert.Equal(t, testCase.expectedError, err.Error())
+			assert.Nil(t, config)
+		}
+	}
+}
+
+func TestDevicePluginContainerBuilderChaining(t *testing.T) {
+	testBuilder := NewDevicePluginContainerBuilder("quay.io/myrepo/plugin:v1.0").
+		WithEnv("DEBUG", "true").
+		WithEnv("LOG_LEVEL", "info").
+		WithVolumeMount("/dev/vfio", "vfio-volume").
+		WithVolumeMount("/var/run/plugin", "plugin-socket")
+
+	assert.Equal(t, "", testBuilder.errorMsg)
+	assert.Equal(t, "quay.io/myrepo/plugin:v1.0", testBuilder.definition.Image)
+	assert.Len(t, testBuilder.definition.Env, 2)
+	assert.Len(t, testBuilder.definition.VolumeMounts, 2)
+
+	config, err := testBuilder.GetDevicePluginContainerConfig()
+	assert.Nil(t, err)
+	assert.NotNil(t, config)
+	assert.Equal(t, "quay.io/myrepo/plugin:v1.0", config.Image)
+}
+
+func TestDevicePluginContainerBuilderWithInvalidBuilder(t *testing.T) {
+	// Test that methods return early when builder has error
+	testBuilder := NewDevicePluginContainerBuilder("")
+
+	assert.Equal(t, "invalid parameter 'image' cannot be empty", testBuilder.errorMsg)
+
+	// Calling methods on invalid builder should not change error message
+	testBuilder.WithEnv("ENV", "value")
+	assert.Equal(t, "invalid parameter 'image' cannot be empty", testBuilder.errorMsg)
+
+	testBuilder.WithVolumeMount("/path", "name")
+	assert.Equal(t, "invalid parameter 'image' cannot be empty", testBuilder.errorMsg)
+}
+
+func TestModuleLoaderContainerBuilderWithInvalidBuilder(t *testing.T) {
+	// Test that methods return early when builder has error
+	testBuilder := NewModLoaderContainerBuilder("")
+
+	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+
+	// Calling methods on invalid builder should not change error message
+	testBuilder.WithModprobeSpec("dir", "path", nil, nil, nil, nil)
+	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+
+	testBuilder.WithKernelMapping(nil)
+	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+
+	testBuilder.WithImagePullPolicy("Always")
+	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+
+	testBuilder.WithVersion("1.0")
+	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+
+	testBuilder.WithOptions(func(builder *ModuleLoaderContainerBuilder) (*ModuleLoaderContainerBuilder, error) {
+		return builder, nil
+	})
+	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+}
+
+func TestModuleLoaderContainerWithKernelMappingMultiple(t *testing.T) {
+	regexMapping := buildRegExKernelMapping("^.+$")
+	literalMapping := buildLiteralKernelMapping("5.14.0-70.58.1.el9_0.x86_64")
+
+	testBuilder := NewModLoaderContainerBuilder("test")
+	testBuilder.WithKernelMapping(regexMapping)
+	testBuilder.WithKernelMapping(literalMapping)
+
+	assert.Equal(t, "", testBuilder.errorMsg)
+	assert.Len(t, testBuilder.definition.KernelMappings, 2)
+	assert.Equal(t, *regexMapping, testBuilder.definition.KernelMappings[0])
+	assert.Equal(t, *literalMapping, testBuilder.definition.KernelMappings[1])
+}
+
+func TestModuleLoaderContainerWithOptionsMultiple(t *testing.T) {
+	testBuilder := NewModLoaderContainerBuilder("test").WithOptions(
+		func(builder *ModuleLoaderContainerBuilder) (*ModuleLoaderContainerBuilder, error) {
+			builder.definition.Version = "1.0"
+
+			return builder, nil
+		},
+		func(builder *ModuleLoaderContainerBuilder) (*ModuleLoaderContainerBuilder, error) {
+			builder.definition.ImagePullPolicy = corev1.PullAlways
+
+			return builder, nil
+		},
+	)
+
+	assert.Equal(t, "", testBuilder.errorMsg)
+	assert.Equal(t, "1.0", testBuilder.definition.Version)
+	assert.Equal(t, corev1.PullAlways, testBuilder.definition.ImagePullPolicy)
+}
+
+func TestModuleLoaderContainerWithOptionsNil(t *testing.T) {
+	testBuilder := NewModLoaderContainerBuilder("test").WithOptions(nil)
+
+	assert.Equal(t, "", testBuilder.errorMsg)
+}
+
+func TestBuildModuleLoaderContainerCfgSuccess(t *testing.T) {
+	testBuilder := NewModLoaderContainerBuilder("kmod").
+		WithVersion("1.0").
+		WithImagePullPolicy("Always")
+
+	config, err := testBuilder.BuildModuleLoaderContainerCfg()
+
+	assert.Nil(t, err)
+	assert.NotNil(t, config)
+	assert.Equal(t, "kmod", config.Modprobe.ModuleName)
+	assert.Equal(t, "1.0", config.Version)
+	assert.Equal(t, corev1.PullPolicy("Always"), config.ImagePullPolicy)
+}
+
+func TestModuleLoaderContainerChaining(t *testing.T) {
+	regexMapping := buildRegExKernelMapping("^.+$")
+
+	testBuilder := NewModLoaderContainerBuilder("test-module").
+		WithModprobeSpec("/opt/lib/modules", "/lib/firmware", []string{"param1"}, []string{"arg1"}, nil, []string{"mod1", "mod2"}).
+		WithKernelMapping(regexMapping).
+		WithImagePullPolicy("Always").
+		WithVersion("2.0")
+
+	assert.Equal(t, "", testBuilder.errorMsg)
+	assert.Equal(t, "test-module", testBuilder.definition.Modprobe.ModuleName)
+	assert.Equal(t, "/opt/lib/modules", testBuilder.definition.Modprobe.DirName)
+	assert.Equal(t, "/lib/firmware", testBuilder.definition.Modprobe.FirmwarePath)
+	assert.Equal(t, []string{"param1"}, testBuilder.definition.Modprobe.Parameters)
+	assert.Equal(t, []string{"arg1"}, testBuilder.definition.Modprobe.Args.Load)
+	assert.Equal(t, []string{"mod1", "mod2"}, testBuilder.definition.Modprobe.ModulesLoadingOrder)
+	assert.Len(t, testBuilder.definition.KernelMappings, 1)
+	assert.Equal(t, corev1.PullPolicy("Always"), testBuilder.definition.ImagePullPolicy)
+	assert.Equal(t, "2.0", testBuilder.definition.Version)
+
+	config, err := testBuilder.BuildModuleLoaderContainerCfg()
+	assert.Nil(t, err)
+	assert.NotNil(t, config)
+}
+
 func buildRegExKernelMapping(regexp string) *v1beta1.KernelMapping {
 	reg := NewRegExKernelMappingBuilder(regexp)
 	regexBuild, _ := reg.BuildKernelMappingConfig()
