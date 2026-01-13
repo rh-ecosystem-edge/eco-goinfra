@@ -1,0 +1,13 @@
+---
+- name: aws-neuron-operator-api-v1alpha1
+  sync: true
+  repo_link: "https://github.com/awslabs/operator-for-ai-chips-on-aws"
+  branch: main
+  remote_api_directory: api/v1alpha1
+  local_api_directory: schemes/neuron/v1alpha1
+  replace_imports:
+    - old: '"github.com/awslabs/operator-for-ai-chips-on-aws/api/v1alpha1"'
+      new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/neuron/v1alpha1"'
+  excludes:
+    - "*_test.go"
+    - "testdata"
