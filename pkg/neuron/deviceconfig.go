@@ -274,7 +274,6 @@ func (builder *Builder) Get() (*neuronv1alpha1.DeviceConfig, error) {
 		logging.DiscardContext(),
 		goclient.ObjectKey{Name: builder.Definition.Name, Namespace: builder.Definition.Namespace},
 		deviceConfig)
-
 	if err != nil {
 		klog.V(100).Infof("DeviceConfig object %s does not exist in namespace %s",
 			builder.Definition.Name, builder.Definition.Namespace)
@@ -343,14 +342,12 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 	builder.Definition.ResourceVersion = builder.Object.ResourceVersion
 
 	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-
 	if err != nil {
 		if force {
 			klog.V(100).Infof("%s", msg.FailToUpdateNotification("DeviceConfig",
 				builder.Definition.Name, builder.Definition.Namespace))
 
 			deletedBuilder, deleteErr := builder.Delete()
-
 			if deleteErr != nil {
 				klog.V(100).Infof("%s", msg.FailToUpdateError("DeviceConfig",
 					builder.Definition.Name, builder.Definition.Namespace))
@@ -392,7 +389,6 @@ func (builder *Builder) Delete() (*Builder, error) {
 	}
 
 	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-
 	if err != nil {
 		return builder, fmt.Errorf("cannot delete DeviceConfig: %w", err)
 	}
@@ -414,8 +410,8 @@ func (builder *Builder) WithOptions(
 	for _, option := range options {
 		if option != nil {
 			var err error
-			builder, err = option(builder)
 
+			builder, err = option(builder)
 			if err != nil {
 				klog.V(100).Infof("Error occurred in mutation function")
 

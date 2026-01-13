@@ -23,110 +23,61 @@ var (
 )
 
 func TestNewBuilder(t *testing.T) {
-	testCases := []struct {
-		name              string
-		namespace         string
-		driversImage      string
-		driverVersion     string
-		devicePluginImage string
-		expectedErr       string
-		client            bool
-	}{
-		{
-			name:              defaultDeviceConfigName,
-			namespace:         defaultDeviceConfigNamespace,
-			driversImage:      defaultDriversImage,
-			driverVersion:     defaultDriverVersion,
-			devicePluginImage: defaultDevicePluginImage,
-			expectedErr:       "",
-			client:            true,
-		},
-		{
-			name:              defaultDeviceConfigName,
-			namespace:         defaultDeviceConfigNamespace,
-			driversImage:      defaultDriversImage,
-			driverVersion:     defaultDriverVersion,
-			devicePluginImage: defaultDevicePluginImage,
-			expectedErr:       "",
-			client:            false,
-		},
-		{
-			name:              "",
-			namespace:         defaultDeviceConfigNamespace,
-			driversImage:      defaultDriversImage,
-			driverVersion:     defaultDriverVersion,
-			devicePluginImage: defaultDevicePluginImage,
-			expectedErr:       "DeviceConfig 'name' cannot be empty",
-			client:            true,
-		},
-		{
-			name:              defaultDeviceConfigName,
-			namespace:         "",
-			driversImage:      defaultDriversImage,
-			driverVersion:     defaultDriverVersion,
-			devicePluginImage: defaultDevicePluginImage,
-			expectedErr:       "DeviceConfig 'namespace' cannot be empty",
-			client:            true,
-		},
-		{
-			name:              defaultDeviceConfigName,
-			namespace:         defaultDeviceConfigNamespace,
-			driversImage:      "",
-			driverVersion:     defaultDriverVersion,
-			devicePluginImage: defaultDevicePluginImage,
-			expectedErr:       "DeviceConfig 'driversImage' cannot be empty",
-			client:            true,
-		},
-		{
-			name:              defaultDeviceConfigName,
-			namespace:         defaultDeviceConfigNamespace,
-			driversImage:      defaultDriversImage,
-			driverVersion:     "",
-			devicePluginImage: defaultDevicePluginImage,
-			expectedErr:       "DeviceConfig 'driverVersion' cannot be empty",
-			client:            true,
-		},
-		{
-			name:              defaultDeviceConfigName,
-			namespace:         defaultDeviceConfigNamespace,
-			driversImage:      defaultDriversImage,
-			driverVersion:     defaultDriverVersion,
-			devicePluginImage: "",
-			expectedErr:       "DeviceConfig 'devicePluginImage' cannot be empty",
-			client:            true,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	t.Run("valid config with client", func(t *testing.T) {
+		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+		testBuilder := NewBuilder(testSettings, defaultDeviceConfigName, defaultDeviceConfigNamespace,
+			defaultDriversImage, defaultDriverVersion, defaultDevicePluginImage)
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
-		}
+		assert.NotNil(t, testBuilder)
+		assert.Equal(t, defaultDeviceConfigName, testBuilder.Definition.Name)
+		assert.Equal(t, defaultDeviceConfigNamespace, testBuilder.Definition.Namespace)
+		assert.Equal(t, defaultDriversImage, testBuilder.Definition.Spec.DriversImage)
+		assert.Equal(t, defaultDriverVersion, testBuilder.Definition.Spec.DriverVersion)
+		assert.Equal(t, defaultDevicePluginImage, testBuilder.Definition.Spec.DevicePluginImage)
+	})
 
-		testBuilder := NewBuilder(
-			testSettings,
-			testCase.name,
-			testCase.namespace,
-			testCase.driversImage,
-			testCase.driverVersion,
-			testCase.devicePluginImage)
+	t.Run("nil client", func(t *testing.T) {
+		testBuilder := NewBuilder(nil, defaultDeviceConfigName, defaultDeviceConfigNamespace,
+			defaultDriversImage, defaultDriverVersion, defaultDevicePluginImage)
+		assert.Nil(t, testBuilder)
+	})
 
-		if testCase.expectedErr == "" {
-			if testCase.client {
-				assert.NotNil(t, testBuilder)
-				assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-				assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-				assert.Equal(t, testCase.driversImage, testBuilder.Definition.Spec.DriversImage)
-				assert.Equal(t, testCase.driverVersion, testBuilder.Definition.Spec.DriverVersion)
-				assert.Equal(t, testCase.devicePluginImage, testBuilder.Definition.Spec.DevicePluginImage)
-			} else {
-				assert.Nil(t, testBuilder)
-			}
-		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
-		}
-	}
+	t.Run("empty name", func(t *testing.T) {
+		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+		testBuilder := NewBuilder(testSettings, "", defaultDeviceConfigNamespace,
+			defaultDriversImage, defaultDriverVersion, defaultDevicePluginImage)
+		assert.Equal(t, "DeviceConfig 'name' cannot be empty", testBuilder.errorMsg)
+	})
+
+	t.Run("empty namespace", func(t *testing.T) {
+		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+		testBuilder := NewBuilder(testSettings, defaultDeviceConfigName, "",
+			defaultDriversImage, defaultDriverVersion, defaultDevicePluginImage)
+		assert.Equal(t, "DeviceConfig 'namespace' cannot be empty", testBuilder.errorMsg)
+	})
+
+	t.Run("empty driversImage", func(t *testing.T) {
+		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+		testBuilder := NewBuilder(testSettings, defaultDeviceConfigName, defaultDeviceConfigNamespace,
+			"", defaultDriverVersion, defaultDevicePluginImage)
+		assert.Equal(t, "DeviceConfig 'driversImage' cannot be empty", testBuilder.errorMsg)
+	})
+
+	t.Run("empty driverVersion", func(t *testing.T) {
+		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+		testBuilder := NewBuilder(testSettings, defaultDeviceConfigName, defaultDeviceConfigNamespace,
+			defaultDriversImage, "", defaultDevicePluginImage)
+		assert.Equal(t, "DeviceConfig 'driverVersion' cannot be empty", testBuilder.errorMsg)
+	})
+
+	t.Run("empty devicePluginImage", func(t *testing.T) {
+		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+		testBuilder := NewBuilder(testSettings, defaultDeviceConfigName, defaultDeviceConfigNamespace,
+			defaultDriversImage, defaultDriverVersion, "")
+		assert.Equal(t, "DeviceConfig 'devicePluginImage' cannot be empty", testBuilder.errorMsg)
+	})
 }
 
 func TestPull(t *testing.T) {

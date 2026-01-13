@@ -47,7 +47,6 @@ func ListDeviceConfigs(
 	}
 
 	err = apiClient.List(logging.DiscardContext(), deviceConfigList, &passedOptions)
-
 	if err != nil {
 		klog.V(100).Infof("Failed to list DeviceConfig objects due to %s", err.Error())
 
