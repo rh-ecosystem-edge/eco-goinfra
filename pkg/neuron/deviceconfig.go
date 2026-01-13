@@ -314,6 +314,7 @@ func (builder *Builder) Create() (*Builder, error) {
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	var err error
+
 	if !builder.Exists() {
 		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
 		if err == nil {
