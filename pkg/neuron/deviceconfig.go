@@ -270,6 +270,7 @@ func (builder *Builder) Get() (*neuronv1alpha1.DeviceConfig, error) {
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	deviceConfig := &neuronv1alpha1.DeviceConfig{}
+
 	err := builder.apiClient.Get(
 		logging.DiscardContext(),
 		goclient.ObjectKey{Name: builder.Definition.Name, Namespace: builder.Definition.Namespace},
