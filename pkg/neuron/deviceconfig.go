@@ -7,7 +7,6 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	neuronv1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/neuron/v1alpha1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -302,7 +301,7 @@ func (builder *Builder) Exists() bool {
 		klog.V(100).Infof("Failed to collect DeviceConfig object due to %s", err.Error())
 	}
 
-	return err == nil || !k8serrors.IsNotFound(err)
+	return err == nil
 }
 
 // Create builds the DeviceConfig in the cluster.
@@ -350,16 +349,20 @@ func (builder *Builder) Update(force bool) (*Builder, error) {
 			klog.V(100).Infof("%s", msg.FailToUpdateNotification("DeviceConfig",
 				builder.Definition.Name, builder.Definition.Namespace))
 
-			builder, err := builder.Delete()
+			deletedBuilder, deleteErr := builder.Delete()
 
-			if err != nil {
+			if deleteErr != nil {
 				klog.V(100).Infof("%s", msg.FailToUpdateError("DeviceConfig",
 					builder.Definition.Name, builder.Definition.Namespace))
 
-				return nil, err
+				return nil, deleteErr
 			}
 
-			return builder.Create()
+			if deletedBuilder == nil {
+				return nil, fmt.Errorf("failed to delete DeviceConfig: builder is nil")
+			}
+
+			return deletedBuilder.Create()
 		}
 	}
 
@@ -410,10 +413,17 @@ func (builder *Builder) WithOptions(
 
 	for _, option := range options {
 		if option != nil {
-			builder, err := option(builder)
+			var err error
+			builder, err = option(builder)
 
 			if err != nil {
 				klog.V(100).Infof("Error occurred in mutation function")
+
+				if builder == nil {
+					klog.V(100).Infof("Mutation function returned nil builder")
+
+					return nil
+				}
 
 				builder.errorMsg = err.Error()
 
