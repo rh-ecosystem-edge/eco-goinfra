@@ -1,5 +1,5 @@
 /*
-Copyright 2024.
+Copyright 2022.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,55 +17,77 @@ limitations under the License.
 package v1alpha1
 
 import (
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// DeviceConfigSpec defines the desired state of DeviceConfig
+const (
+	PCIVendorID = "1d0f"
+)
+
+// DeviceConfigSpec describes how the AMD GPU operator should enable AMD GPU device for customer's use.
 type DeviceConfigSpec struct {
-	// DriversImage specifies the container image for Neuron drivers
-	DriversImage string `json:"driversImage"`
+	// if the in-tree driver should be used instead of OOT drivers
+	UseInTreeDrivers bool `json:"useInTreeDrivers,omitempty"`
 
-	// DriverVersion specifies the version of the Neuron driver
-	// A rolling upgrade is triggered when this field is updated
+	// defines image that includes drivers
 	// +kubebuilder:validation:Required
-	DriverVersion string `json:"driverVersion"`
+	DriversImage string `json:"driversImage,omitempty"`
 
-	// DevicePluginImage specifies the container image for the device plugin
-	DevicePluginImage string `json:"devicePluginImage"`
-
-	// CustomSchedulerImage specifies the container image for custom scheduler
+	// defines the Version of the neuron drivers. used for rolling upgrade
 	// +optional
+	DriverVersion string `json:"driverVersion,omitempty"`
+
+	// device plugin image
+	// +kubebuilder:validation:Required
+	DevicePluginImage string `json:"devicePluginImage,omitempty"`
+
+	// custom scheduler image
+	// +kubebuilder:validation:Required
 	CustomSchedulerImage string `json:"customSchedulerImage,omitempty"`
 
-	// SchedulerExtensionImage specifies the scheduler extension image
-	// +optional
+	// scheduler extension image
+	// +kubebuilder:validation:Required
 	SchedulerExtensionImage string `json:"schedulerExtensionImage,omitempty"`
 
-	// ImageRepoSecret specifies the secret for pulling images from private registries
-	// +optional
-	ImageRepoSecret *ImageRepoSecret `json:"imageRepoSecret,omitempty"`
+	// node metrics image
+	// +kubebuilder:validation:Required
+	NodeMetricsImage string `json:"nodeMetricsImage,omitempty"`
 
-	// Selector defines which nodes should run Neuron components
+	// pull secrets used for pull/setting images used by operator
+	// +optional
+	ImageRepoSecret *v1.LocalObjectReference `json:"imageRepoSecret,omitempty"`
+
+	// Selector describes on which nodes the GPU Operator should enable the GPU device.
 	// +optional
 	Selector map[string]string `json:"selector,omitempty"`
 }
 
-// ImageRepoSecret defines the secret reference for image repository
-type ImageRepoSecret struct {
-	// Name is the name of the secret
-	Name string `json:"name"`
+// DaemonSetStatus contains the status for a daemonset deployed during
+// reconciliation loop
+type DeploymentStatus struct {
+	// number of nodes that are targeted by the DeviceConfig selector
+	NodesMatchingSelectorNumber int32 `json:"nodesMatchingSelectorNumber,omitempty"`
+	// number of the pods that should be deployed for daemonset
+	DesiredNumber int32 `json:"desiredNumber,omitempty"`
+	// number of the actually deployed and running pods
+	AvailableNumber int32 `json:"availableNumber,omitempty"`
 }
 
-// DeviceConfigStatus defines the observed state of DeviceConfig
+// ModuleStatus defines the observed state of Module.
 type DeviceConfigStatus struct {
-	// Add status fields as needed by the operator
+	// DevicePlugin contains the status of the Device Plugin deployment
+	DevicePlugin DeploymentStatus `json:"devicePlugin,omitempty"`
+	// Driver contains the status of the Drivers deployment
+	Drivers DeploymentStatus `json:"driver"`
 }
 
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
-// +kubebuilder:resource:path=deviceconfigs,scope=Namespaced
+//+kubebuilder:object:root=true
+//+kubebuilder:resource:scope=Namespaced,shortName=awslabsdc
+//+kubebuilder:subresource:status
 
-// DeviceConfig is the Schema for AWS Neuron device configuration
+// DeviceConfig describes how to enable awslabs GPU device
+// +operator-sdk:csv:customresourcedefinitions:displayName="DeviceConfig"
 type DeviceConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -74,9 +96,9 @@ type DeviceConfig struct {
 	Status DeviceConfigStatus `json:"status,omitempty"`
 }
 
-// +kubebuilder:object:root=true
+//+kubebuilder:object:root=true
 
-// DeviceConfigList contains a list of DeviceConfig
+// DeviceConfigList contains a list of DeviceConfigs
 type DeviceConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
