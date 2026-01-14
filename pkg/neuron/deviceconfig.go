@@ -7,6 +7,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	neuronv1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/neuron/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -182,7 +183,7 @@ func (builder *Builder) WithImageRepoSecret(secretName string) *Builder {
 		return builder
 	}
 
-	builder.Definition.Spec.ImageRepoSecret = &neuronv1alpha1.ImageRepoSecret{
+	builder.Definition.Spec.ImageRepoSecret = &corev1.LocalObjectReference{
 		Name: secretName,
 	}
 
