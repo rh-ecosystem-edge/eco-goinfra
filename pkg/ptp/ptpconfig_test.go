@@ -16,6 +16,7 @@ import (
 const (
 	defaultPtpConfigName      = "test-ptp-config"
 	defaultPtpConfigNamespace = "test-ns"
+	testProfileName           = "test"
 )
 
 var testSchemes = []clients.SchemeAttacher{
@@ -77,133 +78,320 @@ func TestNewPtpConfigBuilder(t *testing.T) {
 	}
 }
 
-func TestGetE810Plugin(t *testing.T) {
+//nolint:funlen // long due to the number of test cases
+func TestGetIntelPlugin(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		ptpConfigValid bool
-		profileExists  bool
-		pluginExists   bool
-		pluginValid    bool
-		expectedError  string
+		name             string
+		ptpConfigValid   bool
+		pluginType       PluginType
+		pluginJSON       []byte
+		profileExists    bool
+		emptyProfileName bool
+		expectedError    string
 	}{
 		{
+			name:             "empty profileName",
+			ptpConfigValid:   true,
+			emptyProfileName: true,
+			expectedError:    "profileName cannot be empty",
+		},
+		{
+			name:           "valid E810 plugin",
 			ptpConfigValid: true,
+			pluginType:     PluginTypeE810,
+			pluginJSON:     []byte(`{"enableDefaultConfig": true}`),
 			profileExists:  true,
-			pluginExists:   true,
-			pluginValid:    true,
 			expectedError:  "",
 		},
 		{
+			name:           "valid E825 plugin",
+			ptpConfigValid: true,
+			pluginType:     PluginTypeE825,
+			pluginJSON:     []byte(`{"enableDefaultConfig": true}`),
+			profileExists:  true,
+			expectedError:  "",
+		},
+		{
+			name:           "valid E830 plugin",
+			ptpConfigValid: true,
+			pluginType:     PluginTypeE830,
+			pluginJSON:     []byte(`{"enableDefaultConfig": true}`),
+			profileExists:  true,
+			expectedError:  "",
+		},
+		{
+			name:           "invalid ptpConfig",
 			ptpConfigValid: false,
 			profileExists:  true,
-			pluginExists:   true,
-			pluginValid:    true,
 			expectedError:  "ptpConfig 'nsname' cannot be empty",
 		},
 		{
+			name:           "profile not found",
 			ptpConfigValid: true,
 			profileExists:  false,
-			pluginExists:   true,
-			pluginValid:    true,
 			expectedError:  "ptpProfile test not found",
 		},
 		{
+			name:           "no Intel plugin",
 			ptpConfigValid: true,
 			profileExists:  true,
-			pluginExists:   false,
-			pluginValid:    true,
-			expectedError:  "ptpProfile test does not have E810 plugin",
+			expectedError:  "ptpProfile test does not have an Intel plugin",
 		},
 		{
+			name:           "invalid plugin JSON",
 			ptpConfigValid: true,
+			pluginType:     PluginTypeE810,
+			pluginJSON:     []byte(`{'`),
 			profileExists:  true,
-			pluginExists:   true,
-			pluginValid:    false,
-			expectedError:  "unexpected end of JSON input",
+			expectedError:  "invalid character '\\'' looking for beginning of object key string",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithPtpScheme()
-		testBuilder := buildValidPtpConfigBuilder(testSettings)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if !testCase.ptpConfigValid {
-			testBuilder = buildInvalidPtpConfigBuilder(testSettings)
-		}
+			testSettings := buildTestClientWithPtpScheme()
+			testBuilder := buildValidPtpConfigBuilder(testSettings)
 
-		if testCase.profileExists {
-			profile := ptpv1.PtpProfile{
-				Name:    ptr.To("test"),
-				Plugins: make(map[string]*apiextensionsv1.JSON),
+			if !testCase.ptpConfigValid {
+				testBuilder = buildInvalidPtpConfigBuilder(testSettings)
 			}
 
-			if testCase.pluginExists {
-				profile.Plugins = map[string]*apiextensionsv1.JSON{"e810": {}}
-
-				if testCase.pluginValid {
-					profile.Plugins["e810"].Raw = []byte(`{"enableDefaultConfig": true}`)
+			if testCase.profileExists {
+				if len(testCase.pluginJSON) > 0 {
+					testBuilder.Definition.Spec.Profile = []ptpv1.PtpProfile{
+						buildProfileWithPlugin(testProfileName, testCase.pluginType, testCase.pluginJSON),
+					}
+				} else {
+					testBuilder.Definition.Spec.Profile = []ptpv1.PtpProfile{{Name: ptr.To(testProfileName), Plugins: nil}}
 				}
 			}
 
-			testBuilder.Definition.Spec.Profile = []ptpv1.PtpProfile{profile}
-		}
+			profileName := testProfileName
+			if testCase.emptyProfileName {
+				profileName = ""
+			}
 
-		e810Plugin, err := testBuilder.GetE810Plugin("test")
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.NotNil(t, e810Plugin)
-			assert.True(t, e810Plugin.EnableDefaultConfig)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
+			plugin, err := testBuilder.GetIntelPlugin(profileName)
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+				assert.Nil(t, plugin)
+			} else {
+				assert.Nil(t, err)
+				assert.NotNil(t, plugin)
+				assert.Equal(t, testCase.pluginType, plugin.Type)
+				assert.True(t, plugin.EnableDefaultConfig)
+			}
+		})
 	}
 }
 
-func TestWithE810Plugin(t *testing.T) {
+//nolint:funlen // long due to the number of test cases
+func TestWithIntelPlugin(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		ptpConfigValid bool
-		profileExists  bool
-		expectedError  string
+		name             string
+		ptpConfigValid   bool
+		profileExists    bool
+		pluginType       PluginType
+		emptyProfileName bool
+		pluginNil        bool
+		expectedError    string
 	}{
 		{
+			name:             "empty profileName",
+			ptpConfigValid:   true,
+			profileExists:    true,
+			emptyProfileName: true,
+			expectedError:    "cannot set Intel plugin: profileName cannot be empty",
+		},
+		{
+			name:           "nil plugin",
 			ptpConfigValid: true,
+			profileExists:  true,
+			pluginNil:      true,
+			expectedError:  "cannot set Intel plugin: plugin is nil",
+		},
+		{
+			name:           "valid E810 plugin",
+			ptpConfigValid: true,
+			profileExists:  true,
+			pluginType:     PluginTypeE810,
+			expectedError:  "",
+		},
+		{
+			name:           "invalid ptpConfig",
+			ptpConfigValid: false,
+			profileExists:  true,
+			pluginType:     PluginTypeE810,
+			expectedError:  "ptpConfig 'nsname' cannot be empty",
+		},
+		{
+			name:           "profile does not exist",
+			ptpConfigValid: true,
+			profileExists:  false,
+			pluginType:     PluginTypeE810,
+			expectedError:  "cannot set Intel plugin: ptpProfile test does not exist",
+		},
+		{
+			name:           "plugin type not set",
+			ptpConfigValid: true,
+			profileExists:  true,
+			pluginType:     "",
+			expectedError:  "cannot set Intel plugin: plugin Type is not set",
+		},
+		{
+			name:           "plugin type not supported",
+			ptpConfigValid: true,
+			profileExists:  true,
+			pluginType:     PluginType("unsupported"),
+			expectedError:  "cannot set Intel plugin: plugin type unsupported is not supported",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			testSettings := buildTestClientWithPtpScheme()
+			testBuilder := buildValidPtpConfigBuilder(testSettings)
+
+			if !testCase.ptpConfigValid {
+				testBuilder = buildInvalidPtpConfigBuilder(testSettings)
+			}
+
+			if testCase.profileExists {
+				testBuilder.Definition.Spec.Profile = []ptpv1.PtpProfile{{Name: ptr.To(testProfileName)}}
+			}
+
+			var plugin *IntelPlugin
+			if !testCase.pluginNil {
+				plugin = &IntelPlugin{
+					Type:                testCase.pluginType,
+					EnableDefaultConfig: true,
+				}
+			}
+
+			profileName := testProfileName
+			if testCase.emptyProfileName {
+				profileName = ""
+			}
+
+			testBuilder = testBuilder.WithIntelPlugin(profileName, plugin)
+			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+			if testCase.expectedError == "" {
+				plugins := testBuilder.Definition.Spec.Profile[0].Plugins
+
+				assert.NotNil(t, plugins)
+				assert.NotNil(t, plugins[string(testCase.pluginType)])
+			}
+		})
+	}
+}
+
+//nolint:funlen // long due to the number of test cases
+func TestGetPluginType(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		ptpConfigValid   bool
+		pluginType       PluginType
+		profileExists    bool
+		emptyProfileName bool
+		expectedError    string
+	}{
+		{
+			name:             "empty profileName",
+			ptpConfigValid:   true,
+			emptyProfileName: true,
+			expectedError:    "profileName cannot be empty",
+		},
+		{
+			name:           "valid E810 plugin",
+			ptpConfigValid: true,
+			pluginType:     PluginTypeE810,
 			profileExists:  true,
 			expectedError:  "",
 		},
 		{
+			name:           "valid E825 plugin",
+			ptpConfigValid: true,
+			pluginType:     PluginTypeE825,
+			profileExists:  true,
+			expectedError:  "",
+		},
+		{
+			name:           "valid E830 plugin",
+			ptpConfigValid: true,
+			pluginType:     PluginTypeE830,
+			profileExists:  true,
+			expectedError:  "",
+		},
+		{
+			name:           "invalid ptpConfig",
 			ptpConfigValid: false,
 			profileExists:  true,
 			expectedError:  "ptpConfig 'nsname' cannot be empty",
 		},
 		{
+			name:           "profile not found",
 			ptpConfigValid: true,
 			profileExists:  false,
-			expectedError:  "cannot set E810 plugin: ptpProfile test does not exist",
+			expectedError:  "ptpProfile test not found",
+		},
+		{
+			name:           "no Intel plugin",
+			ptpConfigValid: true,
+			profileExists:  true,
+			expectedError:  "ptpProfile test does not have an Intel plugin",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithPtpScheme()
-		testBuilder := buildValidPtpConfigBuilder(testSettings)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if !testCase.ptpConfigValid {
-			testBuilder = buildInvalidPtpConfigBuilder(testSettings)
-		}
+			testSettings := buildTestClientWithPtpScheme()
+			testBuilder := buildValidPtpConfigBuilder(testSettings)
 
-		if testCase.profileExists {
-			testBuilder.Definition.Spec.Profile = []ptpv1.PtpProfile{{Name: ptr.To("test")}}
-		}
+			if !testCase.ptpConfigValid {
+				testBuilder = buildInvalidPtpConfigBuilder(testSettings)
+			}
 
-		e810Plugin := &E810Plugin{
-			EnableDefaultConfig: true,
-		}
+			if testCase.profileExists {
+				if testCase.pluginType != "" {
+					testBuilder.Definition.Spec.Profile = []ptpv1.PtpProfile{
+						buildProfileWithPlugin(testProfileName, testCase.pluginType, []byte(`{}`)),
+					}
+				} else {
+					testBuilder.Definition.Spec.Profile = []ptpv1.PtpProfile{
+						{Name: ptr.To(testProfileName), Plugins: map[string]*apiextensionsv1.JSON{}},
+					}
+				}
+			}
 
-		testBuilder = testBuilder.WithE810Plugin("test", e810Plugin)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			profileName := testProfileName
+			if testCase.emptyProfileName {
+				profileName = ""
+			}
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, testBuilder.Definition.Spec.Profile[0].Plugins["e810"])
-			assert.Equal(t, e810Plugin.EnableDefaultConfig, true)
-		}
+			result, err := testBuilder.GetPluginType(profileName)
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+			} else {
+				assert.Nil(t, err)
+			}
+
+			assert.Equal(t, testCase.pluginType, result)
+		})
 	}
 }
 
@@ -541,4 +729,14 @@ func buildValidPtpConfigBuilder(apiClient *clients.Settings) *PtpConfigBuilder {
 // buildInvalidPtpConfigBuilder returns an invalid PtpConfigBuilder for testing.
 func buildInvalidPtpConfigBuilder(apiClient *clients.Settings) *PtpConfigBuilder {
 	return NewPtpConfigBuilder(apiClient, defaultPtpConfigName, "")
+}
+
+// buildProfileWithPlugin returns a PtpProfile with the specified plugin type and raw JSON.
+func buildProfileWithPlugin(name string, pluginType PluginType, raw []byte) ptpv1.PtpProfile {
+	return ptpv1.PtpProfile{
+		Name: ptr.To(name),
+		Plugins: map[string]*apiextensionsv1.JSON{
+			string(pluginType): {Raw: raw},
+		},
+	}
 }
