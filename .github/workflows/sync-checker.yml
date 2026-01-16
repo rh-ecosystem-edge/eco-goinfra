@@ -1,0 +1,34 @@
+name: Verify lib-sync is up to date
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release-\d.\d\d'
+    paths:
+      - 'internal/sync/configs/**'
+      - 'pkg/schemes/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-lib-sync:
+    runs-on: ubuntu-latest
+    env:
+      SHELL: /bin/bash
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run lib-sync
+        run: make lib-sync
+
+      - name: Ensure vet passes
+        run: make vet
