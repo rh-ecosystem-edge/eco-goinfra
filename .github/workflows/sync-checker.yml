@@ -4,7 +4,7 @@ on:
   pull_request:
     branches:
       - main
-      - 'release-\d.\d\d'
+      - 'release-[0-9].[0-9][0-9]'
     paths:
       - 'internal/sync/configs/**'
       - 'pkg/schemes/**'
