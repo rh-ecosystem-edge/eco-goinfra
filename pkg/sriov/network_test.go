@@ -496,6 +496,78 @@ func TestWithStaticIpam(t *testing.T) {
 	assert.Equal(t, netBuilder.Definition.Spec.IPAM, `{ "type": "static" }`)
 }
 
+func TestWithWhereaboutsIPAM(t *testing.T) {
+	testCases := []struct {
+		ipRange           string
+		gateway           string
+		exclude           string
+		networkName       string
+		expectedErrorText string
+		expectedIPAM      string
+	}{
+		{
+			ipRange:           "192.168.100.0/24",
+			gateway:           "192.168.100.1",
+			exclude:           "192.168.100.1",
+			networkName:       "test-network",
+			expectedErrorText: "",
+			expectedIPAM: `{"exclude":["192.168.100.1"],"gateway":"192.168.100.1",` +
+				`"network_name":"test-network","range":"192.168.100.0/24","type":"whereabouts"}`,
+		},
+		{
+			ipRange:           "10.0.0.0/16",
+			gateway:           "10.0.0.1",
+			exclude:           "",
+			networkName:       "",
+			expectedErrorText: "",
+			expectedIPAM:      `{"gateway":"10.0.0.1","range":"10.0.0.0/16","type":"whereabouts"}`,
+		},
+		{
+			ipRange:           "172.16.0.0/24",
+			gateway:           "172.16.0.1",
+			exclude:           "172.16.0.1",
+			networkName:       "",
+			expectedErrorText: "",
+			expectedIPAM:      `{"exclude":["172.16.0.1"],"gateway":"172.16.0.1","range":"172.16.0.0/24","type":"whereabouts"}`,
+		},
+		{
+			ipRange:           "10.10.0.0/24",
+			gateway:           "10.10.0.1",
+			exclude:           "",
+			networkName:       "my-network",
+			expectedErrorText: "",
+			expectedIPAM:      `{"gateway":"10.10.0.1","network_name":"my-network","range":"10.10.0.0/24","type":"whereabouts"}`,
+		},
+		{
+			ipRange:           "",
+			gateway:           "192.168.100.1",
+			exclude:           "",
+			networkName:       "test-network",
+			expectedErrorText: "failed to configure IPAM, 'ipRange' parameter is empty",
+			expectedIPAM:      "",
+		},
+		{
+			ipRange:           "192.168.100.0/24",
+			gateway:           "",
+			exclude:           "",
+			networkName:       "test-network",
+			expectedErrorText: "failed to configure IPAM, 'gateway' parameter is empty",
+			expectedIPAM:      "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testSettings := buildTestClientWithDummyObject()
+		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithWhereaboutsIPAM(
+			testCase.ipRange, testCase.gateway, testCase.exclude, testCase.networkName)
+		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
+
+		if testCase.expectedErrorText == "" {
+			assert.Equal(t, testCase.expectedIPAM, netBuilder.Definition.Spec.IPAM)
+		}
+	}
+}
+
 func TestWithOptions(t *testing.T) {
 	testSettings := buildTestClientWithDummyObject()
 	testBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithOptions(
