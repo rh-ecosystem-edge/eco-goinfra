@@ -416,6 +416,44 @@ func TestClusterInstanceWithMachineNetwork(t *testing.T) {
 	}
 }
 
+func TestClusterInstanceWithAdditionalNTPSources(t *testing.T) {
+	testCases := []struct {
+		ntpSources       []string
+		expectedErrorMsg string
+		expectedSources  []string
+	}{
+		{
+			ntpSources:       []string{"0.pool.ntp.org", "1.pool.ntp.org"},
+			expectedErrorMsg: "",
+			expectedSources:  []string{"0.pool.ntp.org", "1.pool.ntp.org"},
+		},
+		{
+			ntpSources:       []string{" 2.pool.ntp.org "},
+			expectedErrorMsg: "",
+			expectedSources:  []string{"2.pool.ntp.org"},
+		},
+		{
+			ntpSources:       []string{},
+			expectedErrorMsg: "clusterinstance additional NTP sources cannot be empty",
+		},
+		{
+			ntpSources:       []string{" "},
+			expectedErrorMsg: "clusterinstance additional NTP source cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := generateClusterInstanceBuilderWithFakeObjects([]runtime.Object{})
+
+		testBuilder.WithAdditionalNTPSources(testCase.ntpSources)
+		assert.Equal(t, testCase.expectedErrorMsg, testBuilder.errorMsg)
+
+		if testCase.expectedErrorMsg == "" {
+			assert.Equal(t, testCase.expectedSources, testBuilder.Definition.Spec.AdditionalNTPSources)
+		}
+	}
+}
+
 func TestClusterInstanceWithProxy(t *testing.T) {
 	testCases := []struct {
 		proxy            *aiv1beta1.Proxy
