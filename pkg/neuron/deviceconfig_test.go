@@ -436,6 +436,33 @@ func TestDeviceConfigWithDriverVersion(t *testing.T) {
 	}
 }
 
+func TestDeviceConfigWithNodeMetricsImage(t *testing.T) {
+	testCases := []struct {
+		nodeMetricsImage string
+		expectedError    string
+	}{
+		{
+			nodeMetricsImage: "public.ecr.aws/neuron/neuron-monitor:1.3.0",
+			expectedError:    "",
+		},
+		{
+			nodeMetricsImage: "",
+			expectedError:    "DeviceConfig 'nodeMetricsImage' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
+		result := testBuilder.WithNodeMetricsImage(testCase.nodeMetricsImage)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.nodeMetricsImage, result.Definition.Spec.NodeMetricsImage)
+		} else {
+			assert.Equal(t, testCase.expectedError, result.errorMsg)
+		}
+	}
+}
+
 func TestDeviceConfigWithOptions(t *testing.T) {
 	testCases := []struct {
 		testBuilder   *Builder
