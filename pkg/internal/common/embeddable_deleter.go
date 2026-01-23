@@ -3,7 +3,7 @@ package common
 import "context"
 
 // EmbeddableDeleter is a mixin which provides the Delete method to the embedding builder.
-type EmbeddableDeleter[O any, SO objectPointer[O]] struct {
+type EmbeddableDeleter[O any, SO ObjectPointer[O]] struct {
 	base Builder[O, SO]
 }
 
@@ -26,7 +26,7 @@ func (deleter *EmbeddableDeleter[O, SO]) Delete() error {
 //
 // Consumers of this mixin should set the base to the embedding builder rather than the EmbeddableBuilder so that Delete
 // returns the correct type.
-type EmbeddableDeleteReturner[O any, B any, SO objectPointer[O], SB builderPointer[B, O, SO]] struct {
+type EmbeddableDeleteReturner[O any, B any, SO ObjectPointer[O], SB BuilderPointer[B, O, SO]] struct {
 	base SB
 }
 
