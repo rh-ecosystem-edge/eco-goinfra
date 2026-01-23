@@ -4,7 +4,7 @@ import "context"
 
 // EmbeddableCreator is a mixin which provides the Create method to the embedding builder. The Create method immediately
 // creates the resource in the cluster and returns the builder and the error from the Create method.
-type EmbeddableCreator[O any, B any, SO objectPointer[O], SB builderPointer[B, O, SO]] struct {
+type EmbeddableCreator[O any, B any, SO ObjectPointer[O], SB BuilderPointer[B, O, SO]] struct {
 	base SB
 }
 

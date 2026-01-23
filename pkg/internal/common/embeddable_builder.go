@@ -9,7 +9,7 @@ import (
 
 // EmbeddableBuilder is a struct implementing the Builder interface that can be embedded in existing builder structs. It
 // provides the basic fields and methods for CRUD functions that builders need.
-type EmbeddableBuilder[O any, SO objectPointer[O]] struct {
+type EmbeddableBuilder[O any, SO ObjectPointer[O]] struct {
 	// Definition is the desired form of the resource.
 	Definition SO
 	// Object is the last pulled form of the resource.

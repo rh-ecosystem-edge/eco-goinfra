@@ -4,7 +4,7 @@ import "context"
 
 // EmbeddableUpdater is a mixin which provides the Update method to the embedding builder. The Update method does not
 // force the update and will return an error if the resource could not be updated.
-type EmbeddableUpdater[O any, B any, SO objectPointer[O], SB builderPointer[B, O, SO]] struct {
+type EmbeddableUpdater[O any, B any, SO ObjectPointer[O], SB BuilderPointer[B, O, SO]] struct {
 	base SB
 }
 
@@ -23,7 +23,7 @@ func (updater *EmbeddableUpdater[O, B, SO, SB]) Update() (SB, error) {
 
 // EmbeddableForceUpdater is a mixin which provides the Update method to the embedding builder. The Update method
 // provides the option to force an update by deleting and recreating the resource.
-type EmbeddableForceUpdater[O any, B any, SO objectPointer[O], SB builderPointer[B, O, SO]] struct {
+type EmbeddableForceUpdater[O any, B any, SO ObjectPointer[O], SB BuilderPointer[B, O, SO]] struct {
 	base SB
 }
 

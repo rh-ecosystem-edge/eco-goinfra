@@ -15,10 +15,10 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// objectPointer is a type constraint that requires a type be a pointer to O and implement the runtimeclient.Object
+// ObjectPointer is a type constraint that requires a type be a pointer to O and implement the runtimeclient.Object
 // interface. The type parameter O is meant to be a K8s resource, such as corev1.Namespace. In that case,
-// *corev1.Namespace would satisfy the constraint objectPointer[corev1.Namespace].
-type objectPointer[O any] interface {
+// *corev1.Namespace would satisfy the constraint ObjectPointer[corev1.Namespace].
+type ObjectPointer[O any] interface {
 	*O
 	runtimeclient.Object
 }
@@ -33,7 +33,7 @@ type objectPointer[O any] interface {
 //
 // Although only SO appears in the interface definition, it is important to have access to the derefenced form of the
 // type so we may do new(O) and get a runtimeclient.Object.
-type Builder[O any, SO objectPointer[O]] interface {
+type Builder[O any, SO ObjectPointer[O]] interface {
 	// GetDefinition allows for getting the desired form of a K8s resource from the builder.
 	GetDefinition() SO
 	// SetDefinition allows for updating the desired form of the K8s resource.
@@ -72,7 +72,7 @@ type Builder[O any, SO objectPointer[O]] interface {
 
 // NewResourceKeyFromBuilder creates a new ResourceKey from the given builder. It does not validate the builder, so
 // should only be used after validating the builder, or at least ensuring the builder and its definition are not nil.
-func NewResourceKeyFromBuilder[O any, SO objectPointer[O]](builder Builder[O, SO]) key.ResourceKey {
+func NewResourceKeyFromBuilder[O any, SO ObjectPointer[O]](builder Builder[O, SO]) key.ResourceKey {
 	return key.ResourceKey{
 		Kind:      builder.GetGVK().Kind,
 		Name:      builder.GetDefinition().GetName(),
@@ -93,10 +93,10 @@ type MixinAttacher interface {
 	AttachMixins()
 }
 
-// builderPointer is similar to objectPointer and is a constraint that is satisfied by a Builder that is a pointer. It
+// BuilderPointer is similar to objectPointer and is a constraint that is satisfied by a Builder that is a pointer. It
 // exists for the same reason as objectPointer: needing access to the dereferenced form of builders to construct new
 // ones.
-type builderPointer[B, O any, SO objectPointer[O]] interface {
+type BuilderPointer[B, O any, SO ObjectPointer[O]] interface {
 	*B
 	Builder[O, SO]
 }
@@ -104,7 +104,7 @@ type builderPointer[B, O any, SO objectPointer[O]] interface {
 // NewClusterScopedBuilder creates a new builder for a cluster-scoped resource. It is generic over the actual builder
 // type and uses the methods from the Builder interface to create the actual builder. Generic parameters are ordered so
 // that SO and SB can be elided and only O and B must be provided.
-func NewClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O, SO]](
+func NewClusterScopedBuilder[O, B any, SO ObjectPointer[O], SB BuilderPointer[B, O, SO]](
 	apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name string) SB {
 	var builder SB = new(B)
 
@@ -152,7 +152,7 @@ func NewClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B,
 // NewNamespacedBuilder creates a new builder for a namespaced resource. It is generic over the actual builder type and
 // uses the methods from the Builder interface to create the actual builder. Generic parameters are ordered so that SO
 // and SB can be elided and only O and B must be provided.
-func NewNamespacedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O, SO]](
+func NewNamespacedBuilder[O, B any, SO ObjectPointer[O], SB BuilderPointer[B, O, SO]](
 	apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name, nsname string) SB {
 	var builder SB = new(B)
 
@@ -209,7 +209,7 @@ func NewNamespacedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O,
 // PullClusterScopedBuilder creates a new Builder for a cluster-scoped resource, pulling the resource from the cluster.
 // It is generic over the actual builder type and uses the methods from the Builder interface to create the actual
 // builder. Generic parameters are ordered so that SO and SB can be elided and only O and B must be provided.
-func PullClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O, SO]](
+func PullClusterScopedBuilder[O, B any, SO ObjectPointer[O], SB BuilderPointer[B, O, SO]](
 	ctx context.Context, apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name string) (SB, error) {
 	var builder SB = new(B)
 
@@ -261,7 +261,7 @@ func PullClusterScopedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B
 // PullNamespacedBuilder creates a new Builder for a namespaced resource, pulling the resource from the cluster.
 // It is generic over the actual builder type and uses the methods from the Builder interface to create the actual
 // builder. Generic parameters are ordered so that SO and SB can be elided and only O and B must be provided.
-func PullNamespacedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O, SO]](
+func PullNamespacedBuilder[O, B any, SO ObjectPointer[O], SB BuilderPointer[B, O, SO]](
 	ctx context.Context, apiClient runtimeclient.Client, schemeAttacher clients.SchemeAttacher, name, nsname string) (SB, error) {
 	var builder SB = new(B)
 
@@ -318,7 +318,7 @@ func PullNamespacedBuilder[O, B any, SO objectPointer[O], SB builderPointer[B, O
 }
 
 // Get pulls the resource from the cluster and returns it. It does not modify the builder.
-func Get[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, SO]) (SO, error) {
+func Get[O any, SO ObjectPointer[O]](ctx context.Context, builder Builder[O, SO]) (SO, error) {
 	if err := Validate(builder); err != nil {
 		return nil, err
 	}
@@ -340,7 +340,7 @@ func Get[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, SO]
 // Exists checks if the resource exists in the cluster. If the resource does exist, the builder's object is updated with
 // the resource and this returns true. If the resource does not exist or an error was encountered getting the resource,
 // this returns false without modifying the builder.
-func Exists[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, SO]) bool {
+func Exists[O any, SO ObjectPointer[O]](ctx context.Context, builder Builder[O, SO]) bool {
 	if err := Validate(builder); err != nil {
 		return false
 	}
@@ -364,7 +364,7 @@ func Exists[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, 
 // Delete deletes the resource from the cluster. It immediately tries to delete the resource and if successful, or the
 // resource did not exist, the builder's object is set to nil. Otherwise, the error is wrapped and returned without
 // modifying the builder.
-func Delete[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, SO]) error {
+func Delete[O any, SO ObjectPointer[O]](ctx context.Context, builder Builder[O, SO]) error {
 	if err := Validate(builder); err != nil {
 		return err
 	}
@@ -393,7 +393,7 @@ func Delete[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, 
 // If force is true, the resource will be deleted and recreated. Otherwise, the error is wrapped and returned without
 // modifying the builder. It is generally discouraged to use the force flag since finalizers may cause unexpected side
 // effects and most update errors can be resolved by retrying on conflict.
-func Update[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, SO], force bool) error {
+func Update[O any, SO ObjectPointer[O]](ctx context.Context, builder Builder[O, SO], force bool) error {
 	if err := Validate(builder); err != nil {
 		return err
 	}
@@ -442,7 +442,7 @@ func Update[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, 
 }
 
 // Create creates the definition on the cluster. If the resource already exists, this is a no-op.
-func Create[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, SO]) error {
+func Create[O any, SO ObjectPointer[O]](ctx context.Context, builder Builder[O, SO]) error {
 	if err := Validate(builder); err != nil {
 		return err
 	}
@@ -475,7 +475,7 @@ func Create[O any, SO objectPointer[O]](ctx context.Context, builder Builder[O, 
 // Validate checks that the builder is valid, that is, it is non-nil, has a non-nil definition, has a non-nil client,
 // and has no error message. Additional checks are performed on any interface so that we know it is not nil and its
 // concrete type is not nil.
-func Validate[O any, SO objectPointer[O]](builder Builder[O, SO]) error {
+func Validate[O any, SO ObjectPointer[O]](builder Builder[O, SO]) error {
 	if isInterfaceNil(builder) {
 		klog.V(100).Infof("The builder is nil")
 
@@ -506,13 +506,18 @@ func Validate[O any, SO objectPointer[O]](builder Builder[O, SO]) error {
 	return nil
 }
 
-type listPointer[L any] interface {
+// ListPointer is a type constraint that requires a type be a pointer to L and implement the runtimeclient.ObjectList
+// interface. The type parameter L is meant to be a K8s resource list, such as corev1.NamespaceList. In that case,
+// *corev1.NamespaceList would satisfy the constraint ListPointer[corev1.NamespaceList].
+//
+// This is the list equivalent of [ObjectPointer].
+type ListPointer[L any] interface {
 	*L
 	runtimeclient.ObjectList
 }
 
 // List lists the resources in the cluster and returns a list of builders for each resource.
-func List[O, L, B any, SO objectPointer[O], SL listPointer[L], SB builderPointer[B, O, SO]](
+func List[O, L, B any, SO ObjectPointer[O], SL ListPointer[L], SB BuilderPointer[B, O, SO]](
 	ctx context.Context,
 	apiClient runtimeclient.Client,
 	schemeAttacher clients.SchemeAttacher,
@@ -562,19 +567,31 @@ func List[O, L, B any, SO objectPointer[O], SL listPointer[L], SB builderPointer
 
 		var builder SB = new(B)
 
+		if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
+			mixinAttacher.AttachMixins()
+		}
+
 		builder.SetDefinition(typedItem)
 		builder.SetObject(typedItem)
 		builder.SetClient(apiClient)
 		builder.SetGVK(builder.GetGVK())
 
-		if mixinAttacher, ok := any(builder).(MixinAttacher); ok {
-			mixinAttacher.AttachMixins()
-		}
-
 		builders = append(builders, builder)
 	}
 
 	return builders, nil
+}
+
+// ConvertListOptionsToOptions converts a slice of runtimeclient.ListOptions to a slice of runtimeclient.ListOption.
+// This is to allow for compatibility with existing functions which used ListOptions instead of ListOption.
+func ConvertListOptionsToOptions(options []runtimeclient.ListOptions) []runtimeclient.ListOption {
+	listOptions := make([]runtimeclient.ListOption, len(options))
+
+	for i, option := range options {
+		listOptions[i] = &option
+	}
+
+	return listOptions
 }
 
 // isInterfaceNil checks if the interface is nil. It checks both equality against nil and the reflect.Value.IsNil
