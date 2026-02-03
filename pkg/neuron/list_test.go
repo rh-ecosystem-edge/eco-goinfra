@@ -5,16 +5,16 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/neuron/v1alpha1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/neuron/v1beta1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-func buildTestDeviceConfig(name, namespace string) *v1alpha1.DeviceConfig {
-	return &v1alpha1.DeviceConfig{
+func buildTestDeviceConfig(name, namespace string) *v1beta1.DeviceConfig {
+	return &v1beta1.DeviceConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec: v1alpha1.DeviceConfigSpec{
+		Spec: v1beta1.DeviceConfigSpec{
 			DriversImage:      defaultDriversImage,
 			DriverVersion:     defaultDriverVersion,
 			DevicePluginImage: defaultDevicePluginImage,
