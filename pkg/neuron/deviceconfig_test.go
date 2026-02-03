@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/neuron/v1alpha1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/neuron/v1beta1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -13,13 +13,13 @@ import (
 
 var (
 	testSchemes = []clients.SchemeAttacher{
-		v1alpha1.AddToScheme,
+		v1beta1.AddToScheme,
 	}
 	defaultDeviceConfigName      = "neuron"
 	defaultDeviceConfigNamespace = "ai-operator-on-aws"
-	defaultDriversImage          = "public.ecr.aws/q5p6u7h8/neuron-openshift/neuron-kernel-module:2.24.7.0"
-	defaultDriverVersion         = "2.24.11.0"
-	defaultDevicePluginImage     = "public.ecr.aws/neuron/neuron-device-plugin:2.24.23.0"
+	defaultDriversImage          = "public.ecr.aws/os-partners/neuron-openshift/neuron-kernel-module:2.25.4.0"
+	defaultDriverVersion         = "2.24.7.0"
+	defaultDevicePluginImage     = "public.ecr.aws/neuron/neuron-device-plugin:2.29.16.0"
 )
 
 func TestNewBuilder(t *testing.T) {
@@ -353,12 +353,12 @@ func TestDeviceConfigWithScheduler(t *testing.T) {
 	}{
 		{
 			schedulerImage: "public.ecr.aws/eks-distro/kubernetes/kube-scheduler:v1.32.9-eks-1-32-24",
-			extensionImage: "public.ecr.aws/neuron/neuron-scheduler:2.24.23.0",
+			extensionImage: "public.ecr.aws/neuron/neuron-scheduler:2.29.16.0",
 			expectedError:  "",
 		},
 		{
 			schedulerImage: "",
-			extensionImage: "public.ecr.aws/neuron/neuron-scheduler:2.24.23.0",
+			extensionImage: "public.ecr.aws/neuron/neuron-scheduler:2.29.16.0",
 			expectedError:  "DeviceConfig 'schedulerImage' cannot be empty",
 		},
 		{
@@ -499,13 +499,13 @@ func TestDeviceConfigWithOptions(t *testing.T) {
 }
 
 // buildDummyDeviceConfig returns a DeviceConfig with the provided name and namespace.
-func buildDummyDeviceConfig(name, namespace string) *v1alpha1.DeviceConfig {
-	return &v1alpha1.DeviceConfig{
+func buildDummyDeviceConfig(name, namespace string) *v1beta1.DeviceConfig {
+	return &v1beta1.DeviceConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: v1alpha1.DeviceConfigSpec{
+		Spec: v1beta1.DeviceConfigSpec{
 			DriversImage:      defaultDriversImage,
 			DriverVersion:     defaultDriverVersion,
 			DevicePluginImage: defaultDevicePluginImage,
