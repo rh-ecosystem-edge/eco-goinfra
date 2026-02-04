@@ -203,7 +203,7 @@ func TestNodesConfigCGroupMode(t *testing.T) {
 			expectedErrorText: "",
 		},
 		{ // Test Case 2 - valid cgroup mode
-			testCGroupMode:    configV1.CgroupModeV1,
+			testCGroupMode:    configV1.CgroupModeV2,
 			expectedError:     false,
 			expectedErrorText: "",
 		},

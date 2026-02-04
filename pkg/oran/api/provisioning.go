@@ -215,6 +215,15 @@ func (client *ProvisioningClient) Update(
 	return nil
 }
 
+// Apply always returns an unimplementedError since the ProvisioningRequest cannot be applied via the O2IMS API.
+func (client *ProvisioningClient) Apply(
+	_ context.Context, _ runtime.ApplyConfiguration, _ ...runtimeclient.ApplyOption) error {
+	return &unimplementedError{
+		clientType: ProvisioningClientType,
+		method:     "Apply",
+	}
+}
+
 // Patch always returns an unimplementedError since the ProvisioningRequest cannot be patched via the O2IMS API.
 func (client *ProvisioningClient) Patch(
 	_ context.Context, _ runtimeclient.Object, _ runtimeclient.Patch, _ ...runtimeclient.PatchOption) error {

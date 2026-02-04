@@ -212,7 +212,7 @@ func TestControllerCreate(t *testing.T) {
 		},
 		{
 			testKedaController: buildInValidControllerBuilder(buildControllerClientWithDummyObject()),
-			expectedError:      " \"\" is invalid: metadata.name: Required value: name is required",
+			expectedError:      "KedaController.keda.sh \"\" is invalid: metadata.name: Required value: name is required",
 		},
 		{
 			testKedaController: buildValidControllerBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -277,7 +277,7 @@ func TestControllerUpdate(t *testing.T) {
 		},
 		{
 			testKedaController: buildInValidControllerBuilder(buildControllerClientWithDummyObject()),
-			expectedError:      " \"\" is invalid: metadata.name: Required value: name is required",
+			expectedError:      "KedaController.keda.sh \"\" is invalid: metadata.name: Required value: name is required",
 			watchNamespace:     "",
 		},
 	}
