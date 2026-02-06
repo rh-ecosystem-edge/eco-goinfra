@@ -402,32 +402,109 @@ func TestNodeIsReady(t *testing.T) {
 	}
 }
 
-func TestNodeWaitUntilConditionTrue(t *testing.T) {
-	testNodeWaitUntilConditionHelper(t,
-		func(testBuilder *Builder, conditionType corev1.NodeConditionType, timeout time.Duration) error {
-			return testBuilder.WaitUntilConditionTrue(conditionType, timeout)
-		})
+func TestNodeWaitForCondition(t *testing.T) {
+	expectedCondition := corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionTrue}
+	testNodeWaitUntilConditionHelper(t, expectedCondition, func(testBuilder *Builder, timeout time.Duration) error {
+		_, err := testBuilder.WaitForCondition(expectedCondition, timeout)
+
+		return err
+	})
 }
 
-func TestNodeWaitUntilConditionUnknown(t *testing.T) {
-	testNodeWaitUntilConditionHelper(t,
-		func(testBuilder *Builder, conditionType corev1.NodeConditionType, timeout time.Duration) error {
-			return testBuilder.WaitUntilConditionUnknown(conditionType, timeout)
-		})
+func TestNodeWaitUntilConditionTrue(t *testing.T) {
+	expectedCondition := corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionTrue}
+	testNodeWaitUntilConditionHelper(t, expectedCondition, func(testBuilder *Builder, timeout time.Duration) error {
+		return testBuilder.WaitUntilConditionTrue(expectedCondition.Type, timeout)
+	})
 }
 
 func TestNodeWaitUntilReady(t *testing.T) {
-	testNodeWaitUntilConditionHelper(t,
-		func(testBuilder *Builder, conditionType corev1.NodeConditionType, timeout time.Duration) error {
-			return testBuilder.WaitUntilReady(timeout)
-		})
+	expectedCondition := corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionTrue}
+	testNodeWaitUntilConditionHelper(t, expectedCondition, func(testBuilder *Builder, timeout time.Duration) error {
+		return testBuilder.WaitUntilReady(timeout)
+	})
 }
 
 func TestNodeWaitUntilNotReady(t *testing.T) {
-	testNodeWaitUntilConditionHelper(t,
-		func(testBuilder *Builder, conditionType corev1.NodeConditionType, timeout time.Duration) error {
-			return testBuilder.WaitUntilNotReady(timeout)
+	testCases := []struct {
+		name          string
+		exists        bool
+		hasCondition  bool
+		conditionVal  corev1.ConditionStatus
+		builderErrMsg string
+		expectedError error
+	}{
+		{
+			name:          "exists and Ready is False",
+			exists:        true,
+			hasCondition:  true,
+			conditionVal:  corev1.ConditionFalse,
+			expectedError: nil,
+		},
+		{
+			name:          "exists and Ready is Unknown",
+			exists:        true,
+			hasCondition:  true,
+			conditionVal:  corev1.ConditionUnknown,
+			expectedError: nil,
+		},
+		{
+			name:          "exists and Ready is True",
+			exists:        true,
+			hasCondition:  true,
+			conditionVal:  corev1.ConditionTrue,
+			expectedError: context.DeadlineExceeded,
+		},
+		{
+			name:          "does not exist",
+			exists:        false,
+			hasCondition:  false,
+			expectedError: context.DeadlineExceeded,
+		},
+		{
+			name:          "exists but has no Ready condition",
+			exists:        true,
+			hasCondition:  false,
+			expectedError: context.DeadlineExceeded,
+		},
+		{
+			name:          "invalid builder with error message",
+			exists:        true,
+			hasCondition:  true,
+			conditionVal:  corev1.ConditionFalse,
+			builderErrMsg: "test error",
+			expectedError: fmt.Errorf("test error"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var runtimeObjects []runtime.Object
+
+			if testCase.exists {
+				if testCase.hasCondition {
+					runtimeObjects = append(runtimeObjects,
+						buildDummyNodeWithCondition(defaultNodeName, corev1.NodeReady, testCase.conditionVal))
+				} else {
+					runtimeObjects = append(runtimeObjects, buildDummyNode(defaultNodeName))
+				}
+			}
+
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects: runtimeObjects,
+			})
+			testBuilder := buildValidNodeTestBuilder(testSettings)
+
+			if testCase.builderErrMsg != "" {
+				testBuilder.errorMsg = testCase.builderErrMsg
+			}
+
+			err := testBuilder.WaitUntilNotReady(time.Second)
+			assert.Equal(t, testCase.expectedError, err)
 		})
+	}
 }
 
 func TestNodeValidate(t *testing.T) {
@@ -501,69 +578,76 @@ func TestNodeValidate(t *testing.T) {
 	}
 }
 
+// testNodeWaitUntilConditionHelper tests methods that wait for a specific condition status. Depending on the test case,
+// the condition may be set to expectedCondition.
 func testNodeWaitUntilConditionHelper(
 	t *testing.T,
-	testedFunc func(testBuilder *Builder, conditionType corev1.NodeConditionType, timeout time.Duration) error) {
+	expectedCondition corev1.NodeCondition,
+	testedFunc func(testBuilder *Builder, timeout time.Duration) error) {
 	t.Helper()
 
 	testCases := []struct {
-		exists        bool
-		hasCondition  bool
-		conditionTrue bool
-		expectedError error
+		name           string
+		exists         bool
+		hasCondition   bool
+		conditionUnmet bool
+		expectedError  error
 	}{
 		{
-			exists:        true,
-			hasCondition:  true,
-			conditionTrue: true,
-			expectedError: nil,
+			name:           "exists and has condition met",
+			exists:         true,
+			hasCondition:   true,
+			conditionUnmet: false,
+			expectedError:  nil,
 		},
 		{
+			name:          "does not exist",
 			exists:        false,
-			hasCondition:  true,
-			conditionTrue: true,
-			expectedError: fmt.Errorf("node %s object does not exist", defaultNodeName),
+			hasCondition:  false,
+			expectedError: context.DeadlineExceeded,
 		},
 		{
+			name:          "exists and does not have condition",
 			exists:        true,
 			hasCondition:  false,
-			conditionTrue: true,
-			expectedError: fmt.Errorf("the %s condition could not be found for node %s", corev1.NodeReady, defaultNodeName),
+			expectedError: context.DeadlineExceeded,
 		},
 		{
-			exists:        true,
-			hasCondition:  true,
-			conditionTrue: false,
-			expectedError: context.DeadlineExceeded,
+			name:           "exists and has condition but is unmet",
+			exists:         true,
+			hasCondition:   true,
+			conditionUnmet: true,
+			expectedError:  context.DeadlineExceeded,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			node := buildDummyNode(defaultNodeName)
+			var runtimeObjects []runtime.Object
 
-			if testCase.hasCondition {
-				status := corev1.ConditionUnknown
+			if testCase.exists {
+				if testCase.hasCondition {
+					status := expectedCondition.Status
+					if testCase.conditionUnmet {
+						status = "invalid"
+					}
 
-				if testCase.conditionTrue {
-					status = corev1.ConditionTrue
+					runtimeObjects = append(runtimeObjects, buildDummyNodeWithCondition(defaultNodeName, expectedCondition.Type, status))
+				} else {
+					runtimeObjects = append(runtimeObjects, buildDummyNode(defaultNodeName))
 				}
-
-				node = buildDummyNodeWithCondition(defaultNodeName, corev1.NodeReady, status)
 			}
 
-			runtimeObjects = append(runtimeObjects, node)
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects: runtimeObjects,
+			})
+			testBuilder := buildValidNodeTestBuilder(testSettings)
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
+			err := testedFunc(testBuilder, time.Second)
+			assert.Equal(t, testCase.expectedError, err)
 		})
-		testBuilder := buildValidNodeTestBuilder(testSettings)
-
-		err := testedFunc(testBuilder, corev1.NodeReady, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
