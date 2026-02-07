@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	"context"
 	"errors"
 
 	semver "github.com/Masterminds/semver/v3"
@@ -24,7 +25,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -67,10 +67,10 @@ func (r *PtpOperatorConfig) validate() error {
 	return nil
 }
 
-var _ webhook.Validator = &PtpOperatorConfig{}
+var _ admission.CustomValidator = &PtpOperatorConfig{}
 
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *PtpOperatorConfig) ValidateCreate() (admission.Warnings, error) {
+// ValidateCreate implements admission.CustomValidator so a webhook will be registered for the type
+func (r *PtpOperatorConfig) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	ptpoperatorconfiglog.Info("validate create", "name", r.Name)
 	if err := r.validate(); err != nil {
 		return admission.Warnings{}, err
@@ -78,8 +78,8 @@ func (r *PtpOperatorConfig) ValidateCreate() (admission.Warnings, error) {
 	return admission.Warnings{}, nil
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *PtpOperatorConfig) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+// ValidateUpdate implements admission.CustomValidator so a webhook will be registered for the type
+func (r *PtpOperatorConfig) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	ptpoperatorconfiglog.Info("validate update", "name", r.Name)
 	if err := r.validate(); err != nil {
 		return admission.Warnings{}, err
@@ -87,8 +87,8 @@ func (r *PtpOperatorConfig) ValidateUpdate(old runtime.Object) (admission.Warnin
 	return admission.Warnings{}, nil
 }
 
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *PtpOperatorConfig) ValidateDelete() (admission.Warnings, error) {
+// ValidateDelete implements admission.CustomValidator so a webhook will be registered for the type
+func (r *PtpOperatorConfig) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	ptpoperatorconfiglog.Info("validate delete", "name", r.Name)
 	return admission.Warnings{}, nil
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -29,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -42,10 +42,10 @@ func (r *ImageClusterInstall) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-var _ webhook.Validator = &ImageClusterInstall{}
+var _ admission.CustomValidator = &ImageClusterInstall{}
 
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *ImageClusterInstall) ValidateCreate() (admission.Warnings, error) {
+// ValidateCreate implements admission.CustomValidator so a webhook will be registered for the type
+func (r *ImageClusterInstall) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	icilog.Info("validate create", "name", r.Name)
 	if err := r.validate(); err != nil {
 		return nil, err
@@ -54,15 +54,15 @@ func (r *ImageClusterInstall) ValidateCreate() (admission.Warnings, error) {
 	return nil, nil
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *ImageClusterInstall) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+// ValidateUpdate implements admission.CustomValidator so a webhook will be registered for the type
+func (r *ImageClusterInstall) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	icilog.Info("validate update", "name", r.Name)
 
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
 
-	oldClusterInstall, ok := old.(*ImageClusterInstall)
+	oldClusterInstall, ok := oldObj.(*ImageClusterInstall)
 	if !ok {
 		return nil, fmt.Errorf("old object is not an ImageClusterInstall")
 	}
@@ -78,8 +78,8 @@ func (r *ImageClusterInstall) ValidateUpdate(old runtime.Object) (admission.Warn
 	return nil, nil
 }
 
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *ImageClusterInstall) ValidateDelete() (admission.Warnings, error) {
+// ValidateDelete implements admission.CustomValidator so a webhook will be registered for the type
+func (r *ImageClusterInstall) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 

@@ -33,7 +33,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -411,10 +410,10 @@ func validateInterfaceSppInSecret(conf *Ptp4lConf, secretName string, secretKey 
 	return nil
 }
 
-var _ webhook.Validator = &PtpConfig{}
+var _ admission.CustomValidator = &PtpConfig{}
 
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *PtpConfig) ValidateCreate() (admission.Warnings, error) {
+// ValidateCreate implements admission.CustomValidator so a webhook will be registered for the type
+func (r *PtpConfig) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	ptpconfiglog.Info("validate create", "name", r.Name)
 	if err := r.validate(); err != nil {
 		return admission.Warnings{}, err
@@ -423,8 +422,8 @@ func (r *PtpConfig) ValidateCreate() (admission.Warnings, error) {
 	return admission.Warnings{}, nil
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *PtpConfig) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+// ValidateUpdate implements admission.CustomValidator so a webhook will be registered for the type
+func (r *PtpConfig) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	ptpconfiglog.Info("validate update", "name", r.Name)
 	if err := r.validate(); err != nil {
 		return admission.Warnings{}, err
@@ -433,8 +432,8 @@ func (r *PtpConfig) ValidateUpdate(old runtime.Object) (admission.Warnings, erro
 	return admission.Warnings{}, nil
 }
 
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *PtpConfig) ValidateDelete() (admission.Warnings, error) {
+// ValidateDelete implements admission.CustomValidator so a webhook will be registered for the type
+func (r *PtpConfig) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	ptpconfiglog.Info("validate delete", "name", r.Name)
 	return admission.Warnings{}, nil
 }

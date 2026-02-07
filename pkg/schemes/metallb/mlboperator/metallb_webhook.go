@@ -17,6 +17,7 @@ limitations under the License.
 package mlboperator
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -25,7 +26,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -40,10 +40,10 @@ func (metallb *MetalLB) SetupWebhookWithManager(mgr ctrl.Manager, externalFRRK8s
 
 //+kubebuilder:webhook:verbs=create;update,path=/validate-metallb-io-v1beta1-metallb,mutating=false,failurePolicy=fail,groups=metallb.io,resources=metallbs,versions=v1beta1,name=metallbvalidationwebhook.metallb.io,sideEffects=None,admissionReviewVersions=v1
 
-var _ webhook.Validator = &MetalLB{}
+var _ admission.CustomValidator = &MetalLB{}
 
-// ValidateCreate implements webhook.Validator so a webhook will be registered for MetalLB.
-func (metallb *MetalLB) ValidateCreate() (admission.Warnings, error) {
+// ValidateCreate implements admission.CustomValidator so a webhook will be registered for MetalLB.
+func (metallb *MetalLB) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	if err := metallb.Validate(); err != nil {
 		return admission.Warnings{}, err
 	}
@@ -51,8 +51,8 @@ func (metallb *MetalLB) ValidateCreate() (admission.Warnings, error) {
 	return admission.Warnings{}, nil
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for MetalLB.
-func (metallb *MetalLB) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+// ValidateUpdate implements admission.CustomValidator so a webhook will be registered for MetalLB.
+func (metallb *MetalLB) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	if err := metallb.Validate(); err != nil {
 		return admission.Warnings{}, err
 	}
@@ -60,8 +60,8 @@ func (metallb *MetalLB) ValidateUpdate(old runtime.Object) (admission.Warnings, 
 	return admission.Warnings{}, nil
 }
 
-// ValidateDelete implements webhook.Validator so a webhook will be registered for MetalLB.
-func (metallb *MetalLB) ValidateDelete() (admission.Warnings, error) {
+// ValidateDelete implements admission.CustomValidator so a webhook will be registered for MetalLB.
+func (metallb *MetalLB) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	return admission.Warnings{}, nil
 }
 
