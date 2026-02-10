@@ -1,0 +1,9 @@
+---
+- name: ipconfig-v1
+  sync: true
+  repo_link: "https://github.com/openshift-kni/lifecycle-agent"
+  branch: release-4.21
+  remote_api_directory: api/ipconfig/v1
+  local_api_directory: schemes/ipchange/api/ipconfig/v1
+  excludes:
+    - "*_test.go"
