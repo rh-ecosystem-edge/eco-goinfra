@@ -1,6 +1,6 @@
 version: "2"
 run:
-  go: "1.25"
+  go: "1.26"
 linters:
   enable:
     - asciicheck
@@ -144,6 +144,10 @@ linters:
       - linters:
           - exhaustive
         path: pkg/polarion
+      - linters:
+          - revive
+        path: pkg/oran/api
+        text: "var-naming: avoid meaningless package names"
     paths:
       - pkg/schemes
       - third_party$
