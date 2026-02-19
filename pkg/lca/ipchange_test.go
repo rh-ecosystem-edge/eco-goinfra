@@ -114,6 +114,37 @@ func TestIPConfigDelete(t *testing.T) {
 	}
 }
 
+func TestIPConfigUpdate(t *testing.T) {
+	testCases := []struct {
+		ipconfig      *IPConfigBuilder
+		expectedError string
+	}{
+		{
+			ipconfig: buildValidIPConfigBuilderWithStacks(
+				buildIPConfigTestClientWithDummyObject(buildIPConfigRuntimeWithResourceVersion())),
+			expectedError: "",
+		},
+		{
+			ipconfig: buildValidIPConfigBuilderWithStacks(
+				buildIPConfigTestClientWithDummyObject([]runtime.Object{})),
+			expectedError: "cannot update non-existing ipconfig",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase.ipconfig.WithIPv4Address("192.168.1.10")
+
+		updatedBuilder, err := testCase.ipconfig.Update()
+		if testCase.expectedError == "" {
+			assert.Nil(t, err)
+			assert.NotNil(t, updatedBuilder.Object)
+			assert.Equal(t, updatedBuilder.Definition.Spec.IPv4.Address, updatedBuilder.Object.Spec.IPv4.Address)
+		} else {
+			assert.Equal(t, testCase.expectedError, err.Error())
+		}
+	}
+}
+
 func TestIPConfigGet(t *testing.T) {
 	testCases := []struct {
 		ipconfig      *IPConfigBuilder
@@ -478,6 +509,16 @@ func buildDummyIPConfigRuntime() []runtime.Object {
 	return append([]runtime.Object{}, &lcaipcv1.IPConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: ipConfigName,
+		},
+		Spec: lcaipcv1.IPConfigSpec{},
+	})
+}
+
+func buildIPConfigRuntimeWithResourceVersion() []runtime.Object {
+	return append([]runtime.Object{}, &lcaipcv1.IPConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            ipConfigName,
+			ResourceVersion: "1",
 		},
 		Spec: lcaipcv1.IPConfigSpec{},
 	})
