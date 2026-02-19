@@ -371,6 +371,27 @@ func TestIPConfigWithStage(t *testing.T) {
 	assert.Equal(t, lcaipcv1.IPStages.Config, testBuilder.Definition.Spec.Stage)
 }
 
+func TestIPConfigWithVlanID(t *testing.T) {
+	testCases := []struct {
+		vlanID int
+	}{
+		{
+			vlanID: 0,
+		},
+		{
+			vlanID: 123,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidIPConfigBuilder(buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+
+		testBuilder.WithVlanID(testCase.vlanID)
+
+		assert.Equal(t, testCase.vlanID, testBuilder.Definition.Spec.VLANID)
+	}
+}
+
 func TestIPConfigWithDNS(t *testing.T) {
 	testCases := []struct {
 		dnsServers         []string

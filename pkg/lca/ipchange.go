@@ -383,6 +383,19 @@ func (builder *IPConfigBuilder) WithStage(
 	return builder
 }
 
+// WithVlanID sets the VLAN ID used by the ipconfig.
+func (builder *IPConfigBuilder) WithVlanID(
+	vlanID int) *IPConfigBuilder {
+	if valid, _ := builder.validate(); !valid {
+		return builder
+	}
+
+	klog.V(100).Infof("Setting VLAN ID %d in ipconfig", vlanID)
+	builder.Definition.Spec.VLANID = vlanID
+
+	return builder
+}
+
 // WithDNS sets the list of DNS servers used by the ipconfig.
 func (builder *IPConfigBuilder) WithDNS(
 	dnsServers []string) *IPConfigBuilder {
