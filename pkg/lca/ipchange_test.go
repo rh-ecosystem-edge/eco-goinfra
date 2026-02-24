@@ -392,6 +392,22 @@ func TestIPConfigWithVlanID(t *testing.T) {
 	}
 }
 
+func TestIPConfigWithAutoRollbackOnFailure(t *testing.T) {
+	testCases := []struct {
+		seconds int
+	}{
+		{seconds: 10},
+		{seconds: -1},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidIPConfigBuilder(buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+		testBuilder.WithAutoRollbackOnFailure(testCase.seconds)
+		assert.NotNil(t, testBuilder.Definition.Spec.AutoRollbackOnFailure)
+		assert.Equal(t, testCase.seconds, testBuilder.Definition.Spec.AutoRollbackOnFailure.InitMonitorTimeoutSeconds)
+	}
+}
+
 func TestIPConfigWithDNS(t *testing.T) {
 	testCases := []struct {
 		dnsServers         []string
