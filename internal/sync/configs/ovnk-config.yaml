@@ -1,7 +1,7 @@
 ---
 - name: ovn-kubernetes-types
   sync: true
-  repo_link: "https://github.com/ovn-org/ovn-kubernetes"
+  repo_link: "https://github.com/ovn-kubernetes/ovn-kubernetes"
   branch: master
   remote_api_directory: go-controller/pkg/crd/types
   local_api_directory: schemes/ovn/types
@@ -12,12 +12,12 @@
 
 - name: ovn-kubernetes-routeadvertisement
   sync: true
-  repo_link: "https://github.com/ovn-org/ovn-kubernetes"
+  repo_link: "https://github.com/ovn-kubernetes/ovn-kubernetes"
   branch: master
   remote_api_directory: go-controller/pkg/crd/routeadvertisements/v1
   local_api_directory: schemes/ovn/routeadvertisement/v1
   replace_imports:
-    - old: '"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/types"'
+    - old: '"github.com/ovn-kubernetes/ovn-kubernetes/go-controller/pkg/crd/types"'
       new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ovn/types"'
   excludes:
     - "*_test.go"

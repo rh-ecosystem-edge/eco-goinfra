@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 )
 
 var (
@@ -319,18 +320,18 @@ func TestServiceMonitorWithEndpoints(t *testing.T) {
 		{
 			testEndpoints: []monv1.Endpoint{{
 				Port:   "http",
-				Scheme: "http",
+				Scheme: ptr.To(monv1.Scheme("http")),
 			}},
 			expectedErrorText: "",
 		},
 		{
 			testEndpoints: []monv1.Endpoint{{
 				Port:   "http",
-				Scheme: "http",
+				Scheme: ptr.To(monv1.Scheme("http")),
 			},
 				{
 					Port:   "sctp",
-					Scheme: "sctp",
+					Scheme: ptr.To(monv1.Scheme("sctp")),
 				}},
 			expectedErrorText: "",
 		},
