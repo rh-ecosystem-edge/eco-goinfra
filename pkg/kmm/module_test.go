@@ -582,6 +582,38 @@ func TestModuleWithToleration(t *testing.T) {
 	}
 }
 
+func TestModuleWithImageRebuildTriggerGeneration(t *testing.T) {
+	testCases := []struct {
+		generation  int
+		expectedErr string
+	}{
+		{
+			generation:  1,
+			expectedErr: "",
+		},
+		{
+			generation:  0,
+			expectedErr: "",
+		},
+		{
+			generation:  42,
+			expectedErr: "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithImageRebuildTriggerGeneration(testCase.generation)
+
+		if testCase.expectedErr == "" {
+			assert.NotNil(t, testBuilder.Definition.Spec.ImageRebuildTriggerGeneration)
+			assert.Equal(t, testCase.generation, *testBuilder.Definition.Spec.ImageRebuildTriggerGeneration)
+		} else {
+			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+		}
+	}
+}
+
 func TestModuleBuildModuleSpec(t *testing.T) {
 	testCases := []struct {
 		testModule    *ModuleBuilder

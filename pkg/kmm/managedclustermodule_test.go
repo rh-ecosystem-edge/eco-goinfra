@@ -406,6 +406,38 @@ func TestManagedClusterModuleWithSelector(t *testing.T) {
 	}
 }
 
+func TestManagedClusterModuleWithImageRebuildTriggerGeneration(t *testing.T) {
+	testCases := []struct {
+		generation  int
+		expectedErr string
+	}{
+		{
+			generation:  1,
+			expectedErr: "",
+		},
+		{
+			generation:  0,
+			expectedErr: "",
+		},
+		{
+			generation:  42,
+			expectedErr: "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestManagedClusterModule(buildManagedClusterModuleTestClientWithDummyObject())
+		testBuilder.WithImageRebuildTriggerGeneration(testCase.generation)
+
+		if testCase.expectedErr == "" {
+			assert.NotNil(t, testBuilder.Definition.Spec.ModuleSpec.ImageRebuildTriggerGeneration)
+			assert.Equal(t, testCase.generation, *testBuilder.Definition.Spec.ModuleSpec.ImageRebuildTriggerGeneration)
+		} else {
+			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+		}
+	}
+}
+
 func buildValidTestManagedClusterModule(apiClient *clients.Settings) *ManagedClusterModuleBuilder {
 	return NewManagedClusterModuleBuilder(
 		apiClient, defaultManagedClusterModuleName, defaultManagedClusterModuleNamespace)
