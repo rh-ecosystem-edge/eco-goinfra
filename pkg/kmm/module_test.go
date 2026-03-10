@@ -410,6 +410,32 @@ func TestModuleWithImageRepoSecret(t *testing.T) {
 	}
 }
 
+func TestModuleWithDevicePluginAutomountServiceAccountToken(t *testing.T) {
+	testCases := []struct {
+		automount     bool
+		expectedValue bool
+	}{
+		{
+			automount:     false,
+			expectedValue: false,
+		},
+		{
+			automount:     true,
+			expectedValue: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithDevicePluginAutomountServiceAccountToken(testCase.automount)
+
+		assert.NotNil(t, testBuilder.Definition.Spec.DevicePlugin)
+		assert.NotNil(t, testBuilder.Definition.Spec.DevicePlugin.AutomountServiceAccountToken)
+		assert.Equal(t, testCase.expectedValue,
+			*testBuilder.Definition.Spec.DevicePlugin.AutomountServiceAccountToken)
+	}
+}
+
 func TestModuleWithDevicePluginVolume(t *testing.T) {
 	testCases := []struct {
 		pluginVolumeName string
