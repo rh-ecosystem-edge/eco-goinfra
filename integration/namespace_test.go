@@ -85,7 +85,7 @@ func TestNamespaceCleanObjects(t *testing.T) {
 	assert.Nil(t, PreEmptiveNamespaceDeleteAndSetup(testNamespace, namespaceBuilder))
 
 	// Create some test pods in the namespace
-	podBuilder := pod.NewBuilder(client, "test-pod", testNamespace, "nginx:latest")
+	podBuilder := pod.NewBuilder(client, "test-pod", testNamespace, containerImage)
 
 	// Create a pod in the namespace
 	_, err := podBuilder.Create()

@@ -14,7 +14,7 @@ import (
 
 const (
 	namespacePrefix = "ecogoinfra-deployment"
-	containerImage  = "nginx:latest"
+	containerImage  = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
 	timeoutDuration = time.Duration(60) * time.Second
 )
 
