@@ -11,6 +11,7 @@
       new: common "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/argocd/argocdoperatorcommon"
   excludes:
     - "*_test.go"
+    - "*_webhook.go"
     - "testdata"
 
 - name: argocd-operator
