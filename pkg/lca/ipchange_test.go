@@ -65,7 +65,7 @@ func TestIPConfigPull(t *testing.T) {
 			testSettings   *clients.Settings
 		)
 
-		testIPConfig := generateIPConfig(ipConfigName)
+		testIPConfig := generateIPConfig()
 
 		if testCase.addToRuntimeObjects {
 			runtimeObjects = append(runtimeObjects, testIPConfig)
@@ -461,7 +461,7 @@ func TestIPConfigWaitUntilComplete(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testIPConfig := generateIPConfig(ipConfigName)
+		testIPConfig := generateIPConfig()
 		testIPConfig.Status = testCase.status
 
 		var runtimeObjects []runtime.Object
@@ -471,6 +471,76 @@ func TestIPConfigWaitUntilComplete(t *testing.T) {
 		testIPConfigBuilder := buildValidIPConfigBuilder(
 			buildIPConfigTestClientWithDummyObject(runtimeObjects))
 		_, err := testIPConfigBuilder.WaitUntilComplete(time.Millisecond * 100)
+
+		assert.Equal(t, testCase.expectedError, err)
+	}
+}
+
+func TestIPConfigWaitUntilFailed(t *testing.T) {
+	testCases := []struct {
+		expectedError error
+		status        lcaipcv1.IPConfigStatus
+	}{
+		{
+			expectedError: context.DeadlineExceeded,
+			status: lcaipcv1.IPConfigStatus{
+				Conditions: []metav1.Condition{{Status: "False", Type: "ConfigCompleted", Reason: "Completed"}},
+			},
+		},
+		{
+			expectedError: nil,
+			status: lcaipcv1.IPConfigStatus{
+				Conditions: []metav1.Condition{{Status: "False", Type: "ConfigCompleted", Reason: "Failed"}},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testIPConfig := generateIPConfig()
+		testIPConfig.Status = testCase.status
+
+		var runtimeObjects []runtime.Object
+
+		runtimeObjects = append(runtimeObjects, testIPConfig)
+
+		testIPConfigBuilder := buildValidIPConfigBuilder(
+			buildIPConfigTestClientWithDummyObject(runtimeObjects))
+		_, err := testIPConfigBuilder.WaitUntilFailed(time.Millisecond * 100)
+
+		assert.Equal(t, testCase.expectedError, err)
+	}
+}
+
+func TestIPConfigWaitUntilIdle(t *testing.T) {
+	testCases := []struct {
+		expectedError error
+		status        lcaipcv1.IPConfigStatus
+	}{
+		{
+			expectedError: context.DeadlineExceeded,
+			status: lcaipcv1.IPConfigStatus{
+				Conditions: []metav1.Condition{{Status: "True1", Type: "Idle", Reason: "Idle"}},
+			},
+		},
+		{
+			expectedError: nil,
+			status: lcaipcv1.IPConfigStatus{
+				Conditions: []metav1.Condition{{Status: "True", Type: "Idle", Reason: "Idle"}},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testIPConfig := generateIPConfig()
+		testIPConfig.Status = testCase.status
+
+		var runtimeObjects []runtime.Object
+
+		runtimeObjects = append(runtimeObjects, testIPConfig)
+
+		testIPConfigBuilder := buildValidIPConfigBuilder(
+			buildIPConfigTestClientWithDummyObject(runtimeObjects))
+		_, err := testIPConfigBuilder.WaitUntilIdle(time.Millisecond * 100)
 
 		assert.Equal(t, testCase.expectedError, err)
 	}
@@ -489,10 +559,10 @@ func buildTestIPConfigBuilderWithFakeObjects() *IPConfigBuilder {
 	}
 }
 
-func generateIPConfig(name string) *lcaipcv1.IPConfig {
+func generateIPConfig() *lcaipcv1.IPConfig {
 	return &lcaipcv1.IPConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name: "ipconfig",
 		},
 		Spec: lcaipcv1.IPConfigSpec{},
 	}
