@@ -340,6 +340,60 @@ func TestOperatorSetRouteAdvertisements(t *testing.T) {
 	}
 }
 
+func TestOperatorSetIPForwarding(t *testing.T) {
+	testCases := []struct {
+		testBuilder   *OperatorBuilder
+		mode          operatorv1.IPForwardingMode
+		alreadySet    bool
+		expectedError string
+	}{
+		{
+			testBuilder:   newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
+			mode:          operatorv1.IPForwardingRestricted,
+			alreadySet:    true,
+			expectedError: "",
+		},
+		{
+			testBuilder:   newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
+			mode:          operatorv1.IPForwardingGlobal,
+			alreadySet:    true,
+			expectedError: "",
+		},
+		{
+			testBuilder:   newOperatorBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			mode:          operatorv1.IPForwardingRestricted,
+			alreadySet:    false,
+			expectedError: "network.operator object cluster does not exist",
+		},
+	}
+
+	for _, testCase := range testCases {
+		if testCase.alreadySet {
+			testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig = &operatorv1.OVNKubernetesConfig{
+				GatewayConfig: &operatorv1.GatewayConfig{
+					IPForwarding: testCase.mode,
+				},
+			}
+		}
+
+		testCase.testBuilder.Definition.ResourceVersion = "999"
+
+		testBuilder, err := testCase.testBuilder.SetIPForwarding(testCase.mode, time.Second)
+
+		if testCase.expectedError == "" {
+			assert.Nil(t, err)
+			assert.NotNil(t, testBuilder)
+			assert.NotNil(t, testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig)
+			assert.NotNil(t, testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig.GatewayConfig)
+			assert.Equal(t, testCase.mode,
+				testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig.GatewayConfig.IPForwarding)
+		} else {
+			assert.NotNil(t, err)
+			assert.Contains(t, err.Error(), testCase.expectedError)
+		}
+	}
+}
+
 // buildDummyNetworkOperator builds a dummy network.operator object. It uses the clusterNetworkName.
 func buildDummyNetworkOperator() *operatorv1.Network {
 	return &operatorv1.Network{

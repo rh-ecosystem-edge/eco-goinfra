@@ -645,6 +645,84 @@ func TestPolicyWithAbsentInterface(t *testing.T) {
 	}
 }
 
+func TestPolicyWithStaticRoute(t *testing.T) {
+	testCases := []struct {
+		testNMStatePolicy *PolicyBuilder
+		expectedError     string
+		destination       string
+		nextHopAddress    string
+		nextHopInterface  string
+		metric            int
+		tableID           int
+	}{
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "",
+			destination:       "192.168.1.0/24",
+			nextHopAddress:    "10.10.10.1",
+			nextHopInterface:  "ens1",
+			metric:            100,
+			tableID:           254,
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "",
+			destination:       "192.168.2.0/24",
+			nextHopAddress:    "10.10.10.1",
+			nextHopInterface:  "",
+			metric:            0,
+			tableID:           0,
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "",
+			destination:       "192.168.3.0/24",
+			nextHopAddress:    "",
+			nextHopInterface:  "ens1",
+			metric:            50,
+			tableID:           0,
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "route 'destination' cannot be empty",
+			destination:       "",
+			nextHopAddress:    "10.10.10.1",
+			nextHopInterface:  "ens1",
+			metric:            100,
+			tableID:           254,
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "route must have either 'nextHopAddress' or 'nextHopInterface'",
+			destination:       "192.168.1.0/24",
+			nextHopAddress:    "",
+			nextHopInterface:  "",
+			metric:            100,
+			tableID:           254,
+		},
+	}
+	for _, testCase := range testCases {
+		testPolicy := testCase.testNMStatePolicy.WithStaticRoute(
+			testCase.destination, testCase.nextHopAddress, testCase.nextHopInterface,
+			testCase.metric, testCase.tableID)
+		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+
+		if testCase.expectedError == "" {
+			desireState := &DesiredState{}
+			_ = yaml.Unmarshal(testPolicy.Definition.Spec.DesiredState.Raw, desireState)
+			assert.NotNil(t, desireState.Routes)
+			assert.Len(t, desireState.Routes.Config, 1)
+			assert.Equal(t, RouteConfig{
+				Destination:      testCase.destination,
+				NextHopAddress:   testCase.nextHopAddress,
+				NextHopInterface: testCase.nextHopInterface,
+				Metric:           testCase.metric,
+				TableID:          testCase.tableID,
+			}, desireState.Routes.Config[0])
+		}
+	}
+}
+
 func TestPolicyWithWithOptions(t *testing.T) {
 	testSettings := buildTestClientWithDummyPolicyObject()
 	testBuilder := buildValidPolicyTestBuilder(testSettings).WithOptions(
