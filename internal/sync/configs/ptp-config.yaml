@@ -3,11 +3,19 @@
 # still considered higher than the versions based on git SHA which are more
 # recent. Since this causes issues with every other dependency, we need to sync
 # the types from the ptp-operator repo.
+#
+# The webhook files use a newer controller-runtime API than the version vendored
+# in this repo (v0.19.7). We can't exclude them because zz_generated.deepcopy.go
+# references types defined there (Ptp4lConf, Ptp4lConfSection). Instead, we use
+# replace_imports to rewrite the API calls to the older signature.
 - name: ptp-operator
   sync: true
   repo_link: "https://github.com/openshift/ptp-operator"
   branch: main
   remote_api_directory: api/v1
   local_api_directory: schemes/ptp/v1
-  # excludes:
-  #   - "*_webhook.go"
+  replace_imports:
+    - old: "NewWebhookManagedBy(mgr, r)."
+      new: "NewWebhookManagedBy(mgr).\n\t\tFor(r)."
+    - old: "WithCustomValidator("
+      new: "WithValidator("
