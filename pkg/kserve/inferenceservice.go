@@ -178,16 +178,35 @@ func (builder *InferenceServiceBuilder) WithNeuronResources(
 	klog.V(100).Infof("Setting InferenceService %s Neuron resources: devices=%d",
 		builder.Definition.Name, neuronDevices)
 
-	neuronQuantity := resource.MustParse(fmt.Sprintf("%d", neuronDevices))
+	neuronQuantity, err := resource.ParseQuantity(fmt.Sprintf("%d", neuronDevices))
+	if err != nil {
+		builder.errorMsg = fmt.Sprintf("failed to parse neuron device quantity: %v", err)
+
+		return builder
+	}
+
+	memReq, err := resource.ParseQuantity(memoryRequest)
+	if err != nil {
+		builder.errorMsg = fmt.Sprintf("failed to parse memory request %q: %v", memoryRequest, err)
+
+		return builder
+	}
+
+	memLim, err := resource.ParseQuantity(memoryLimit)
+	if err != nil {
+		builder.errorMsg = fmt.Sprintf("failed to parse memory limit %q: %v", memoryLimit, err)
+
+		return builder
+	}
 
 	builder.Definition.Spec.Predictor.Model.Resources = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			"aws.amazon.com/neuron": neuronQuantity,
-			corev1.ResourceMemory:   resource.MustParse(memoryRequest),
+			corev1.ResourceMemory:   memReq,
 		},
 		Limits: corev1.ResourceList{
 			"aws.amazon.com/neuron": neuronQuantity,
-			corev1.ResourceMemory:   resource.MustParse(memoryLimit),
+			corev1.ResourceMemory:   memLim,
 		},
 	}
 

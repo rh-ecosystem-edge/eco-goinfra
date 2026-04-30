@@ -119,7 +119,7 @@ func (builder *ServingRuntimeBuilder) WithContainer(
 	return builder
 }
 
-// WithVolume adds a volume and its mount to the ServingRuntime.
+// WithVolume adds a volume to the ServingRuntime.
 func (builder *ServingRuntimeBuilder) WithVolume(
 	volume corev1.Volume) *ServingRuntimeBuilder {
 	if valid, _ := builder.validate(); !valid {
