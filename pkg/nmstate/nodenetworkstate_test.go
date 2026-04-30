@@ -18,6 +18,9 @@ var (
 		nmstateV1beta1.AddToScheme,
 	}
 	sriovExistingInterface = "ensf0"
+	sriovTestMACAddress    = "52:54:00:12:34:56"
+	sriovTestPCIAddress    = "0000:00:03.0"
+	sriovTestAltnames      = []string{"eth-alt1", "eth-alt2"}
 	vfNumber               = 10
 )
 
@@ -233,6 +236,148 @@ func TestStateBuilderGetInterfaceType(t *testing.T) {
 	}
 }
 
+func TestStateBuilderGetInterfaceMACAddress(t *testing.T) {
+	testCases := []struct {
+		testNodeNetState *StateBuilder
+		interfaceName    string
+		expectedMAC      string
+		expectedError    error
+		mutateBuilder    func(*StateBuilder)
+	}{
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    sriovExistingInterface,
+			expectedMAC:      sriovTestMACAddress,
+			expectedError:    nil,
+			mutateBuilder:    nil,
+		},
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    "unknown",
+			expectedMAC:      "",
+			expectedError:    fmt.Errorf("failed to find interface unknown"),
+			mutateBuilder:    nil,
+		},
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    "",
+			expectedMAC:      "",
+			expectedError:    fmt.Errorf("the interfaceName is empty sting"),
+			mutateBuilder:    nil,
+		},
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    sriovExistingInterface,
+			expectedMAC:      "",
+			expectedError:    fmt.Errorf("failed to find mac-address for interface %s", sriovExistingInterface),
+			mutateBuilder: func(builder *StateBuilder) {
+				currentState := DesiredState{}
+				_ = yaml.Unmarshal(builder.Object.Status.CurrentState.Raw, &currentState)
+				currentState.Interfaces[0].MacAddress = ""
+				builder.Object.Status.CurrentState.Raw, _ = yaml.Marshal(currentState)
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		if testCase.mutateBuilder != nil {
+			testCase.mutateBuilder(testCase.testNodeNetState)
+		}
+
+		mac, err := testCase.testNodeNetState.GetInterfaceMACAddress(testCase.interfaceName)
+		assert.Equal(t, testCase.expectedError, err)
+		assert.Equal(t, testCase.expectedMAC, mac)
+	}
+}
+
+func TestStateBuilderGetInterfacePCIAddress(t *testing.T) {
+	testCases := []struct {
+		testNodeNetState *StateBuilder
+		interfaceName    string
+		expectedPCI      string
+		expectedError    error
+		mutateBuilder    func(*StateBuilder)
+	}{
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    sriovExistingInterface,
+			expectedPCI:      sriovTestPCIAddress,
+			expectedError:    nil,
+			mutateBuilder:    nil,
+		},
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    "unknown",
+			expectedPCI:      "",
+			expectedError:    fmt.Errorf("failed to find interface unknown"),
+			mutateBuilder:    nil,
+		},
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    "",
+			expectedPCI:      "",
+			expectedError:    fmt.Errorf("the interfaceName is empty sting"),
+			mutateBuilder:    nil,
+		},
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    sriovExistingInterface,
+			expectedPCI:      "",
+			expectedError:    fmt.Errorf("failed to find pci-address for interface %s", sriovExistingInterface),
+			mutateBuilder: func(builder *StateBuilder) {
+				currentState := DesiredState{}
+				_ = yaml.Unmarshal(builder.Object.Status.CurrentState.Raw, &currentState)
+				currentState.Interfaces[0].PciAddress = ""
+				builder.Object.Status.CurrentState.Raw, _ = yaml.Marshal(currentState)
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		if testCase.mutateBuilder != nil {
+			testCase.mutateBuilder(testCase.testNodeNetState)
+		}
+
+		pci, err := testCase.testNodeNetState.GetInterfacePCIAddress(testCase.interfaceName)
+		assert.Equal(t, testCase.expectedError, err)
+		assert.Equal(t, testCase.expectedPCI, pci)
+	}
+}
+
+func TestStateBuilderGetInterfaceAltnames(t *testing.T) {
+	testCases := []struct {
+		testNodeNetState *StateBuilder
+		interfaceName    string
+		expectedAltnames []string
+		expectedError    error
+	}{
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    sriovExistingInterface,
+			expectedAltnames: sriovTestAltnames,
+			expectedError:    nil,
+		},
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    "unknown",
+			expectedAltnames: nil,
+			expectedError:    fmt.Errorf("failed to find interface unknown"),
+		},
+		{
+			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
+			interfaceName:    "",
+			expectedAltnames: nil,
+			expectedError:    fmt.Errorf("the interfaceName is empty sting"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		names, err := testCase.testNodeNetState.GetInterfaceAltnames(testCase.interfaceName)
+		assert.Equal(t, testCase.expectedError, err)
+		assert.Equal(t, testCase.expectedAltnames, names)
+	}
+}
+
 func TestStateBuilderGetSriovVfs(t *testing.T) {
 	testCases := []struct {
 		testNodeNetState *StateBuilder
@@ -293,9 +438,15 @@ func newNodeNetworkStateBuilder(apiClient *clients.Settings, name string) *State
 	desiredState := DesiredState{
 		Interfaces: []NetworkInterface{
 			{
-				Name:  sriovExistingInterface,
-				Type:  "ethernet",
-				State: "up",
+				Name:       sriovExistingInterface,
+				Type:       "ethernet",
+				State:      "up",
+				MacAddress: sriovTestMACAddress,
+				PciAddress: sriovTestPCIAddress,
+				AltNames: []InterfaceAltName{
+					{Name: sriovTestAltnames[0]},
+					{Name: sriovTestAltnames[1]},
+				},
 				Ethernet: Ethernet{
 					Sriov: Sriov{
 						TotalVfs: &vfNumber,

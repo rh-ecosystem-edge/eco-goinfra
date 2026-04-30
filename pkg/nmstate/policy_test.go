@@ -501,6 +501,261 @@ func TestPolicyWithVlanInterfaceIP(t *testing.T) {
 	}
 }
 
+func TestPolicyWithInterfaceAltnames(t *testing.T) {
+	testCases := []struct {
+		testNMStatePolicy *PolicyBuilder
+		interfaceName     string
+		altnames          []string
+		expectedError     string
+	}{
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens1",
+			altnames:          []string{"alt-a", "alt-b"},
+			expectedError:     "",
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "",
+			altnames:          []string{"alt-a"},
+			expectedError:     nodeNetConfPolIntError,
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens1",
+			altnames:          []string{},
+			expectedError:     nodeNetConfPolAltnamesEmpty,
+		},
+	}
+	for _, testCase := range testCases {
+		testPolicy := testCase.testNMStatePolicy.WithInterfaceAltnames(testCase.interfaceName, testCase.altnames)
+		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+
+		if testCase.expectedError != "" {
+			continue
+		}
+
+		desireState := &DesiredState{}
+		_ = yaml.Unmarshal(testPolicy.Definition.Spec.DesiredState.Raw, desireState)
+
+		wantAlts := make([]InterfaceAltName, len(testCase.altnames))
+		for i, n := range testCase.altnames {
+			wantAlts[i] = InterfaceAltName{Name: n}
+		}
+
+		assert.Equal(t, &DesiredState{
+			Interfaces: []NetworkInterface{{
+				Name:     testCase.interfaceName,
+				Type:     "ethernet",
+				State:    "up",
+				AltNames: wantAlts,
+			}},
+		}, desireState)
+	}
+}
+
+func TestPolicyWithMACAddressAltnames(t *testing.T) {
+	const testMAC = "52:54:00:ab:cd:ef"
+
+	testCases := []struct {
+		testNMStatePolicy *PolicyBuilder
+		interfaceName     string
+		mac               string
+		altnames          []string
+		expectedError     string
+	}{
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens9",
+			mac:               testMAC,
+			altnames:          []string{"vf0"},
+			expectedError:     "",
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens9",
+			mac:               "",
+			altnames:          []string{"vf0"},
+			expectedError:     "macaddress cannot be empty string",
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "",
+			mac:               testMAC,
+			altnames:          []string{"vf0"},
+			expectedError:     nodeNetConfPolIntError,
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens9",
+			mac:               "invalid",
+			altnames:          []string{"vf0"},
+			expectedError:     "macaddress is invalid",
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens9",
+			mac:               testMAC,
+			altnames:          []string{},
+			expectedError:     nodeNetConfPolAltnamesEmpty,
+		},
+	}
+	for _, testCase := range testCases {
+		testPolicy := testCase.testNMStatePolicy.WithMACAddressAltnames(
+			testCase.interfaceName, testCase.mac, testCase.altnames)
+		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+
+		if testCase.expectedError != "" {
+			continue
+		}
+
+		desireState := &DesiredState{}
+		_ = yaml.Unmarshal(testPolicy.Definition.Spec.DesiredState.Raw, desireState)
+
+		wantAlts := make([]InterfaceAltName, len(testCase.altnames))
+		for i, n := range testCase.altnames {
+			wantAlts[i] = InterfaceAltName{Name: n}
+		}
+
+		assert.Equal(t, &DesiredState{
+			Interfaces: []NetworkInterface{{
+				Name:       testCase.interfaceName,
+				Type:       "ethernet",
+				State:      "up",
+				MacAddress: testCase.mac,
+				Identifier: "mac-address",
+				AltNames:   wantAlts,
+			}},
+		}, desireState)
+	}
+}
+
+func TestPolicyWithPCIAddressAltnames(t *testing.T) {
+	const testPCI = "0000:03:00.0"
+
+	testCases := []struct {
+		testNMStatePolicy *PolicyBuilder
+		interfaceName     string
+		pci               string
+		altnames          []string
+		expectedError     string
+	}{
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens8",
+			pci:               testPCI,
+			altnames:          []string{"nic-pf"},
+			expectedError:     "",
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens8",
+			pci:               "",
+			altnames:          []string{"nic-pf"},
+			expectedError:     "pciAddress cannot be empty string",
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "",
+			pci:               testPCI,
+			altnames:          []string{"nic-pf"},
+			expectedError:     nodeNetConfPolIntError,
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens8",
+			pci:               "0000:03:00",
+			altnames:          []string{"nic-pf"},
+			expectedError:     "pciAddress is invalid",
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens8",
+			pci:               testPCI,
+			altnames:          []string{},
+			expectedError:     nodeNetConfPolAltnamesEmpty,
+		},
+	}
+	for _, testCase := range testCases {
+		testPolicy := testCase.testNMStatePolicy.WithPCIAddressAltnames(
+			testCase.interfaceName, testCase.pci, testCase.altnames)
+		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+
+		if testCase.expectedError != "" {
+			continue
+		}
+
+		desireState := &DesiredState{}
+		_ = yaml.Unmarshal(testPolicy.Definition.Spec.DesiredState.Raw, desireState)
+
+		wantAlts := make([]InterfaceAltName, len(testCase.altnames))
+		for i, n := range testCase.altnames {
+			wantAlts[i] = InterfaceAltName{Name: n}
+		}
+
+		assert.Equal(t, &DesiredState{
+			Interfaces: []NetworkInterface{{
+				Name:       testCase.interfaceName,
+				Type:       "ethernet",
+				State:      "up",
+				PciAddress: testCase.pci,
+				Identifier: "pci-address",
+				AltNames:   wantAlts,
+			}},
+		}, desireState)
+	}
+}
+
+func TestPolicyRemoveInterfaceAltname(t *testing.T) {
+	testCases := []struct {
+		testNMStatePolicy *PolicyBuilder
+		interfaceName     string
+		altnames          []string
+		expectedError     string
+		wantAltnames      []InterfaceAltName
+	}{
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens1",
+			altnames:          []string{"old-alt"},
+			expectedError:     "",
+			wantAltnames:      []InterfaceAltName{{Name: "old-alt", State: "absent"}},
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "",
+			altnames:          []string{"x"},
+			expectedError:     nodeNetConfPolIntError,
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens1",
+			altnames:          nil,
+			expectedError:     "",
+			wantAltnames:      nil,
+		},
+	}
+	for _, testCase := range testCases {
+		testPolicy := testCase.testNMStatePolicy.RemoveInterfaceAltname(testCase.interfaceName, testCase.altnames)
+		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+
+		if testCase.expectedError != "" {
+			continue
+		}
+
+		desireState := &DesiredState{}
+		_ = yaml.Unmarshal(testPolicy.Definition.Spec.DesiredState.Raw, desireState)
+		assert.Equal(t, &DesiredState{
+			Interfaces: []NetworkInterface{{
+				Name:     testCase.interfaceName,
+				Type:     "ethernet",
+				State:    "up",
+				AltNames: testCase.wantAltnames,
+			}},
+		}, desireState)
+	}
+}
+
 func TestPolicyWithEthernetInterfaceIP(t *testing.T) {
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
