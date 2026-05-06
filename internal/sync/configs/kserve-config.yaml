@@ -1,0 +1,26 @@
+---
+- name: kserve-serving-api-v1beta1
+  sync: false
+  repo_link: "https://github.com/kserve/kserve"
+  branch: master
+  remote_api_directory: pkg/apis/serving/v1beta1
+  local_api_directory: schemes/kserve/v1beta1
+  replace_imports:
+    - old: '"github.com/kserve/kserve/pkg/apis/serving/v1beta1"'
+      new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/kserve/v1beta1"'
+  excludes:
+    - "*_test.go"
+    - "testdata"
+
+- name: kserve-serving-api-v1alpha1
+  sync: false
+  repo_link: "https://github.com/kserve/kserve"
+  branch: master
+  remote_api_directory: pkg/apis/serving/v1alpha1
+  local_api_directory: schemes/kserve/v1alpha1
+  replace_imports:
+    - old: '"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"'
+      new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/kserve/v1alpha1"'
+  excludes:
+    - "*_test.go"
+    - "testdata"
