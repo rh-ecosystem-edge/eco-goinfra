@@ -900,6 +900,36 @@ func TestPolicyWithAbsentInterface(t *testing.T) {
 	}
 }
 
+func TestPolicyWithInterfaceUp(t *testing.T) {
+	testCases := []struct {
+		testNMStatePolicy *PolicyBuilder
+		expectedError     string
+		baseInterface     string
+	}{
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "",
+			baseInterface:     "ens1",
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "nodenetworkconfigurationpolicy 'interfaceName' cannot be empty",
+			baseInterface:     "",
+		},
+	}
+	for _, testCase := range testCases {
+		testPolicy := testCase.testNMStatePolicy.WithInterfaceUp(testCase.baseInterface)
+		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+
+		desireState := &DesiredState{}
+		if testCase.expectedError == "" {
+			_ = yaml.Unmarshal(testPolicy.Definition.Spec.DesiredState.Raw, desireState)
+			assert.Equal(t, desireState, &DesiredState{
+				Interfaces: []NetworkInterface{{Name: testCase.baseInterface, Type: "ethernet", State: "up"}}})
+		}
+	}
+}
+
 func TestPolicyWithStaticRoute(t *testing.T) {
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
