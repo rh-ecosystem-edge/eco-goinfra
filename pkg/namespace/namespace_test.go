@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var namespaceGVK = corev1.SchemeGroupVersion.WithKind("Namespace")
@@ -26,6 +27,18 @@ func TestPull(t *testing.T) {
 	testhelper.NewClusterScopedPullTestConfig[corev1.Namespace, Builder](
 		Pull, corev1.AddToScheme, namespaceGVK).
 		ExecuteTests(t)
+}
+
+func TestList(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewListTestConfig[corev1.Namespace, Builder](
+		func(apiClient *clients.Settings, _ ...runtimeclient.ListOptions) ([]*Builder, error) {
+			return List(apiClient)
+		},
+		corev1.AddToScheme,
+		namespaceGVK,
+	).ExecuteTests(t)
 }
 
 func TestBuilderMethods(t *testing.T) {
