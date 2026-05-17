@@ -5,6 +5,7 @@ import (
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
@@ -38,14 +39,20 @@ func List(apiClient *clients.Settings, options ...metav1.ListOptions) ([]*Builde
 
 	for _, runningNamespace := range namespacesList.Items {
 		copiedNamespace := runningNamespace
-		namespaceBuilder := &Builder{
-			apiClient:  apiClient,
-			Object:     &copiedNamespace,
-			Definition: &copiedNamespace,
-		}
-
-		namespaceObjects = append(namespaceObjects, namespaceBuilder)
+		namespaceObjects = append(namespaceObjects, newListedBuilder(apiClient, &copiedNamespace))
 	}
 
 	return namespaceObjects, nil
+}
+
+// newListedBuilder returns a fully initialized builder for a namespace obtained through a list call.
+func newListedBuilder(apiClient *clients.Settings, namespace *corev1.Namespace) *Builder {
+	builder := &Builder{}
+	builder.AttachMixins()
+	builder.SetClient(apiClient)
+	builder.SetGVK(builder.GetGVK())
+	builder.SetObject(namespace)
+	builder.SetDefinition(namespace)
+
+	return builder
 }

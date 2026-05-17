@@ -71,6 +71,8 @@ func (config CreateTestConfig[O, B, SO, SB]) Name() string {
 }
 
 // ExecuteTests runs the standard set of Create tests for the configured resource.
+//
+//nolint:funlen // Test functions with multiple test cases are expected to be long.
 func (config CreateTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 	t.Helper()
 
@@ -101,7 +103,7 @@ func (config CreateTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 			name:            "resource already exists succeeds",
 			objectExists:    true,
 			assertError:     isErrorNil,
-			expectObjectSet: false, // Create does not set Object when resource already exists
+			expectObjectSet: true,
 		},
 		{
 			name:             "failed creation returns error",
@@ -159,6 +161,8 @@ func (config CreateTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 					if config.ResourceScope.IsNamespaced() {
 						assert.Equal(t, testResourceNamespace, result.GetObject().GetNamespace())
 					}
+				} else {
+					assert.Nil(t, result.GetObject())
 				}
 			}
 		})
