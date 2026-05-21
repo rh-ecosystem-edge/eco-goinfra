@@ -25,6 +25,9 @@
   replace_imports:
     - old: '"github.com/metallb/metallb-operator/pkg/params"'
       new: params "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/mlboperatorparams"
+  excludes:
+    - "*_test.go"
+    - "*_webhook.go"
 
 - name: metallb-operator
   sync: true
