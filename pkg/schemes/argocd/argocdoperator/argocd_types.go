@@ -165,6 +165,10 @@ type ArgoCDApplicationControllerShardSpec struct {
 	// ClustersPerShard defines the maximum number of clusters managed by each argocd shard
 	// +kubebuilder:validation:Minimum=1
 	ClustersPerShard int32 `json:"clustersPerShard,omitempty"`
+
+	// DistributionAlgorithm determines what algorithm will be used for distribution of shards. Valid options are legacy, round-robin, and consistent-hashing
+	// +kubebuilder:validation:Enum=legacy;round-robin;consistent-hashing
+	DistributionAlgorithm string `json:"algorithm,omitempty"`
 }
 
 // ArgoCDApplicationSet defines whether the Argo CD ApplicationSet controller should be installed.
@@ -873,7 +877,6 @@ type ArgoCDNetworkPolicySpec struct {
 	// Enabled defines whether NetworkPolicy resources are created for this Argo CD instance.
 	// When enabled, the operator will reconcile NetworkPolicies for Argo CD components.
 	// When disabled, the operator will remove any previously-created NetworkPolicies.
-	// +kubebuilder:default=true
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
@@ -1068,6 +1071,7 @@ type ArgoCDSpec struct {
 	// CmdParams specifies command-line parameters for the Argo CD components.
 	// The only keys currently supported for this parameter are:
 	// - controller.resource.health.persist
+	// - applicationsetcontroller.enable.tokenref.strict.mode — when ApplicationSet-in-any-namespace is active, the operator defaults this to "true"
 	CmdParams map[string]string `json:"cmdParams,omitempty"`
 
 	// ArgoCDAgent defines configurations for the ArgoCD Agent component.
