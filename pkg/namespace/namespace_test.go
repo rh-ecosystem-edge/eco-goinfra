@@ -4,43 +4,208 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/apimachinery/pkg/runtime"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestNamespaceRemoveLabels(t *testing.T) {
+var namespaceGVK = corev1.SchemeGroupVersion.WithKind("Namespace")
+
+func TestNewBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewClusterScopedBuilderTestConfig[corev1.Namespace, Builder](
+		NewBuilder, corev1.AddToScheme, namespaceGVK).
+		ExecuteTests(t)
+}
+
+func TestPull(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewClusterScopedPullTestConfig[corev1.Namespace, Builder](
+		Pull, corev1.AddToScheme, namespaceGVK).
+		ExecuteTests(t)
+}
+
+func TestList(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewListTestConfig[corev1.Namespace, Builder](
+		func(apiClient *clients.Settings, _ ...runtimeclient.ListOptions) ([]*Builder, error) {
+			return List(apiClient)
+		},
+		corev1.AddToScheme,
+		namespaceGVK,
+	).ExecuteTests(t)
+}
+
+func TestBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonConfig := newNamespaceCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		With(testhelper.NewCreateTestConfig(commonConfig)).
+		With(testhelper.NewDeleterTestConfig(commonConfig)).
+		With(testhelper.NewUpdateTestConfig(commonConfig)).
+		Run(t)
+}
+
+func TestWithOptions(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewWithOptionsTestConfig(newNamespaceCommonTestConfig()).ExecuteTests(t)
+}
+
+func TestWithLabel(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		labels        map[string]string
+		name          string
+		key           string
+		value         string
 		expectedError string
+		builder       func() *Builder
 	}{
 		{
-			labels:        map[string]string{"key1": "value1"},
-			expectedError: "",
+			name:    "valid label",
+			key:     "test-key",
+			value:   "test-value",
+			builder: func() *Builder { return buildValidNamespaceTestBuilder(newNamespaceTestClient()) },
 		},
 		{
-			labels:        map[string]string{},
-			expectedError: "labels to be removed cannot be empty",
+			name:          "empty key",
+			key:           "",
+			value:         "test-value",
+			expectedError: "'key' cannot be empty",
+			builder:       func() *Builder { return buildValidNamespaceTestBuilder(newNamespaceTestClient()) },
+		},
+		{
+			name:    "invalid builder short circuits",
+			key:     "test-key",
+			value:   "test-value",
+			builder: func() *Builder { return buildInvalidNamespaceTestBuilder(newNamespaceTestClient()) },
 		},
 	}
+
 	for _, testCase := range testCases {
-		testBuilder := buildValidTestNamespaceBuilderWithClient([]runtime.Object{}).WithMultipleLabels(testCase.labels)
-		testBuilder = testBuilder.RemoveLabels(testCase.labels)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			testBuilder := testCase.builder()
+			require.NotNil(t, testBuilder)
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, 0, len(testBuilder.Definition.Labels), "Expected labels to be removed")
-		}
+			result := testBuilder.WithLabel(testCase.key, testCase.value)
+			require.Same(t, testBuilder, result)
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+			} else if result.GetError() == nil {
+				assert.Equal(t, testCase.value, result.Definition.Labels[testCase.key])
+			}
+		})
 	}
 }
 
-func buildValidTestNamespaceBuilderWithClient(objects []runtime.Object) *Builder {
-	fakeClient := k8sfake.NewSimpleClientset(objects...)
+func TestWithMultipleLabels(t *testing.T) {
+	t.Parallel()
 
-	return NewBuilder(&clients.Settings{
-		K8sClient:       fakeClient,
-		CoreV1Interface: fakeClient.CoreV1(),
-		AppsV1Interface: fakeClient.AppsV1(),
-	}, "test-namespace")
+	testCases := []struct {
+		name   string
+		labels map[string]string
+	}{
+		{
+			name:   "valid labels",
+			labels: map[string]string{"key1": "value1", "key2": "value2"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			testBuilder := buildValidNamespaceTestBuilder(newNamespaceTestClient())
+			result := testBuilder.WithMultipleLabels(testCase.labels)
+			require.Same(t, testBuilder, result)
+			assert.Nil(t, result.GetError())
+
+			for k, v := range testCase.labels {
+				assert.Equal(t, v, result.Definition.Labels[k])
+			}
+		})
+	}
+}
+
+func TestNamespaceRemoveLabels(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		labels        map[string]string
+		expectedError string
+		builder       func() *Builder
+	}{
+		{
+			name:   "valid remove",
+			labels: map[string]string{"key1": "value1"},
+			builder: func() *Builder {
+				return buildValidNamespaceTestBuilder(newNamespaceTestClient()).
+					WithMultipleLabels(map[string]string{"key1": "value1"})
+			},
+		},
+		{
+			name:          "empty labels",
+			labels:        map[string]string{},
+			expectedError: "labels to be removed cannot be empty",
+			builder:       func() *Builder { return buildValidNamespaceTestBuilder(newNamespaceTestClient()) },
+		},
+		{
+			name:   "invalid builder short circuits",
+			labels: map[string]string{"key1": "value1"},
+			builder: func() *Builder {
+				return buildInvalidNamespaceTestBuilder(newNamespaceTestClient())
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			testBuilder := testCase.builder()
+			require.NotNil(t, testBuilder)
+
+			result := testBuilder.RemoveLabels(testCase.labels)
+			require.Same(t, testBuilder, result)
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+			} else if result.GetError() == nil {
+				assert.Equal(t, 0, len(result.Definition.Labels))
+			}
+		})
+	}
+}
+
+func newNamespaceCommonTestConfig() testhelper.CommonTestConfig[corev1.Namespace, Builder, *corev1.Namespace, *Builder] {
+	return testhelper.NewCommonTestConfig[corev1.Namespace, Builder](
+		corev1.AddToScheme, namespaceGVK, testhelper.ResourceScopeClusterScoped)
+}
+
+func newNamespaceTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+	})
+}
+
+func buildValidNamespaceTestBuilder(apiClient *clients.Settings) *Builder {
+	return NewBuilder(apiClient, "test-namespace")
+}
+
+func buildInvalidNamespaceTestBuilder(apiClient *clients.Settings) *Builder {
+	return NewBuilder(apiClient, "")
 }

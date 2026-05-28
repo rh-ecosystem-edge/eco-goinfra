@@ -11,6 +11,9 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -465,6 +468,15 @@ func Create[O any, SO ObjectPointer[O]](ctx context.Context, builder Builder[O, 
 	if k8serrors.IsAlreadyExists(err) {
 		klog.V(100).Infof("The resource %s already exists and cannot be created", key.String())
 
+		object, err := Get(ctx, builder)
+		if err != nil {
+			klog.V(100).Infof("Failed to get %s after it already exists: %v", key.String(), err)
+
+			return fmt.Errorf("failed to get resource after creation failed because it already exists: %w", err)
+		}
+
+		builder.SetObject(object)
+
 		return nil
 	}
 
@@ -593,6 +605,43 @@ func ConvertListOptionsToOptions(options []runtimeclient.ListOptions) []runtimec
 	}
 
 	return listOptions
+}
+
+// ConvertMetaListOptionsToListOptions converts a slice of metav1.ListOptions to a slice of runtimeclient.ListOption. It
+// parses the LabelSelector and FieldSelector strings into their strongly-typed equivalents and copies Limit and
+// Continue directly. Fields such as ResourceVersion, TimeoutSeconds, and Watch have no first-class equivalents in
+// runtimeclient.ListOptions and are intentionally not carried over.
+func ConvertMetaListOptionsToListOptions(options []metav1.ListOptions) ([]runtimeclient.ListOption, error) {
+	listOptions := make([]runtimeclient.ListOption, 0, len(options))
+
+	for _, option := range options {
+		runtimeOption := &runtimeclient.ListOptions{}
+
+		if option.LabelSelector != "" {
+			selector, err := labels.Parse(option.LabelSelector)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse label selector %q: %w", option.LabelSelector, err)
+			}
+
+			runtimeOption.LabelSelector = selector
+		}
+
+		if option.FieldSelector != "" {
+			selector, err := fields.ParseSelector(option.FieldSelector)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse field selector %q: %w", option.FieldSelector, err)
+			}
+
+			runtimeOption.FieldSelector = selector
+		}
+
+		runtimeOption.Limit = option.Limit
+		runtimeOption.Continue = option.Continue
+
+		listOptions = append(listOptions, runtimeOption)
+	}
+
+	return listOptions, nil
 }
 
 // AdditionalOption is a constraint satisfied by any named function type whose underlying type is
