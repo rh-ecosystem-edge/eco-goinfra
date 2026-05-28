@@ -21,14 +21,29 @@ reviews:
   related_issues: true
   related_prs: true
   suggested_labels: true
-  auto_apply_labels: false
+  auto_apply_labels: true
   suggested_reviewers: true
   auto_assign_reviewers: false
   in_progress_fortune: true
   poem: false
-  labeling_instructions: []
+  labeling_instructions:
+    - label: "common-builder"
+      instructions: "Add this label if the PR edits pkg/internal/common or switches an existing builder to use the common package."
   path_filters: ['!vendor/**', '!pkg/schemes/**']
-  path_instructions: []
+  path_instructions:
+    - path: "pkg/**/*.go"
+      instructions: |
+        General instructions:
+          - Ensure every new method is covered by a unit test.
+          - Ensure every failure case in new methods is covered by a unit test.
+
+        For builders not using pkg/internal/common:
+          - Ignore that Exists() collapses all Get() failures into not found. This is expected and conventional.
+          - Allow for polling to log errors instead of failing fast on them. This is a common convention to handle transient errors.
+
+        For builders using pkg/internal/common:
+          - If there are mixins (common.Embeddable* except for common.EmbeddableBuilder), ensure every mixin is included in an AttachMixins() method.
+          - Every new method should be covered by a unit test. common/testhelper must be used where possible.
   abort_on_close: true
   disable_cache: false
   auto_review:
