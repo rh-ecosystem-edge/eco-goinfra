@@ -2,34 +2,60 @@ package cgu
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/clustergroupupgrades/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var conditionComplete = metav1.Condition{Type: "Succeeded", Status: metav1.ConditionTrue}
+var (
+	conditionComplete           = metav1.Condition{Type: "Succeeded", Status: metav1.ConditionTrue}
+	errInvalidCguMaxConcurrency = fmt.Errorf("CGU 'maxConcurrency' cannot be less than 1")
+	errClusterNameEmpty         = errors.New("cluster name cannot be empty")
+	errStateEmpty               = errors.New("state cannot be empty")
+)
+
+type cguObjectNotExistsError struct {
+	name      string
+	namespace string
+}
+
+func (e cguObjectNotExistsError) Error() string {
+	return fmt.Sprintf("cgu object %s does not exist in namespace %s", e.name, e.namespace)
+}
+
+func errCguObjectNotExists(name, namespace string) error {
+	return cguObjectNotExistsError{name: name, namespace: namespace}
+}
 
 // CguBuilder provides struct for the cgu object containing connection to
 // the cluster and the cgu definitions.
 type CguBuilder struct {
-	// cgu Definition, used to create the cgu object.
-	Definition *v1alpha1.ClusterGroupUpgrade
-	// created cgu object.
-	Object *v1alpha1.ClusterGroupUpgrade
-	// api client to interact with the cluster.
-	apiClient goclient.Client
-	// used to store latest error message upon defining or mutating application definition.
-	errorMsg string
+	common.EmbeddableBuilder[v1alpha1.ClusterGroupUpgrade, *v1alpha1.ClusterGroupUpgrade]
+	common.EmbeddableCreator[v1alpha1.ClusterGroupUpgrade, CguBuilder, *v1alpha1.ClusterGroupUpgrade, *CguBuilder]
+	common.EmbeddableDeleteReturner[v1alpha1.ClusterGroupUpgrade, CguBuilder, *v1alpha1.ClusterGroupUpgrade, *CguBuilder]
+	common.EmbeddableForceUpdater[v1alpha1.ClusterGroupUpgrade, CguBuilder, *v1alpha1.ClusterGroupUpgrade, *CguBuilder]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *CguBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleteReturner.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+}
+
+// GetGVK returns the ClusterGroupUpgrade GVK for this builder.
+func (builder *CguBuilder) GetGVK() schema.GroupVersionKind {
+	return v1alpha1.SchemeGroupVersion.WithKind("ClusterGroupUpgrade")
 }
 
 // NewCguBuilder creates a new instance of CguBuilder.
@@ -38,56 +64,24 @@ func NewCguBuilder(apiClient *clients.Settings, name, nsname string, maxConcurre
 		"Initializing new CGU structure with the following params: name: %s, nsname: %s, maxConcurrency: %d",
 		name, nsname, maxConcurrency)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient for the CGU is nil")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(v1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add cgu v1alpha1 scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &CguBuilder{
-		apiClient: apiClient.Client,
-		Definition: &v1alpha1.ClusterGroupUpgrade{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-			Spec: v1alpha1.ClusterGroupUpgradeSpec{
-				RemediationStrategy: &v1alpha1.RemediationStrategySpec{
-					MaxConcurrency: maxConcurrency,
-				},
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the CGU is empty")
-
-		builder.errorMsg = "CGU 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the CGU is empty")
-
-		builder.errorMsg = "CGU 'nsname' cannot be empty"
-
+	builder := common.NewNamespacedBuilder[v1alpha1.ClusterGroupUpgrade, CguBuilder](
+		apiClient, v1alpha1.AddToScheme, name, nsname)
+	if builder.GetError() != nil {
 		return builder
 	}
 
 	if maxConcurrency < 1 {
 		klog.V(100).Info("The maxConcurrency of the CGU has a minimum of 1")
 
-		builder.errorMsg = "CGU 'maxConcurrency' cannot be less than 1"
+		builder.SetError(errInvalidCguMaxConcurrency)
 
 		return builder
+	}
+
+	builder.Definition.Spec = v1alpha1.ClusterGroupUpgradeSpec{
+		RemediationStrategy: &v1alpha1.RemediationStrategySpec{
+			MaxConcurrency: maxConcurrency,
+		},
 	}
 
 	return builder
@@ -95,14 +89,14 @@ func NewCguBuilder(apiClient *clients.Settings, name, nsname string, maxConcurre
 
 // WithCluster appends a cluster to the clusters list in the CGU definition.
 func (builder *CguBuilder) WithCluster(cluster string) *CguBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if cluster == "" {
 		klog.V(100).Info("The cluster to be added to the CGU is empty")
 
-		builder.errorMsg = "cluster in CGU cluster spec cannot be empty"
+		builder.SetError(fmt.Errorf("cluster in CGU cluster spec cannot be empty"))
 
 		return builder
 	}
@@ -114,14 +108,14 @@ func (builder *CguBuilder) WithCluster(cluster string) *CguBuilder {
 
 // WithManagedPolicy appends a policies to the managed policies list in the CGU definition.
 func (builder *CguBuilder) WithManagedPolicy(policy string) *CguBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if policy == "" {
 		klog.V(100).Info("The policy to be added to the CGU's ManagedPolicies is empty")
 
-		builder.errorMsg = "policy in CGU managedpolicies spec cannot be empty"
+		builder.SetError(fmt.Errorf("policy in CGU managedpolicies spec cannot be empty"))
 
 		return builder
 	}
@@ -133,14 +127,14 @@ func (builder *CguBuilder) WithManagedPolicy(policy string) *CguBuilder {
 
 // WithCanary appends a canary to the RemediationStrategy canaries list in the CGU definition.
 func (builder *CguBuilder) WithCanary(canary string) *CguBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if canary == "" {
 		klog.V(100).Info("The canary to be added to the CGU's RemediationStrategy is empty")
 
-		builder.errorMsg = "canary in CGU remediationstrategy spec cannot be empty"
+		builder.SetError(fmt.Errorf("canary in CGU remediationstrategy spec cannot be empty"))
 
 		return builder
 	}
@@ -155,178 +149,13 @@ func (builder *CguBuilder) WithCanary(canary string) *CguBuilder {
 func Pull(apiClient *clients.Settings, name, nsname string) (*CguBuilder, error) {
 	klog.V(100).Infof("Pulling existing cgu name %s under namespace %s from cluster", name, nsname)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("cgu 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(v1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add cgu v1alpha1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := CguBuilder{
-		apiClient: apiClient.Client,
-		Definition: &v1alpha1.ClusterGroupUpgrade{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the cgu is empty")
-
-		return nil, fmt.Errorf("cgu 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the cgu is empty")
-
-		return nil, fmt.Errorf("cgu 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("cgu object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return &builder, nil
-}
-
-// Get returns ClusterGroupUpgrade object if found.
-func (builder *CguBuilder) Get() (*v1alpha1.ClusterGroupUpgrade, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Collecting clusterGroupUpgrade object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	clusterGroupUpgrade := &v1alpha1.ClusterGroupUpgrade{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(),
-		goclient.ObjectKey{Name: builder.Definition.Name, Namespace: builder.Definition.Namespace},
-		clusterGroupUpgrade)
-	if err != nil {
-		klog.V(100).Infof(
-			"clusterGroupUpgrade object %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, err
-	}
-
-	return clusterGroupUpgrade, nil
-}
-
-// Exists checks whether the given cgu exists.
-func (builder *CguBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if cgu %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Create makes a cgu in the cluster and stores the created object in struct.
-func (builder *CguBuilder) Create() (*CguBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the cgu %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err != nil {
-			klog.V(100).Info("Failed to create clusterGroupUpgrade")
-
-			return nil, err
-		}
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, err
-}
-
-// Delete removes a cgu from a cluster.
-func (builder *CguBuilder) Delete() (*CguBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Deleting the cgu %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("cgu %s in namespace %s does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, fmt.Errorf("can not delete cgu: %w", err)
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Update renovates the existing cgu object with the cgu definition in builder.
-func (builder *CguBuilder) Update(force bool) (*CguBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the cgu object %s", builder.Definition.Name)
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err == nil {
-		builder.Object = builder.Definition
-	} else if force {
-		klog.V(100).Infof("%v", msg.FailToUpdateNotification("cgu", builder.Definition.Name))
-
-		// Deleting the cgu may take time, so wait for it to be deleted before recreating. Otherwise,
-		// the create happens before the delete finishes and this update results in just deletion.
-		builder, err := builder.DeleteAndWait(time.Minute)
-		builder.Definition.ResourceVersion = ""
-
-		if err != nil {
-			klog.V(100).Infof("%v", msg.FailToUpdateError("cgu", builder.Definition.Name))
-
-			return nil, err
-		}
-
-		return builder.Create()
-	}
-
-	return builder, err
+	return common.PullNamespacedBuilder[v1alpha1.ClusterGroupUpgrade, CguBuilder](
+		context.TODO(), apiClient, v1alpha1.AddToScheme, name, nsname)
 }
 
 // DeleteAndWait deletes the cgu object and waits until the cgu is deleted.
 func (builder *CguBuilder) DeleteAndWait(timeout time.Duration) (*CguBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -345,7 +174,7 @@ func (builder *CguBuilder) DeleteAndWait(timeout time.Duration) (*CguBuilder, er
 
 // WaitUntilDeleted waits for the duration of the defined timeout or until the cgu is deleted.
 func (builder *CguBuilder) WaitUntilDeleted(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -378,15 +207,14 @@ func (builder *CguBuilder) WaitUntilDeleted(timeout time.Duration) error {
 // Reason, and Message fields. For the message field, it matches if the message contains the expected. Zero fields in
 // the expected condition are ignored.
 func (builder *CguBuilder) WaitForCondition(expected metav1.Condition, timeout time.Duration) (*CguBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
 	if !builder.Exists() {
 		klog.V(100).Info("The CGU does not exist on the cluster")
 
-		return builder, fmt.Errorf(
-			"cgu object %s does not exist in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
+		return builder, errCguObjectNotExists(builder.Definition.Name, builder.Definition.Namespace)
 	}
 
 	err := wait.PollUntilContextTimeout(
@@ -435,20 +263,20 @@ func (builder *CguBuilder) WaitUntilComplete(timeout time.Duration) (*CguBuilder
 
 // WaitUntilClusterInState waits the specified timeout for a cluster in the CGU to be in the specified state.
 func (builder *CguBuilder) WaitUntilClusterInState(cluster, state string, timeout time.Duration) (*CguBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return nil, err
 	}
 
 	if cluster == "" {
 		klog.V(100).Info("Cluster name cannot be empty")
 
-		return nil, fmt.Errorf("cluster name cannot be empty")
+		return nil, errClusterNameEmpty
 	}
 
 	if state == "" {
 		klog.V(100).Info("State cannot be empty")
 
-		return nil, fmt.Errorf("state cannot be empty")
+		return nil, errStateEmpty
 	}
 
 	klog.V(100).Infof(
@@ -456,8 +284,7 @@ func (builder *CguBuilder) WaitUntilClusterInState(cluster, state string, timeou
 		cluster, builder.Definition.Name, builder.Definition.Namespace, state)
 
 	if !builder.Exists() {
-		return nil, fmt.Errorf(
-			"cgu object %s does not exist in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
+		return nil, errCguObjectNotExists(builder.Definition.Name, builder.Definition.Namespace)
 	}
 
 	var err error
@@ -499,7 +326,7 @@ func (builder *CguBuilder) WaitUntilClusterInProgress(cluster string, timeout ti
 
 // WaitUntilBackupStarts waits the specified timeout for the backup to start.
 func (builder *CguBuilder) WaitUntilBackupStarts(timeout time.Duration) (*CguBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -509,7 +336,7 @@ func (builder *CguBuilder) WaitUntilBackupStarts(timeout time.Duration) (*CguBui
 	if !builder.Exists() {
 		klog.V(100).Info("The CGU does not exist on the cluster")
 
-		return builder, fmt.Errorf("%s", builder.errorMsg)
+		return builder, errCguObjectNotExists(builder.Definition.Name, builder.Definition.Namespace)
 	}
 
 	var err error
@@ -534,36 +361,4 @@ func (builder *CguBuilder) WaitUntilBackupStarts(timeout time.Duration) (*CguBui
 		builder.Definition.Name, builder.Definition.Namespace, err)
 
 	return nil, err
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *CguBuilder) validate() (bool, error) {
-	resourceCRD := "cgu"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
