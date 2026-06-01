@@ -49,6 +49,23 @@ var (
 	}
 )
 
+func TestProvisioningRequestFromInfoNormalizesUppercasePhase(t *testing.T) {
+	t.Parallel()
+
+	info := provisioning.ProvisioningRequestInfo{
+		ProvisioningRequestData: dummyProvisioningRequestData,
+		Status: provisioning.ProvisioningStatus{
+			ProvisioningPhase: provisioning.ProvisioningStatusProvisioningPhaseFAILED,
+			Message:           "validation failed",
+		},
+	}
+
+	pr, err := provisioningRequestFromInfo(info)
+	assert.NoError(t, err)
+	assert.Equal(t, provisioningv1alpha1.ProvisioningPhase("failed"), pr.Status.ProvisioningStatus.ProvisioningPhase)
+	assert.Equal(t, "validation failed", pr.Status.ProvisioningStatus.ProvisioningDetails)
+}
+
 func TestProvisioningClientGet(t *testing.T) {
 	t.Parallel()
 
