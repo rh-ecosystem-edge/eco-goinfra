@@ -20,7 +20,7 @@ type HardwareConfigBuilder struct {
 
 // AttachMixins wires the embedded CRUD mixins to this builder instance.
 func (builder *HardwareConfigBuilder) AttachMixins() {
-	builder.EmbeddableUpdater.SetBase(builder)
+	builder.EmbeddableUpdater.SetBase(builder) //nolint:staticcheck // promoted method is ambiguous without explicit selector
 }
 
 // GetGVK returns the HardwareConfig GVK for this builder.
