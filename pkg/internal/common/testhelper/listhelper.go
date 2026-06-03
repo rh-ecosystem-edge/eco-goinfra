@@ -16,10 +16,15 @@ import (
 )
 
 // ListInAllNamespacesFunc is a List function signature for listing resources in all namespaces (e.g.,
-// ListInAllNamespaces).
-type ListInAllNamespacesFunc[SB any] func(
+// ListInAllNamespaces). In addition to a type parameter representing a pointer to the builder type (SB), it also takes
+// a type parameter representing the list option type (LO). This allows representing functions that take ListOption and
+// ListOptions with the same type.
+//
+// Since only *ListOptions implements ListOption, but most functions take ListOptions, we cannot constrain LO to
+// anything more specific than any. Ideally, we would constrain LO to ListOption.
+type ListInAllNamespacesFunc[SB any, LO any] func(
 	apiClient *clients.Settings,
-	options ...runtimeclient.ListOptions,
+	options ...LO,
 ) ([]SB, error)
 
 // NamespacedListFunc is a List function signature for listing resources in a specific namespace (e.g., List with
@@ -68,8 +73,8 @@ type ListTestConfig[O, B any, SO common.ObjectPointer[O], SB common.BuilderPoint
 }
 
 // NewListTestConfig creates a new ListTestConfig for ListInAllNamespaces-style functions.
-func NewListTestConfig[O, B any, SO common.ObjectPointer[O], SB common.BuilderPointer[B, O, SO]](
-	listFunc ListInAllNamespacesFunc[SB],
+func NewListTestConfig[LO any, O, B any, SO common.ObjectPointer[O], SB common.BuilderPointer[B, O, SO]](
+	listFunc ListInAllNamespacesFunc[SB, LO],
 	schemeAttacher clients.SchemeAttacher,
 	expectedGVK schema.GroupVersionKind,
 ) ListTestConfig[O, B, SO, SB] {
