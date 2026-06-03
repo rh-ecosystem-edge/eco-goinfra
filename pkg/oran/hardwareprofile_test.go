@@ -4,9 +4,7 @@ import (
 	"testing"
 
 	hardwaremanagementv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
-	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var hardwareProfileGVK = hardwaremanagementv1alpha1.GroupVersion.WithKind("HardwareProfile")
@@ -24,14 +22,8 @@ func TestPullHardwareProfile(t *testing.T) {
 func TestListHardwareProfiles(t *testing.T) {
 	t.Parallel()
 
-	testhelper.NewListTestConfig[hardwaremanagementv1alpha1.HardwareProfile, HardwareProfileBuilder](
-		func(apiClient *clients.Settings, options ...runtimeclient.ListOptions) ([]*HardwareProfileBuilder, error) {
-			if len(options) == 0 {
-				return ListHardwareProfiles(apiClient)
-			}
-
-			return ListHardwareProfiles(apiClient, &options[0])
-		},
+	testhelper.NewListTestConfig(
+		ListHardwareProfiles,
 		hardwaremanagementv1alpha1.AddToScheme,
 		hardwareProfileGVK,
 	).ExecuteTests(t)
