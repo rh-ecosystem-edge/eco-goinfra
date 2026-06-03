@@ -19,3 +19,13 @@
       new: "NewWebhookManagedBy(mgr).\n\t\tFor(r)."
     - old: "WithCustomValidator("
       new: "WithValidator("
+
+- name: ptp-operator-v2alpha1
+  sync: true
+  repo_link: "https://github.com/openshift/ptp-operator"
+  branch: main
+  remote_api_directory: api/v2alpha1
+  local_api_directory: schemes/ptp/v2alpha1
+  excludes:
+    - hardwareconfig_validation_test.go
+    - testdata
