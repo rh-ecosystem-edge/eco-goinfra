@@ -370,16 +370,16 @@ func TestCguUpdate(t *testing.T) {
 		assert.Nil(t, err)
 
 		assert.NotNil(t, testBuilder.Definition)
-		assert.False(t, testBuilder.Definition.Spec.Backup)
+		assert.False(t, testBuilder.Definition.Spec.PreCaching)
 
-		testBuilder.Definition.Spec.Backup = true
+		testBuilder.Definition.Spec.PreCaching = true
 
 		cguBuilder, err := testBuilder.Update(testCase.force)
 		assert.NotNil(t, testBuilder.Definition)
 
 		assert.Nil(t, err)
 		assert.Equal(t, testBuilder.Definition.Name, cguBuilder.Definition.Name)
-		assert.Equal(t, testBuilder.Definition.Spec.Backup, cguBuilder.Definition.Spec.Backup)
+		assert.Equal(t, testBuilder.Definition.Spec.PreCaching, cguBuilder.Definition.Spec.PreCaching)
 	}
 }
 

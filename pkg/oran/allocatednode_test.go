@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	pluginsv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/plugins/v1alpha1"
+	hardwaremanagementv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,7 +17,7 @@ const (
 )
 
 var pluginsTestSchemes = []clients.SchemeAttacher{
-	pluginsv1alpha1.AddToScheme,
+	hardwaremanagementv1alpha1.AddToScheme,
 }
 
 func TestPullAllocatedNode(t *testing.T) {
@@ -106,7 +106,7 @@ func TestAllocatedNodeGet(t *testing.T) {
 		{
 			testBuilder: buildValidAllocatedNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			expectedError: fmt.Sprintf(
-				"allocatednodes.plugins.clcm.openshift.io \"%s\" not found", defaultAllocatedNodeName),
+				"allocatednodes.clcm.openshift.io \"%s\" not found", defaultAllocatedNodeName),
 		},
 	}
 
@@ -145,8 +145,8 @@ func TestAllocatedNodeExists(t *testing.T) {
 }
 
 // buildDummyAllocatedNode returns an AllocatedNode with the provided name and nsname.
-func buildDummyAllocatedNode(name, nsname string) *pluginsv1alpha1.AllocatedNode {
-	return &pluginsv1alpha1.AllocatedNode{
+func buildDummyAllocatedNode(name, nsname string) *hardwaremanagementv1alpha1.AllocatedNode {
+	return &hardwaremanagementv1alpha1.AllocatedNode{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: nsname,
@@ -167,7 +167,7 @@ func buildTestClientWithDummyAllocatedNode() *clients.Settings {
 
 // buildValidAllocatedNodeTestBuilder returns a valid AllocatedNodeBuilder with all defaults and the provided apiClient.
 func buildValidAllocatedNodeTestBuilder(apiClient *clients.Settings) *AllocatedNodeBuilder {
-	_ = apiClient.AttachScheme(pluginsv1alpha1.AddToScheme)
+	_ = apiClient.AttachScheme(hardwaremanagementv1alpha1.AddToScheme)
 
 	return &AllocatedNodeBuilder{
 		Definition: buildDummyAllocatedNode(defaultAllocatedNodeName, defaultAllocatedNodeNamespace),
