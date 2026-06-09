@@ -238,7 +238,7 @@ require (
 
 replace (
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
-	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20251223102349-9cac901c5313 // release-4.21
+	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20260526181104-0626dd1a7086 // release-4.22
 	k8s.io/client-go => k8s.io/client-go v0.34.5
 	// The cluster-node-tuning-operator release-4.21 uses version k8s.io/kube-openapi v0.34.2, which does not exist.
 	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20260127142750-a19766b6e2d4
