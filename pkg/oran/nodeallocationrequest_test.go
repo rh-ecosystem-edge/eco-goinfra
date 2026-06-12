@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	pluginsv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/plugins/v1alpha1"
+	hardwaremanagementv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -102,7 +102,7 @@ func TestNodeAllocationRequestGet(t *testing.T) {
 		{
 			testBuilder: buildValidNARTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			expectedError: fmt.Sprintf(
-				"nodeallocationrequests.plugins.clcm.openshift.io \"%s\" not found", defaultNARName),
+				"nodeallocationrequests.clcm.openshift.io \"%s\" not found", defaultNARName),
 		},
 	}
 
@@ -141,8 +141,8 @@ func TestNodeAllocationRequestExists(t *testing.T) {
 }
 
 // buildDummyNAR returns a NodeAllocationRequest with the provided name and nsname.
-func buildDummyNAR(name, nsname string) *pluginsv1alpha1.NodeAllocationRequest {
-	return &pluginsv1alpha1.NodeAllocationRequest{
+func buildDummyNAR(name, nsname string) *hardwaremanagementv1alpha1.NodeAllocationRequest {
+	return &hardwaremanagementv1alpha1.NodeAllocationRequest{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: nsname,
@@ -163,7 +163,7 @@ func buildTestClientWithDummyNAR() *clients.Settings {
 
 // buildValidNARTestBuilder returns a valid NARBuilder with all defaults and the provided apiClient.
 func buildValidNARTestBuilder(apiClient *clients.Settings) *NARBuilder {
-	_ = apiClient.AttachScheme(pluginsv1alpha1.AddToScheme)
+	_ = apiClient.AttachScheme(hardwaremanagementv1alpha1.AddToScheme)
 
 	return &NARBuilder{
 		Definition: buildDummyNAR(defaultNARName, defaultNARNamespace),

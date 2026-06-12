@@ -13,8 +13,12 @@ import (
 	"reflect"
 	"strings"
 
+	"os"
+
+	hwmgmtv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	"github.com/r3labs/diff/v3"
 	"github.com/xeipuuv/gojsonschema"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -23,6 +27,7 @@ import (
 const (
 	TemplateParamClusterInstance = "clusterInstanceParameters"
 	TemplateParamPolicyConfig    = "policyTemplateParameters"
+	TemplateParamHwMgmt          = "hwMgmtParameters"
 )
 
 var (
@@ -178,11 +183,20 @@ func (r *ProvisioningRequest) ValidateTemplateInputMatchesSchema(
 			TemplateParamPolicyConfig, clusterTemplate.Name)
 	}
 
-	// The ClusterInstance and PolicyTemplate parameters have their own specific validation rules
-	// and will be handled separately. For now, remove the subschemas for those parameters to
-	// ensure they are not validated at this stage.
+	// The ClusterInstance, PolicyTemplate, and HwMgmt parameters have their own specific
+	// validation rules and will be handled separately. For now, remove the subschemas for
+	// those parameters to ensure they are not validated at this stage.
 	delete(clusterInstanceSubSchema.(map[string]any), "properties")
 	delete(policyTemplateSubSchema.(map[string]any), "properties")
+
+	// hwMgmtParameters is validated after merging with hwMgmtDefaults from the ClusterTemplate,
+	// so strip its detailed schema here to avoid rejecting partial overrides (e.g. nodeGroupData
+	// entries that omit fields like "role" because they come from the defaults).
+	if hwMgmtSubSchema, ok := schemaProperties.(map[string]any)[TemplateParamHwMgmt]; ok {
+		if hwMgmtMap, ok := hwMgmtSubSchema.(map[string]any); ok {
+			delete(hwMgmtMap, "properties")
+		}
+	}
 
 	err = ValidateJsonAgainstJsonSchema(templateParamSchema, templateParamsInput)
 	if err != nil {
@@ -378,4 +392,92 @@ func matchesAnyPattern(path []string, patterns [][]string) bool {
 		}
 	}
 	return false
+}
+
+func getEnvOrDefault(name, defaultValue string) string {
+	value := os.Getenv(name)
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
+
+// SchemaDefinesHwMgmtParameters checks whether the ClusterTemplate's
+// templateParameterSchema defines the hwMgmtParameters property.
+func SchemaDefinesHwMgmtParameters(clusterTemplate *ClusterTemplate) bool {
+	if clusterTemplate.Spec.TemplateParameterSchema.Raw == nil {
+		return false
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(clusterTemplate.Spec.TemplateParameterSchema.Raw, &schema); err != nil {
+		return false
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return false
+	}
+	_, defined := properties[TemplateParamHwMgmt]
+	return defined
+}
+
+// ValidateHwMgmtHwProfiles validates that hwProfile values in the ProvisioningRequest's
+// hwMgmtParameters.nodeGroupData reference existing HardwareProfile CRs.
+// This provides early feedback at admission time for user-supplied profile names.
+func (r *ProvisioningRequest) ValidateHwMgmtHwProfiles(
+	ctx context.Context, c client.Client, clusterTemplate *ClusterTemplate) error {
+
+	if len(clusterTemplate.Spec.TemplateDefaults.HwMgmtDefaults.NodeGroupData) == 0 &&
+		!SchemaDefinesHwMgmtParameters(clusterTemplate) {
+		return nil
+	}
+
+	if r.Spec.TemplateParameters.Raw == nil {
+		return nil
+	}
+
+	var params map[string]any
+	if err := json.Unmarshal(r.Spec.TemplateParameters.Raw, &params); err != nil {
+		return nil
+	}
+
+	hwMgmtParams, ok := params[TemplateParamHwMgmt]
+	if !ok {
+		return nil
+	}
+	hwMgmtMap, ok := hwMgmtParams.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	nodeGroupData, ok := hwMgmtMap["nodeGroupData"]
+	if !ok {
+		return nil
+	}
+	ngSlice, ok := nodeGroupData.([]any)
+	if !ok {
+		return nil
+	}
+
+	hwmgmtNS := getEnvOrDefault("OCLOUD_MANAGER_NAMESPACE", "oran-o2ims")
+	for _, ng := range ngSlice {
+		ngMap, ok := ng.(map[string]any)
+		if !ok {
+			continue
+		}
+		hwProfile, ok := ngMap["hwProfile"].(string)
+		if !ok || hwProfile == "" {
+			continue
+		}
+		name, _ := ngMap["name"].(string)
+
+		hwProfileObj := &hwmgmtv1alpha1.HardwareProfile{}
+		if err := c.Get(ctx, client.ObjectKey{Name: hwProfile, Namespace: hwmgmtNS}, hwProfileObj); err != nil {
+			if k8serrors.IsNotFound(err) {
+				return fmt.Errorf("hardwareProfile %q referenced by nodeGroup %q does not exist", hwProfile, name)
+			}
+			return fmt.Errorf("failed to get HardwareProfile %q for nodeGroup %q: %w", hwProfile, name, err)
+		}
+	}
+
+	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
@@ -49,21 +50,67 @@ var (
 	}
 )
 
-func TestProvisioningRequestFromInfoNormalizesUppercasePhase(t *testing.T) {
+func TestProvisioningRequestFromInfo(t *testing.T) {
 	t.Parallel()
 
+	provisioningRequestReference := uuid.New()
+	nodeClusterID := uuid.New().String()
+	updateTime := time.Now()
+
 	info := provisioning.ProvisioningRequestInfo{
-		ProvisioningRequestData: dummyProvisioningRequestData,
+		ProvisioningRequestReference: provisioningRequestReference,
+		ProvisioningRequestData:      dummyProvisioningRequestData,
+		ProvisionedResourceSet: provisioning.ProvisionedResourceSet{
+			NodeClusterId:             nodeClusterID,
+			InfrastructureResourceIds: []string{"res-001", "res-002"},
+		},
 		Status: provisioning.ProvisioningStatus{
 			ProvisioningPhase: provisioning.ProvisioningStatusProvisioningPhaseFAILED,
 			Message:           "validation failed",
+			UpdateTime:        updateTime,
+			NodeClusterProvisioningStatus: provisioning.ResourceProvisioningStatus{
+				ResourceName:              "cluster-001",
+				ResourceId:                nodeClusterID,
+				ResourceProvisioningPhase: provisioning.ResourceProvisioningPhasePROVISIONED,
+			},
+			InfrastructureResourceProvisioningStatus: []provisioning.ResourceProvisioningStatus{
+				{
+					ResourceName:              "node-001",
+					ResourceId:                "res-001",
+					ResourceProvisioningPhase: provisioning.ResourceProvisioningPhasePROCESSING,
+				},
+				{
+					ResourceName:              "node-002",
+					ResourceId:                "res-002",
+					ResourceProvisioningPhase: provisioning.ResourceProvisioningPhasePROVISIONED,
+				},
+			},
 		},
 	}
 
-	pr, err := provisioningRequestFromInfo(info)
+	provisioningRequest, err := provisioningRequestFromInfo(info)
 	assert.NoError(t, err)
-	assert.Equal(t, provisioningv1alpha1.ProvisioningPhase("failed"), pr.Status.ProvisioningStatus.ProvisioningPhase)
-	assert.Equal(t, "validation failed", pr.Status.ProvisioningStatus.ProvisioningDetails)
+	assert.Equal(t, provisioningv1alpha1.ProvisioningPhase("failed"), provisioningRequest.Status.ProvisioningStatus.ProvisioningPhase)
+	assert.Equal(t, "validation failed", provisioningRequest.Status.ProvisioningStatus.ProvisioningDetails)
+	assert.Equal(t, updateTime, provisioningRequest.Status.ProvisioningStatus.UpdateTime.Time)
+	assert.Equal(t, nodeClusterID, provisioningRequest.Status.ProvisioningStatus.ProvisionedResources.OCloudNodeClusterId)
+	assert.Equal(t, "cluster-001", provisioningRequest.Status.Extensions.ClusterDetails.Name)
+	assert.Equal(t, map[string]string{
+		"res-001": "node-001",
+		"res-002": "node-002",
+	}, provisioningRequest.Status.Extensions.AllocatedNodeHostMap)
+	assert.Equal(t, []provisioningv1alpha1.InfrastructureResourceStatus{
+		{
+			ResourceName:              "node-001",
+			ResourceId:                "res-001",
+			ResourceProvisioningPhase: provisioningv1alpha1.ResourceProvisioningPhaseProcessing,
+		},
+		{
+			ResourceName:              "node-002",
+			ResourceId:                "res-002",
+			ResourceProvisioningPhase: provisioningv1alpha1.ResourceProvisioningPhaseProvisioned,
+		},
+	}, provisioningRequest.Status.Extensions.InfrastructureResourceStatuses)
 }
 
 func TestProvisioningClientGet(t *testing.T) {

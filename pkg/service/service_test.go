@@ -346,6 +346,7 @@ func TestServiceWithNodePort(t *testing.T) {
 	}
 }
 
+//nolint:staticcheck // Removing deprecated types would break consumers of eco-goinfra
 func TestServiceWithExternalTrafficPolicy(t *testing.T) {
 	testCases := []struct {
 		policyType        corev1.ServiceExternalTrafficPolicyType
@@ -504,6 +505,7 @@ func TestServiceWithAnnotation(t *testing.T) {
 	}
 }
 
+//nolint:staticcheck // Removing deprecated types would break consumers of eco-goinfra
 func TestServiceWithIPFamily(t *testing.T) {
 	testCases := []struct {
 		testIPFamily      []corev1.IPFamily
