@@ -7,7 +7,6 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -95,8 +94,11 @@ func (builder *APIServerBuilder) Exists() bool {
 	var err error
 
 	builder.Object, err = builder.Get()
+	if err != nil {
+		klog.V(100).Infof("Failed to collect APIServer object due to %s", err.Error())
+	}
 
-	return err == nil || !k8serrors.IsNotFound(err)
+	return err == nil
 }
 
 // Update renovates the existing APIServer object with the APIServer definition in builder.
