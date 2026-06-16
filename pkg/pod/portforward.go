@@ -3,10 +3,10 @@ package pod
 import (
 	"fmt"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 	"k8s.io/klog/v2"
@@ -31,20 +31,28 @@ func (builder *Builder) PortForward(localPort, remotePort int) (string, func(), 
 
 	restConfig := builder.apiClient.Config
 
-	apiURL, err := url.Parse(restConfig.Host)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to parse API server URL: %w", err)
-	}
-
-	apiURL.Path = fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/portforward",
-		builder.Object.Namespace, builder.Object.Name)
+	req := builder.apiClient.CoreV1Interface.RESTClient().
+		Post().
+		Namespace(builder.Object.Namespace).
+		Resource("pods").
+		Name(builder.Object.Name).
+		SubResource("portforward")
 
 	transport, upgrader, err := spdy.RoundTripperFor(restConfig)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create SPDY round-tripper: %w", err)
 	}
 
-	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, apiURL)
+	spdyDialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, req.URL())
+
+	wsDialer, err := portforward.NewSPDYOverWebsocketDialer(req.URL(), restConfig)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create WebSocket dialer: %w", err)
+	}
+
+	dialer := portforward.NewFallbackDialer(wsDialer, spdyDialer, func(err error) bool {
+		return httpstream.IsUpgradeFailure(err) || httpstream.IsHTTPSProxyError(err)
+	})
 
 	stopChan := make(chan struct{})
 	readyChan := make(chan struct{})
