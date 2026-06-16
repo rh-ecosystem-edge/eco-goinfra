@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"k8s.io/client-go/tools/portforward"
@@ -72,9 +73,18 @@ func (builder *Builder) PortForward(localPort, remotePort int) (string, func(), 
 			builder.Object.Name, defaultPortForwardReadyTimeout)
 	}
 
-	stop := func() {
+	ports, err := forwarder.GetPorts()
+	if err != nil {
 		close(stopChan)
+
+		return "", nil, fmt.Errorf("failed to get forwarded ports: %w", err)
 	}
 
-	return fmt.Sprintf("localhost:%d", localPort), stop, nil
+	var once sync.Once
+
+	stop := func() {
+		once.Do(func() { close(stopChan) })
+	}
+
+	return fmt.Sprintf("localhost:%d", ports[0].Local), stop, nil
 }
