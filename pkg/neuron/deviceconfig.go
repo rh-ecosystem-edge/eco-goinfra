@@ -29,7 +29,10 @@ type Builder struct {
 // AdditionalOptions additional options for DeviceConfig object.
 type AdditionalOptions func(builder *Builder) (*Builder, error)
 
-const errDriverVersionEmpty = "DeviceConfig 'driverVersion' cannot be empty"
+const (
+	errDriverVersionEmpty     = "DeviceConfig 'driverVersion' cannot be empty"
+	errDevicePluginImageEmpty = "DeviceConfig 'devicePluginImage' cannot be empty"
+)
 
 // NewBuilder creates a new instance of Builder.
 func NewBuilder(
@@ -103,7 +106,7 @@ func NewBuilder(
 	if devicePluginImage == "" {
 		klog.V(100).Infof("The devicePluginImage of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'devicePluginImage' cannot be empty"
+		builder.errorMsg = errDevicePluginImageEmpty
 
 		return builder
 	}
@@ -176,7 +179,7 @@ func NewBuilderWithInClusterBuild(
 	if devicePluginImage == "" {
 		klog.V(100).Infof("The devicePluginImage of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'devicePluginImage' cannot be empty"
+		builder.errorMsg = errDevicePluginImageEmpty
 
 		return builder
 	}
@@ -276,7 +279,7 @@ func (builder *Builder) WithDriverVersion(version string) *Builder {
 		builder.Definition.Name, builder.Definition.Namespace, version)
 
 	if version == "" {
-		klog.V(100).Infof("DeviceConfig 'driverVersion' cannot be empty")
+		klog.V(100).Infof(errDriverVersionEmpty)
 
 		builder.errorMsg = errDriverVersionEmpty
 
