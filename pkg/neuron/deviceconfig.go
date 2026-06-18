@@ -29,6 +29,8 @@ type Builder struct {
 // AdditionalOptions additional options for DeviceConfig object.
 type AdditionalOptions func(builder *Builder) (*Builder, error)
 
+const errDriverVersionEmpty = "DeviceConfig 'driverVersion' cannot be empty"
+
 // NewBuilder creates a new instance of Builder.
 func NewBuilder(
 	apiClient *clients.Settings,
@@ -93,7 +95,7 @@ func NewBuilder(
 	if driverVersion == "" {
 		klog.V(100).Infof("The driverVersion of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'driverVersion' cannot be empty"
+		builder.errorMsg = errDriverVersionEmpty
 
 		return builder
 	}
@@ -166,7 +168,7 @@ func NewBuilderWithInClusterBuild(
 	if driverVersion == "" {
 		klog.V(100).Infof("The driverVersion of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'driverVersion' cannot be empty"
+		builder.errorMsg = errDriverVersionEmpty
 
 		return builder
 	}
@@ -276,7 +278,7 @@ func (builder *Builder) WithDriverVersion(version string) *Builder {
 	if version == "" {
 		klog.V(100).Infof("DeviceConfig 'driverVersion' cannot be empty")
 
-		builder.errorMsg = "DeviceConfig 'driverVersion' cannot be empty"
+		builder.errorMsg = errDriverVersionEmpty
 
 		return builder
 	}
