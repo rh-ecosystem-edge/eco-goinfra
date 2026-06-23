@@ -8,60 +8,58 @@ import (
 	"slices"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Builder provides struct for namespace object containing connection to the cluster and the namespace definitions.
 type Builder struct {
-	// Namespace definition. Used to create namespace object.
-	Definition *corev1.Namespace
-	// Created namespace object
-	Object *corev1.Namespace
-	// Used in functions that define or mutate namespace definition. errorMsg is processed before the namespace
-	// object is created
-	errorMsg  string
-	apiClient *clients.Settings
+	common.EmbeddableBuilder[corev1.Namespace, *corev1.Namespace]
+	common.EmbeddableCreator[corev1.Namespace, Builder, *corev1.Namespace, *Builder]
+	common.EmbeddableDeleter[corev1.Namespace, *corev1.Namespace]
+	common.EmbeddableUpdater[corev1.Namespace, Builder, *corev1.Namespace, *Builder]
+	common.EmbeddableWithOptions[corev1.Namespace, Builder, *corev1.Namespace, *Builder, AdditionalOptions]
 }
 
 // AdditionalOptions additional options for namespace object.
 type AdditionalOptions func(builder *Builder) (*Builder, error)
 
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableUpdater.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the Namespace GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return corev1.SchemeGroupVersion.WithKind("Namespace")
+}
+
 // NewBuilder creates new instance of Builder.
 func NewBuilder(apiClient *clients.Settings, name string) *Builder {
-	klog.V(100).Infof(
-		"Initializing new namespace structure with the following param: %s", name)
+	return common.NewClusterScopedBuilder[corev1.Namespace, Builder](apiClient, corev1.AddToScheme, name)
+}
 
-	builder := &Builder{
-		apiClient: apiClient,
-		Definition: &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the namespace is empty")
-
-		builder.errorMsg = "namespace 'name' cannot be empty"
-
-		return builder
-	}
-
-	return builder
+// Pull loads existing namespace in to Builder struct.
+func Pull(apiClient *clients.Settings, nsname string) (*Builder, error) {
+	return common.PullClusterScopedBuilder[corev1.Namespace, Builder](
+		context.TODO(), apiClient, corev1.AddToScheme, nsname)
 }
 
 // WithLabel redefines namespace definition with the given label.
 func (builder *Builder) WithLabel(key string, value string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -70,7 +68,7 @@ func (builder *Builder) WithLabel(key string, value string) *Builder {
 	if key == "" {
 		klog.V(100).Info("The key cannot be empty")
 
-		builder.errorMsg = "'key' cannot be empty"
+		builder.SetError(fmt.Errorf("'key' cannot be empty"))
 
 		return builder
 	}
@@ -95,7 +93,7 @@ func (builder *Builder) WithMultipleLabels(labels map[string]string) *Builder {
 
 // RemoveLabels removes given label from Node metadata.
 func (builder *Builder) RemoveLabels(labels map[string]string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -104,7 +102,7 @@ func (builder *Builder) RemoveLabels(labels map[string]string) *Builder {
 	if len(labels) == 0 {
 		klog.V(100).Info("labels to be removed cannot be empty")
 
-		builder.errorMsg = "labels to be removed cannot be empty"
+		builder.SetError(fmt.Errorf("labels to be removed cannot be empty"))
 
 		return builder
 	}
@@ -116,97 +114,9 @@ func (builder *Builder) RemoveLabels(labels map[string]string) *Builder {
 	return builder
 }
 
-// WithOptions creates namespace with generic mutation options.
-func (builder *Builder) WithOptions(options ...AdditionalOptions) *Builder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting namespace additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
-// Create makes a namespace in the cluster and stores the created object in struct.
-func (builder *Builder) Create() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating namespace %s", builder.Definition.Name)
-
-	if builder.Exists() {
-		return builder, nil
-	}
-
-	var err error
-
-	builder.Object, err = builder.apiClient.Namespaces().Create(logging.DiscardContext(), builder.Definition, metav1.CreateOptions{})
-	if err != nil {
-		return builder, err
-	}
-
-	return builder, nil
-}
-
-// Update renovates the existing namespace object with the namespace definition in builder.
-func (builder *Builder) Update() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the namespace %s with the namespace definition in the builder", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.Namespaces().Update(
-		logging.DiscardContext(), builder.Definition, metav1.UpdateOptions{})
-
-	return builder, err
-}
-
-// Delete removes a namespace.
-func (builder *Builder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting namespace %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("Namespace %s does not exist", builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Namespaces().Delete(logging.DiscardContext(), builder.Definition.Name, metav1.DeleteOptions{})
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
 // DeleteAndWait deletes a namespace and waits until it is removed from the cluster.
 func (builder *Builder) DeleteAndWait(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -218,7 +128,12 @@ func (builder *Builder) DeleteAndWait(timeout time.Duration) error {
 
 	return wait.PollUntilContextTimeout(
 		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-			_, err := builder.apiClient.Namespaces().Get(logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
+			var ns corev1.Namespace
+
+			err := builder.GetClient().Get(
+				logging.WithDiscardLogger(ctx),
+				runtimeclient.ObjectKey{Name: builder.Definition.Name},
+				&ns)
 			if k8serrors.IsNotFound(err) {
 				return true, nil
 			}
@@ -231,53 +146,9 @@ func (builder *Builder) DeleteAndWait(timeout time.Duration) error {
 		})
 }
 
-// Exists checks whether the given namespace exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if namespace %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.Namespaces().Get(
-		logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Pull loads existing namespace in to Builder struct.
-func Pull(apiClient *clients.Settings, nsname string) (*Builder, error) {
-	klog.V(100).Infof("Pulling existing namespace: %s from cluster", nsname)
-
-	builder := &Builder{
-		apiClient: apiClient,
-		Definition: &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: nsname,
-			},
-		},
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("Namespace name is empty")
-
-		return nil, fmt.Errorf("namespace name cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("namespace object %s does not exist", nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
 // CleanObjects removes given objects from the namespace.
 func (builder *Builder) CleanObjects(cleanTimeout time.Duration, objects ...schema.GroupVersionResource) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -293,11 +164,16 @@ func (builder *Builder) CleanObjects(cleanTimeout time.Duration, objects ...sche
 			builder.Definition.Name)
 	}
 
+	dynamicClient, ok := builder.GetClient().(dynamic.Interface)
+	if !ok {
+		return fmt.Errorf("client does not support dynamic resource operations")
+	}
+
 	for _, resource := range objects {
 		klog.V(100).Infof("Clean all resources: %s in namespace: %s",
 			resource.Resource, builder.Definition.Name)
 
-		err := builder.apiClient.Resource(resource).Namespace(builder.Definition.Name).DeleteCollection(
+		err := dynamicClient.Resource(resource).Namespace(builder.Definition.Name).DeleteCollection(
 			context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{})
 		if err != nil {
 			klog.V(100).Infof("Failed to remove resources: %s in namespace: %s",
@@ -308,7 +184,7 @@ func (builder *Builder) CleanObjects(cleanTimeout time.Duration, objects ...sche
 
 		err = wait.PollUntilContextTimeout(
 			context.TODO(), 3*time.Second, cleanTimeout, true, func(ctx context.Context) (bool, error) {
-				objList, err := builder.apiClient.Resource(resource).Namespace(builder.Definition.Name).List(
+				objList, err := dynamicClient.Resource(resource).Namespace(builder.Definition.Name).List(
 					logging.DiscardContext(), metav1.ListOptions{})
 
 				if err != nil || len(objList.Items) > 0 {
@@ -336,7 +212,7 @@ func (builder *Builder) CleanObjects(cleanTimeout time.Duration, objects ...sche
 
 // hasOnlyDefaultConfigMaps returns true if only default configMaps are present in a namespace.
 func (builder *Builder) hasOnlyDefaultConfigMaps(objList *unstructured.UnstructuredList, err error) (bool, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return false, err
 	}
 
@@ -357,38 +233,6 @@ func (builder *Builder) hasOnlyDefaultConfigMaps(objList *unstructured.Unstructu
 	if !slices.Contains(existingConfigMaps, "kube-root-ca.crt") ||
 		!slices.Contains(existingConfigMaps, "openshift-service-ca.crt") {
 		return false, err
-	}
-
-	return true, nil
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "NameSpace"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
 	}
 
 	return true, nil

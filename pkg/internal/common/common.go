@@ -465,6 +465,15 @@ func Create[O any, SO ObjectPointer[O]](ctx context.Context, builder Builder[O, 
 	if k8serrors.IsAlreadyExists(err) {
 		klog.V(100).Infof("The resource %s already exists and cannot be created", key.String())
 
+		object, err := Get(ctx, builder)
+		if err != nil {
+			klog.V(100).Infof("Failed to get %s after it already exists: %v", key.String(), err)
+
+			return fmt.Errorf("failed to get resource after creation failed because it already exists: %w", err)
+		}
+
+		builder.SetObject(object)
+
 		return nil
 	}
 
