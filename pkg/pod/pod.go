@@ -453,8 +453,57 @@ func (builder *Builder) WaitUntilCondition(condition corev1.PodConditionType, ti
 		})
 }
 
-// ExecCommand runs command in the pod and returns the buffer output.
-func (builder *Builder) ExecCommand(command []string, containerName ...string) (bytes.Buffer, error) {
+// ExecOption configures the behavior of command execution on a pod.
+type ExecOption func(*execConfig)
+
+// execConfig holds the parameters for executing a command in a pod container.
+type execConfig struct {
+	containerName string
+	timeout       time.Duration
+	tty           bool
+	stdin         io.Reader
+}
+
+// defaultExecConfig returns an execConfig with sensible defaults (TTY enabled, no timeout, no stdin).
+func defaultExecConfig() execConfig {
+	return execConfig{
+		tty: true,
+	}
+}
+
+// WithContainer sets the container in which the command is executed.
+// If not specified, the first container in the pod spec is used.
+func WithContainer(name string) ExecOption {
+	return func(cfg *execConfig) {
+		cfg.containerName = name
+	}
+}
+
+// WithTimeout sets the maximum duration to wait for command completion.
+// A context deadline is derived from this value.
+func WithTimeout(d time.Duration) ExecOption {
+	return func(cfg *execConfig) {
+		cfg.timeout = d
+	}
+}
+
+// WithoutTTY disables TTY allocation for the executed command.
+func WithoutTTY() ExecOption {
+	return func(cfg *execConfig) {
+		cfg.tty = false
+	}
+}
+
+// WithStdin attaches the given reader as standard input for the executed command.
+func WithStdin(r io.Reader) ExecOption {
+	return func(cfg *execConfig) {
+		cfg.stdin = r
+	}
+}
+
+// execCommand is the core implementation for running a command in a pod container.
+// All public exec methods delegate to this after applying their specific configuration.
+func (builder *Builder) execCommand(command []string, cfg execConfig) (bytes.Buffer, error) {
 	if valid, err := builder.validate(); !valid {
 		return bytes.Buffer{}, err
 	}
@@ -467,19 +516,12 @@ func (builder *Builder) ExecCommand(command []string, containerName ...string) (
 			builder.Definition.Name, builder.Definition.Namespace)
 	}
 
-	var (
-		buffer bytes.Buffer
-		cName  string
-	)
-
-	if len(containerName) > 0 {
-		cName = containerName[0]
-	} else {
-		cName = builder.Definition.Spec.Containers[0].Name
+	if cfg.containerName == "" {
+		cfg.containerName = builder.Definition.Spec.Containers[0].Name
 	}
 
 	klog.V(100).Infof("Execute command %v in the pod %s container %s in namespace %s",
-		command, builder.Object.Name, cName, builder.Object.Namespace)
+		command, builder.Object.Name, cfg.containerName, builder.Object.Namespace)
 
 	req := builder.apiClient.CoreV1Interface.RESTClient().
 		Post().
@@ -488,14 +530,15 @@ func (builder *Builder) ExecCommand(command []string, containerName ...string) (
 		Name(builder.Object.Name).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
-			Container: cName,
+			Container: cfg.containerName,
 			Command:   command,
+			Stdin:     cfg.stdin != nil,
 			Stdout:    true,
 			Stderr:    true,
-			TTY:       true,
+			TTY:       cfg.tty,
 		}, scheme.ParameterCodec)
 
-	exec, err := builder.getExecutorFromRequest(
+	executor, err := builder.getExecutorFromRequest(
 		req,
 		defaultDialTimeout,
 		defaultTLSHandshakeTimeout,
@@ -505,14 +548,28 @@ func (builder *Builder) ExecCommand(command []string, containerName ...string) (
 		klog.V(100).Infof("Could not create command executor for pod %s in namespace %s: %v",
 			builder.Definition.Name, builder.Definition.Namespace, err)
 
-		return buffer, err
+		return bytes.Buffer{}, err
 	}
 
-	err = exec.StreamWithContext(logging.DiscardContext(), remotecommand.StreamOptions{
+	var buffer bytes.Buffer
+
+	streamOpts := remotecommand.StreamOptions{
+		Stdin:  cfg.stdin,
 		Stdout: &buffer,
 		Stderr: os.Stderr,
-		Tty:    true,
-	})
+		Tty:    cfg.tty,
+	}
+
+	ctx := logging.DiscardContext()
+
+	if cfg.timeout > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(context.TODO(), cfg.timeout)
+		defer cancel()
+	}
+
+	err = executor.StreamWithContext(ctx, streamOpts)
 	if err != nil {
 		return buffer, err
 	}
@@ -520,16 +577,24 @@ func (builder *Builder) ExecCommand(command []string, containerName ...string) (
 	return buffer, nil
 }
 
+// ExecCommand runs command in the pod and returns the buffer output.
+func (builder *Builder) ExecCommand(command []string, containerName ...string) (bytes.Buffer, error) {
+	cfg := defaultExecConfig()
+
+	if len(containerName) > 0 {
+		cfg.containerName = containerName[0]
+	}
+
+	return builder.execCommand(command, cfg)
+}
+
 // ExecCommandWithTimeout runs command in the pod and waits for the duration of the defined timeout or
 // until the command completes. Returns context.DeadlineExceeded error if the timeout is reached.
-// Parameters:
-//   - command: the command to execute
-//   - timeout: maximum duration to wait for command completion
-//   - containerName: optional container name (uses first container if not specified)
 func (builder *Builder) ExecCommandWithTimeout(
 	command []string,
 	timeout time.Duration,
-	containerName ...string) (bytes.Buffer, error) {
+	containerName ...string,
+) (bytes.Buffer, error) {
 	if valid, err := builder.validate(); !valid {
 		return bytes.Buffer{}, err
 	}
@@ -546,133 +611,46 @@ func (builder *Builder) ExecCommandWithTimeout(
 		return bytes.Buffer{}, fmt.Errorf("command must be provided")
 	}
 
-	if !builder.Exists() {
-		klog.V(100).Infof("Cannot execute command on pod %s in namespace %s because it does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		return bytes.Buffer{}, fmt.Errorf("pod object %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-	}
-
-	var (
-		buffer bytes.Buffer
-		cName  string
-	)
+	cfg := defaultExecConfig()
+	cfg.timeout = timeout
 
 	if len(containerName) > 0 {
-		cName = containerName[0]
-	} else {
-		cName = builder.Definition.Spec.Containers[0].Name
+		cfg.containerName = containerName[0]
 	}
 
-	klog.V(100).Infof("Execute command %v in the pod %s container %s in namespace %s with %s timeout",
-		command, builder.Object.Name, cName, builder.Object.Namespace, timeout.String())
+	return builder.execCommand(command, cfg)
+}
 
-	req := builder.apiClient.CoreV1Interface.RESTClient().
-		Post().
-		Namespace(builder.Object.Namespace).
-		Resource("pods").
-		Name(builder.Object.Name).
-		SubResource("exec").
-		VersionedParams(&corev1.PodExecOptions{
-			Container: cName,
-			Command:   command,
-			Stdout:    true,
-			Stderr:    true,
-			TTY:       true,
-		}, scheme.ParameterCodec)
+// ExecCommandWithOptions runs a command in the pod using functional options
+// to control container selection, timeout, TTY, and stdin.
+func (builder *Builder) ExecCommandWithOptions(command []string, opts ...ExecOption) (bytes.Buffer, error) {
+	cfg := defaultExecConfig()
 
-	exec, err := builder.getExecutorFromRequest(
-		req,
-		defaultDialTimeout,
-		defaultTLSHandshakeTimeout,
-		defaultResponseHeaderTimeout,
-	)
-	if err != nil {
-		return buffer, err
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
-	ctx, cancel := context.WithTimeout(context.TODO(), timeout)
-	defer cancel()
-
-	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-		Stdout: &buffer,
-		Stderr: os.Stderr,
-		Tty:    true,
-	})
-	if err != nil {
-		return buffer, err
-	}
-
-	return buffer, nil
+	return builder.execCommand(command, cfg)
 }
 
 // Copy returns the contents of a file or path from a specified container into a buffer.
 // Setting the tar option returns a tar archive of the specified path.
 func (builder *Builder) Copy(path, containerName string, tar bool) (bytes.Buffer, error) {
-	if valid, err := builder.validate(); !valid {
-		return bytes.Buffer{}, err
-	}
-
-	klog.V(100).Infof("Copying %s from %s in the pod",
-		path, containerName)
+	klog.V(100).Infof("Copying %s from %s in the pod", path, containerName)
 
 	var command []string
 	if tar {
-		command = []string{
-			"tar",
-			"cf",
-			"-",
-			path,
-		}
+		command = []string{"tar", "cf", "-", path}
 	} else {
-		command = []string{
-			"cat",
-			path,
-		}
+		command = []string{"cat", path}
 	}
 
-	var buffer bytes.Buffer
+	cfg := defaultExecConfig()
+	cfg.containerName = containerName
+	cfg.tty = false
+	cfg.stdin = os.Stdin
 
-	req := builder.apiClient.CoreV1Interface.RESTClient().
-		Post().
-		Namespace(builder.Object.Namespace).
-		Resource("pods").
-		Name(builder.Object.Name).
-		SubResource("exec").
-		VersionedParams(&corev1.PodExecOptions{
-			Container: containerName,
-			Command:   command,
-			Stdin:     true,
-			Stdout:    true,
-			Stderr:    true,
-			TTY:       false,
-		}, scheme.ParameterCodec)
-
-	exec, err := builder.getExecutorFromRequest(
-		req,
-		defaultDialTimeout,
-		defaultTLSHandshakeTimeout,
-		defaultResponseHeaderTimeout,
-	)
-	if err != nil {
-		klog.V(100).Infof("Could not create executor to copy from pod %s in namespace %s: %v",
-			builder.Definition.Name, builder.Definition.Namespace, err)
-
-		return buffer, err
-	}
-
-	err = exec.StreamWithContext(context.TODO(), remotecommand.StreamOptions{
-		Stdin:  os.Stdin,
-		Stdout: &buffer,
-		Stderr: os.Stderr,
-		Tty:    false,
-	})
-	if err != nil {
-		return buffer, err
-	}
-
-	return buffer, nil
+	return builder.execCommand(command, cfg)
 }
 
 // Exists checks whether the given pod exists.
