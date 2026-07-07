@@ -1,112 +1,45 @@
 package configmap
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // List returns configmap inventory in the given namespace.
 func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOptions) ([]*Builder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil, fmt.Errorf("the apiClient cannot be nil")
-	}
-
 	if nsname == "" {
 		klog.V(100).Info("configmap 'nsname' parameter can not be empty")
 
-		return nil, fmt.Errorf("failed to list configmaps, 'nsname' parameter is empty")
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey("ConfigMap", "", ""), commonerrors.BuilderFieldNamespace)
 	}
 
-	passedOptions := metav1.ListOptions{}
-	logMessage := fmt.Sprintf("Listing configmaps in the namespace %s", nsname)
-
-	if len(options) > 1 {
-		klog.V(100).Info("'options' parameter must be empty or single-valued")
-
-		return nil, fmt.Errorf("error: more than one ListOptions was passed")
-	}
-
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
-
-	klog.V(100).Infof("%v", logMessage)
-
-	configmapList, err := apiClient.ConfigMaps(nsname).List(logging.DiscardContext(), passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions(options)
 	if err != nil {
-		klog.V(100).Infof("Failed to list configmaps in the namespace %s due to %s", nsname, err.Error())
-
 		return nil, err
 	}
 
-	var configmapObjects []*Builder
+	allOptions := append([]runtimeclient.ListOption{runtimeclient.InNamespace(nsname)}, convertedOptions...)
 
-	for _, runningConfigmap := range configmapList.Items {
-		copiedConfigmap := runningConfigmap
-		configmapObjects = append(configmapObjects, newListedBuilder(apiClient, &copiedConfigmap))
-	}
-
-	return configmapObjects, nil
+	return common.List[corev1.ConfigMap, corev1.ConfigMapList, Builder](
+		context.TODO(), apiClient, corev1.AddToScheme, allOptions...)
 }
 
-// ListInAllNamespaces returns configmap inventory in the all the namespaces.
+// ListInAllNamespaces returns configmap inventory in all the namespaces.
 func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOptions) ([]*Builder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil, fmt.Errorf("the apiClient cannot be nil")
-	}
-
-	passedOptions := metav1.ListOptions{}
-	logMessage := "Listing configmaps in all namespaces"
-
-	if len(options) > 1 {
-		klog.V(100).Info("'options' parameter must be either empty or single-valued")
-
-		return nil, fmt.Errorf("error: more than one ListOptions was passed")
-	}
-
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
-
-	klog.V(100).Infof("%v", logMessage)
-
-	configmapList, err := apiClient.ConfigMaps("").List(logging.DiscardContext(), passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions(options)
 	if err != nil {
-		klog.V(100).Infof("Failed to list configmaps in all namespaces due to %s", err.Error())
-
 		return nil, err
 	}
 
-	var configmapObjects []*Builder
-
-	for _, runningConfigmap := range configmapList.Items {
-		copiedConfigmap := runningConfigmap
-		configmapObjects = append(configmapObjects, newListedBuilder(apiClient, &copiedConfigmap))
-	}
-
-	return configmapObjects, nil
-}
-
-// newListedBuilder returns a fully initialized builder for a configmap obtained through a list call.
-func newListedBuilder(apiClient *clients.Settings, configMap *corev1.ConfigMap) *Builder {
-	builder := &Builder{}
-	builder.AttachMixins()
-	builder.SetClient(apiClient)
-	builder.SetGVK(builder.GetGVK())
-	builder.SetObject(configMap)
-	builder.SetDefinition(configMap)
-
-	return builder
+	return common.List[corev1.ConfigMap, corev1.ConfigMapList, Builder](
+		context.TODO(), apiClient, corev1.AddToScheme, convertedOptions...)
 }

@@ -15,17 +15,25 @@ var namespaceGVK = corev1.SchemeGroupVersion.WithKind("Namespace")
 func TestNewBuilder(t *testing.T) {
 	t.Parallel()
 
-	testhelper.NewClusterScopedBuilderTestConfig[corev1.Namespace, Builder](
-		NewBuilder, corev1.AddToScheme, namespaceGVK).
+	testhelper.NewClusterScopedBuilderTestConfig(NewBuilder, corev1.AddToScheme, namespaceGVK).
 		ExecuteTests(t)
 }
 
 func TestPull(t *testing.T) {
 	t.Parallel()
 
-	testhelper.NewClusterScopedPullTestConfig[corev1.Namespace, Builder](
-		Pull, corev1.AddToScheme, namespaceGVK).
+	testhelper.NewClusterScopedPullTestConfig(Pull, corev1.AddToScheme, namespaceGVK).
 		ExecuteTests(t)
+}
+
+func TestList(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewListTestConfig(
+		List,
+		corev1.AddToScheme,
+		namespaceGVK,
+	).ExecuteTests(t)
 }
 
 func TestBuilderMethods(t *testing.T) {
