@@ -14,6 +14,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyScaleObjectName = "scaledObject 'name' cannot be empty"
+)
+
 // ScaledObjectBuilder provides a struct for ScaledObject object from the cluster
 // and a ScaledObject definition.
 type ScaledObjectBuilder struct {
@@ -60,7 +64,7 @@ func NewScaledObjectBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the scaledObject is empty")
 
-		builder.errorMsg = "scaledObject 'name' cannot be empty"
+		builder.errorMsg = errEmptyScaleObjectName
 
 		return builder
 	}
@@ -107,7 +111,7 @@ func PullScaledObject(apiClient *clients.Settings, name, nsname string) (*Scaled
 	if name == "" {
 		klog.V(100).Info("The name of the scaledObject is empty")
 
-		return nil, fmt.Errorf("scaledObject 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyScaleObjectName)
 	}
 
 	if nsname == "" {

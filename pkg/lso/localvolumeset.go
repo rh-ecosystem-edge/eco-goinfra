@@ -17,6 +17,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyName = "localVolumeSet 'name' cannot be empty"
+)
+
 // LocalVolumeSetBuilder provides a struct for localVolumeSet object from the cluster and a localVolumeSet definition.
 type LocalVolumeSetBuilder struct {
 	// localVolumeSet definition, used to create the localVolumeSet object.
@@ -61,7 +65,7 @@ func NewLocalVolumeSetBuilder(apiClient *clients.Settings, name, nsname string) 
 	if name == "" {
 		klog.V(100).Info("The name of the localVolumeSet is empty")
 
-		builder.errorMsg = "localVolumeSet 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -108,7 +112,7 @@ func PullLocalVolumeSet(apiClient *clients.Settings, name, nsname string) (*Loca
 	if name == "" {
 		klog.V(100).Info("The name of the localVolumeSet is empty")
 
-		return nil, fmt.Errorf("localVolumeSet 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyName)
 	}
 
 	if nsname == "" {
@@ -254,7 +258,7 @@ func (builder *LocalVolumeSetBuilder) WithTolerations(
 	if len(tolerations) == 0 {
 		klog.V(100).Info("The tolerations list is empty")
 
-		builder.errorMsg = "'tolerations' argument cannot be empty"
+		builder.errorMsg = errEmptyTolerations
 
 		return builder
 	}

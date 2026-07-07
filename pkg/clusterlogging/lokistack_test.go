@@ -59,7 +59,7 @@ func TestPullLokiStack(t *testing.T) {
 			name:                "",
 			namespace:           defaultLokiStackNamespace,
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("lokiStack 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyLokiStackName),
 			client:              true,
 		},
 		{
@@ -133,7 +133,7 @@ func TestNewLokiStackBuilder(t *testing.T) {
 		{
 			name:          "",
 			namespace:     defaultLokiStackNamespace,
-			expectedError: "lokiStack 'name' cannot be empty",
+			expectedError: errEmptyLokiStackName,
 			client:        true,
 		},
 		{
@@ -208,7 +208,7 @@ func TestLokiStackGet(t *testing.T) {
 		},
 		{
 			testLokiStack: buildInValidLokiStackBuilder(buildLokiStackClientWithDummyObject()),
-			expectedError: fmt.Errorf("lokiStack 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyLokiStackName),
 		},
 		{
 			testLokiStack: buildValidLokiStackBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -240,7 +240,7 @@ func TestLokiStackCreate(t *testing.T) {
 		},
 		{
 			testLokiStack: buildInValidLokiStackBuilder(buildLokiStackClientWithDummyObject()),
-			expectedError: "lokiStack 'name' cannot be empty",
+			expectedError: errEmptyLokiStackName,
 		},
 		{
 			testLokiStack: buildValidLokiStackBuilder(clients.GetTestClients(clients.TestClientParams{})),

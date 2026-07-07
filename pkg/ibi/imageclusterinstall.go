@@ -16,6 +16,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errInvalidMachineNetworkFormat = "imageclusterinstall machinenetwork incorrectly formatted"
+)
+
 // ImageClusterInstallBuilder provides struct for the imageclusterinstall object containing connection to
 // the cluster and the imageclusterinstall definitions.
 type ImageClusterInstallBuilder struct {
@@ -230,7 +234,7 @@ func (builder *ImageClusterInstallBuilder) WithMachineNetwork(network string) *I
 	if _, _, err := net.ParseCIDR(network); err != nil {
 		klog.V(100).Info("The machinenetwork is not a properly formatted IP network address")
 
-		builder.errorMsg = "imageclusterinstall machinenetwork incorrectly formatted"
+		builder.errorMsg = errInvalidMachineNetworkFormat
 
 		return builder
 	}

@@ -31,7 +31,7 @@ func TestNewMachineConfigBuilder(t *testing.T) {
 		{
 			name:              "",
 			client:            true,
-			expectedErrorText: "machineconfig 'name' cannot be empty",
+			expectedErrorText: errEmptyMachineConfigName,
 		},
 		{
 			name:              defaultMachineConfigName,
@@ -78,7 +78,7 @@ func TestPullMachineConfig(t *testing.T) {
 			name:                "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("machineconfig 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyMachineConfigName),
 		},
 		{
 			name:                defaultMachineConfigName,
@@ -133,7 +133,7 @@ func TestMachineConfigGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: "machineconfig 'name' cannot be empty",
+			expectedError: errEmptyMachineConfigName,
 		},
 		{
 			testBuilder:   buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -164,7 +164,7 @@ func TestMachineConfigCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: fmt.Errorf("machineconfig 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMachineConfigName),
 		},
 		{
 			testBuilder:   buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -193,7 +193,7 @@ func TestMachineConfigUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: "machineconfig 'name' cannot be empty",
+			expectedError: errEmptyMachineConfigName,
 		},
 		{
 			testBuilder:   buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -229,7 +229,7 @@ func TestMachineConfigDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: fmt.Errorf("machineconfig 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMachineConfigName),
 		},
 		{
 			testBuilder:   buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -283,7 +283,7 @@ func TestMachineConfigWithLabel(t *testing.T) {
 		},
 		{
 			key:           "",
-			expectedError: "'key' cannot be empty",
+			expectedError: errEmptyKey,
 		},
 	}
 
@@ -319,7 +319,7 @@ func TestMachineConfigWithOptions(t *testing.T) {
 			options: func(builder *MCBuilder) (*MCBuilder, error) {
 				return builder, nil
 			},
-			expectedError: "machineconfig 'name' cannot be empty",
+			expectedError: errEmptyMachineConfigName,
 		},
 		{
 			testBuilder: buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),

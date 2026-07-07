@@ -52,7 +52,7 @@ func TestPodNewBuilder(t *testing.T) {
 			nsname:        "",
 			image:         defaultPodImage,
 			client:        true,
-			expectedError: "pod 'namespace' cannot be empty",
+			expectedError: errEmptyNamespace,
 		},
 		{
 			name:          defaultPodName,
@@ -120,7 +120,7 @@ func TestPodPull(t *testing.T) {
 			nsname:              "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("pod 'namespace' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			name:                defaultPodName,
@@ -218,7 +218,7 @@ func TestPodCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
-			expectedError: fmt.Errorf("pod 'namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -267,7 +267,7 @@ func TestPodWaitUntilDeleted(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("pod 'namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			testBuilder:   buildValidPodTestBuilder(buildTestClientWithDummyPod()),
@@ -401,7 +401,7 @@ func TestPodWithRestartPolicy(t *testing.T) {
 func TestPodWithTolerationToMaster(t *testing.T) {
 	toleration := corev1.Toleration{
 		Key:    "node-role.kubernetes.io/master",
-		Effect: "NoSchedule",
+		Effect: taintEffectNoSchedule,
 	}
 
 	testPodWithTolerationHelper(t, toleration, func(builder *Builder, toleration corev1.Toleration) *Builder {
@@ -411,8 +411,8 @@ func TestPodWithTolerationToMaster(t *testing.T) {
 
 func TestPodWithTolerationToControlPlane(t *testing.T) {
 	toleration := corev1.Toleration{
-		Key:    "node-role.kubernetes.io/control-plane",
-		Effect: "NoSchedule",
+		Key:    nodeRoleKubernetesIoControlPlane,
+		Effect: taintEffectNoSchedule,
 	}
 
 	testPodWithTolerationHelper(t, toleration, func(builder *Builder, toleration corev1.Toleration) *Builder {
@@ -422,8 +422,8 @@ func TestPodWithTolerationToControlPlane(t *testing.T) {
 
 func TestPodWithToleration(t *testing.T) {
 	toleration := corev1.Toleration{
-		Key:    "node-role.kubernetes.io/control-plane",
-		Effect: "NoSchedule",
+		Key:    nodeRoleKubernetesIoControlPlane,
+		Effect: taintEffectNoSchedule,
 	}
 
 	testPodWithTolerationHelper(t, toleration, func(builder *Builder, toleration corev1.Toleration) *Builder {
@@ -690,7 +690,7 @@ func TestPodExecCommandWithTimeout(t *testing.T) {
 			timeout:       5 * time.Second,
 			containerName: []string{},
 			testBuilder:   buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
-			expectedError: "pod 'namespace' cannot be empty",
+			expectedError: errEmptyNamespace,
 		},
 		{
 			name:          "pod does not exist",
@@ -776,7 +776,7 @@ func testPodDeleteHelper(t *testing.T, deleteFunc func(builder *Builder) (*Build
 		},
 		{
 			testBuilder:   buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
-			expectedError: fmt.Errorf("pod 'namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -812,7 +812,7 @@ func testPodWaitUntilConditionHelper(t *testing.T, waitFunc func(builder *Builde
 		{
 			valid:         false,
 			ready:         true,
-			expectedError: fmt.Errorf("pod 'namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			valid:         true,
@@ -893,7 +893,7 @@ func buildDummyPod(name, nsname, image string) *corev1.Pod {
 				{
 					Name:    "test",
 					Image:   image,
-					Command: []string{"/bin/bash", "-c", "sleep INF"},
+					Command: []string{defaultShellBinBash, "-c", "sleep INF"},
 				},
 			},
 		},

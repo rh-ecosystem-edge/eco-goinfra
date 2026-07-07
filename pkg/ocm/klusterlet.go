@@ -13,6 +13,10 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyKlusterletName = "klusterlet 'name' cannot be empty"
+)
+
 // KlusterletName is the name of the klusterlet created by importing a ManagedCluster.
 const KlusterletName = "klusterlet"
 
@@ -57,7 +61,7 @@ func NewKlusterletBuilder(apiClient *clients.Settings, name string) *KlusterletB
 	if name == "" {
 		klog.V(100).Info("The name of the Klusterlet is empty")
 
-		builder.errorMsg = "klusterlet 'name' cannot be empty"
+		builder.errorMsg = errEmptyKlusterletName
 
 		return builder
 	}
@@ -94,7 +98,7 @@ func PullKlusterlet(apiClient *clients.Settings, name string) (*KlusterletBuilde
 	if name == "" {
 		klog.V(100).Info("The name of the Klusterlet is empty")
 
-		return nil, fmt.Errorf("klusterlet 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyKlusterletName)
 	}
 
 	if !builder.Exists() {

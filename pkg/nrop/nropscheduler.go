@@ -14,6 +14,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptySchedulerName = "NUMAResourcesScheduler 'name' cannot be empty"
+)
+
 // SchedulerBuilder provides a struct for NUMAResourcesScheduler object from the cluster
 // and a NUMAResourcesScheduler definition.
 type SchedulerBuilder struct {
@@ -60,7 +64,7 @@ func NewSchedulerBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the NUMAResourcesScheduler is empty")
 
-		builder.errorMsg = "NUMAResourcesScheduler 'name' cannot be empty"
+		builder.errorMsg = errEmptySchedulerName
 
 		return builder
 	}
@@ -107,7 +111,7 @@ func PullScheduler(apiClient *clients.Settings, name, nsname string) (*Scheduler
 	if name == "" {
 		klog.V(100).Info("The name of the NUMAResourcesScheduler is empty")
 
-		return nil, fmt.Errorf("NUMAResourcesScheduler 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptySchedulerName)
 	}
 
 	if nsname == "" {

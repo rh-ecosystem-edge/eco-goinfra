@@ -40,7 +40,7 @@ func TestNewOperatorGroupBuilder(t *testing.T) {
 			name:          "operatorgroup",
 			namespace:     "",
 			client:        true,
-			expectedError: "operatorGroup 'Namespace' cannot be empty",
+			expectedError: errEmptyNamespace,
 		},
 		{
 			name:          "operatorgroup",
@@ -111,7 +111,7 @@ func TestPullIOperatorGroup(t *testing.T) {
 			name:                "operatorgroup",
 			namespace:           "",
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("operatorGroup 'Namespace' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyNamespace),
 			client:              true,
 		},
 		{
@@ -169,7 +169,7 @@ func TestOperatorGroupGet(t *testing.T) {
 		},
 		{
 			operatorGroup: buildInValidOperatorGroupBuilder(buildOperatorGroupTestClientWithDummyObject()),
-			expectedError: "operatorGroup 'Namespace' cannot be empty",
+			expectedError: errEmptyNamespace,
 		},
 		{
 			operatorGroup: buildValidOperatorGroupBuilder(
@@ -227,7 +227,7 @@ func TestOperatorGroupCreate(t *testing.T) {
 		},
 		{
 			operatorGroup: buildInValidOperatorGroupBuilder(buildOperatorGroupTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("operatorGroup 'Namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			operatorGroup: buildValidOperatorGroupBuilder(
@@ -257,7 +257,7 @@ func TestOperatorGroupDelete(t *testing.T) {
 		},
 		{
 			operatorGroup: buildInValidOperatorGroupBuilder(buildOperatorGroupTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("operatorGroup 'Namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			operatorGroup: buildValidOperatorGroupBuilder(
@@ -289,7 +289,7 @@ func TestOperatorGroupUpdate(t *testing.T) {
 		},
 		{
 			operatorGroup:  buildInValidOperatorGroupBuilder(buildOperatorGroupTestClientWithDummyObject()),
-			expectedError:  fmt.Errorf("operatorGroup 'Namespace' cannot be empty"),
+			expectedError:  fmt.Errorf(errEmptyNamespace),
 			serviceAccount: "test",
 		},
 		{

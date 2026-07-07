@@ -12,6 +12,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyName   = "secret 'name' cannot be empty"
+	errEmptyNsname = "secret 'nsname' cannot be empty"
+)
+
 // Builder provides struct for secret object containing connection to the cluster and the secret definitions.
 type Builder struct {
 	// Secret definition. Used to store the secret object.
@@ -54,7 +59,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string, secretType cor
 	if name == "" {
 		klog.V(100).Info("The name of the secret is empty")
 
-		builder.errorMsg = "secret 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -62,7 +67,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string, secretType cor
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the secret is empty")
 
-		builder.errorMsg = "secret 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyNsname
 
 		return builder
 	}
@@ -101,13 +106,13 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	if name == "" {
 		klog.V(100).Info("secret name is empty")
 
-		return nil, fmt.Errorf("secret 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyName)
 	}
 
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the secret is empty")
 
-		return nil, fmt.Errorf("secret 'nsname' cannot be empty")
+		return nil, fmt.Errorf(errEmptyNsname)
 	}
 
 	if !builder.Exists() {

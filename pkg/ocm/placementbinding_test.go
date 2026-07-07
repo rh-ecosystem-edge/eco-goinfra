@@ -19,14 +19,14 @@ const (
 
 var (
 	defaultPlacementBindingRef = policiesv1.PlacementSubject{
-		Name:     "placementrule-test",
-		APIGroup: "apps.open-cluster-management.io",
-		Kind:     "PlacementRule",
+		Name:     defaultPlacementRuleName,
+		APIGroup: appsOpenClusterManagementIo,
+		Kind:     kindPlacementRule,
 	}
 	defaultPlacementBindingSubject = policiesv1.Subject{
-		Name:     "policyset-test",
-		APIGroup: "policy.open-cluster-management.io",
-		Kind:     "PolicySet",
+		Name:     defaultPolicySetName,
+		APIGroup: policyOpenClusterManagementIo,
+		Kind:     kindPolicySet,
 	}
 	placementBindingTestSchemes = []clients.SchemeAttacher{
 		policiesv1.AddToScheme,
@@ -353,10 +353,10 @@ func TestWithAdditionalSubject(t *testing.T) {
 		{
 			subject: policiesv1.Subject{
 				Name:     "",
-				APIGroup: "policy.open-cluster-management.io",
-				Kind:     "PolicySet",
+				APIGroup: policyOpenClusterManagementIo,
+				Kind:     kindPolicySet,
 			},
-			expectedErrorText: "placementBinding's 'Subject.Name' cannot be empty",
+			expectedErrorText: errEmptySubjectName,
 		},
 	}
 
@@ -388,23 +388,23 @@ func TestValidatePlacementRef(t *testing.T) {
 		{
 			ref: policiesv1.PlacementSubject{
 				Name:     "",
-				APIGroup: "apps.open-cluster-management.io",
-				Kind:     "PlacementRule",
+				APIGroup: appsOpenClusterManagementIo,
+				Kind:     kindPlacementRule,
 			},
 			expectedErrorText: "placementBinding's 'PlacementRef.Name' cannot be empty",
 		},
 		{
 			ref: policiesv1.PlacementSubject{
-				Name:     "placementrule-test",
+				Name:     defaultPlacementRuleName,
 				APIGroup: "",
-				Kind:     "PlacementRule",
+				Kind:     kindPlacementRule,
 			},
 			expectedErrorText: "placementBinding's 'PlacementRef.APIGroup' must be a valid option",
 		},
 		{
 			ref: policiesv1.PlacementSubject{
-				Name:     "placementrule-test",
-				APIGroup: "apps.open-cluster-management.io",
+				Name:     defaultPlacementRuleName,
+				APIGroup: appsOpenClusterManagementIo,
 				Kind:     "",
 			},
 			expectedErrorText: "placementBinding's 'PlacementRef.Kind' must be a valid option",
@@ -429,23 +429,23 @@ func TestValidateSubject(t *testing.T) {
 		{
 			subject: policiesv1.Subject{
 				Name:     "",
-				APIGroup: "policy.open-cluster-management.io",
-				Kind:     "PolicySet",
+				APIGroup: policyOpenClusterManagementIo,
+				Kind:     kindPolicySet,
 			},
-			expectedErrorText: "placementBinding's 'Subject.Name' cannot be empty",
+			expectedErrorText: errEmptySubjectName,
 		},
 		{
 			subject: policiesv1.Subject{
-				Name:     "policyset-test",
+				Name:     defaultPolicySetName,
 				APIGroup: "",
-				Kind:     "PolicySet",
+				Kind:     kindPolicySet,
 			},
 			expectedErrorText: "placementBinding's 'Subject.APIGroup' must be 'policy.open-cluster-management.io'",
 		},
 		{
 			subject: policiesv1.Subject{
-				Name:     "policyset-test",
-				APIGroup: "policy.open-cluster-management.io",
+				Name:     defaultPolicySetName,
+				APIGroup: policyOpenClusterManagementIo,
 				Kind:     "",
 			},
 			expectedErrorText: "placementBinding's 'Subject.Kind' must be a valid option",

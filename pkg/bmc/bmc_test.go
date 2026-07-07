@@ -139,13 +139,13 @@ func TestBMCWithRedfishUser(t *testing.T) {
 			name:           "all params empty",
 			username:       "",
 			password:       "",
-			expectedErrMsg: "redfish 'username' cannot be empty",
+			expectedErrMsg: errEmptyRedfishUsername,
 		},
 		{
 			name:           "username empty",
 			username:       "",
 			password:       defaultPassword,
-			expectedErrMsg: "redfish 'username' cannot be empty",
+			expectedErrMsg: errEmptyRedfishUsername,
 		},
 		{
 			name:           "password empty",
@@ -183,12 +183,12 @@ func TestBMCWithRedfishTimeout(t *testing.T) {
 		{
 			name:           "zero timeout",
 			timeout:        0,
-			expectedErrMsg: "redfish 'timeout' cannot be less than or equal to zero",
+			expectedErrMsg: redfishTimeoutCannotBeLessThan,
 		},
 		{
 			name:           "negative timeout",
 			timeout:        -1 * time.Minute,
-			expectedErrMsg: "redfish 'timeout' cannot be less than or equal to zero",
+			expectedErrMsg: redfishTimeoutCannotBeLessThan,
 		},
 	}
 
@@ -284,13 +284,13 @@ func TestBMCWithSSHUser(t *testing.T) {
 			name:           "all params empty",
 			username:       "",
 			password:       "",
-			expectedErrMsg: "ssh 'username' cannot be empty",
+			expectedErrMsg: errEmptySSHUsername,
 		},
 		{
 			name:           "username empty",
 			username:       "",
 			password:       defaultPassword,
-			expectedErrMsg: "ssh 'username' cannot be empty",
+			expectedErrMsg: errEmptySSHUsername,
 		},
 		{
 			name:           "password empty",
@@ -358,12 +358,12 @@ func TestBMCWithSSHTimeout(t *testing.T) {
 		{
 			name:           "zero timeout",
 			timeout:        0,
-			expectedErrMsg: "ssh 'timeout' cannot be less than or equal to zero",
+			expectedErrMsg: sshTimeoutCannotBeLessThan,
 		},
 		{
 			name:           "negative timeout",
 			timeout:        -1 * time.Minute,
-			expectedErrMsg: "ssh 'timeout' cannot be less than or equal to zero",
+			expectedErrMsg: sshTimeoutCannotBeLessThan,
 		},
 	}
 

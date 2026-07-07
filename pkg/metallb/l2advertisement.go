@@ -14,6 +14,10 @@ import (
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyL2AdvertisementNsname = "L2Advertisement 'nsname' cannot be empty"
+)
+
 // L2AdvertisementBuilder provides struct for the L2Advertisement object containing connection to
 // the cluster and the L2Advertisement definitions.
 type L2AdvertisementBuilder struct {
@@ -66,7 +70,7 @@ func NewL2AdvertisementBuilder(apiClient *clients.Settings, name, nsname string)
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the L2Advertisement is empty")
 
-		builder.errorMsg = "L2Advertisement 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyL2AdvertisementNsname
 
 		return builder
 	}
@@ -267,7 +271,7 @@ func (builder *L2AdvertisementBuilder) WithNodeSelector(nodeSelectors []metaV1.L
 		builder.Definition.Name, builder.Definition.Namespace, nodeSelectors)
 
 	if len(nodeSelectors) < 1 {
-		builder.errorMsg = "error: nodeSelectors setting is empty list, the list should contain at least one element"
+		builder.errorMsg = errEmptyNodeSelectors
 
 		return builder
 	}
@@ -288,7 +292,7 @@ func (builder *L2AdvertisementBuilder) WithIPAddressPools(ipAddressPools []strin
 		builder.Definition.Name, builder.Definition.Namespace, ipAddressPools)
 
 	if len(ipAddressPools) < 1 {
-		builder.errorMsg = "error: IPAddressPools setting is empty list, the list should contain at least one element"
+		builder.errorMsg = errEmptyIPAddressPools
 
 		return builder
 	}

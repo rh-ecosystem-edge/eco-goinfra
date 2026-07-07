@@ -16,6 +16,11 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyAddonConfigName = "klusterletAddonConfig 'name' cannot be empty"
+	errEmptyNsname          = "klusterletAddonConfig 'nsname' cannot be empty"
+)
+
 // KACBuilder provides a struct for the KlusterletAddonConfig resource containing a connection to the cluster and the
 // KlusterletAddonConfig definition.
 type KACBuilder struct {
@@ -60,7 +65,7 @@ func NewKACBuilder(apiClient *clients.Settings, name, nsname string) *KACBuilder
 	if name == "" {
 		klog.V(100).Info("The name of the KlusterletAddonConfig is empty")
 
-		builder.errorMsg = "klusterletAddonConfig 'name' cannot be empty"
+		builder.errorMsg = errEmptyAddonConfigName
 
 		return builder
 	}
@@ -68,7 +73,7 @@ func NewKACBuilder(apiClient *clients.Settings, name, nsname string) *KACBuilder
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the KlusterletAddonConfig is empty")
 
-		builder.errorMsg = "klusterletAddonConfig 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyNsname
 
 		return builder
 	}
@@ -106,13 +111,13 @@ func PullKAC(apiClient *clients.Settings, name, nsname string) (*KACBuilder, err
 	if name == "" {
 		klog.V(100).Info("The name of the KlusterletAddonConfig is empty")
 
-		return nil, fmt.Errorf("klusterletAddonConfig 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyAddonConfigName)
 	}
 
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the KlusterletAddonConfig is empty")
 
-		return nil, fmt.Errorf("klusterletAddonConfig 'nsname' cannot be empty")
+		return nil, fmt.Errorf(errEmptyNsname)
 	}
 
 	if !builder.Exists() {

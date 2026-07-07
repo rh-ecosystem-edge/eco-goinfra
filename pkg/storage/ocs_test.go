@@ -76,7 +76,7 @@ func TestSorageClusterPull(t *testing.T) {
 			name:                "",
 			namespace:           "openshift-storage",
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("storageCluster 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyStorageClusterName),
 			client:              true,
 		},
 		{
@@ -150,7 +150,7 @@ func TestNewStorageClusterBuilder(t *testing.T) {
 		{
 			name:          "",
 			namespace:     defaultStorageClusterNamespace,
-			expectedError: "storageCluster 'name' cannot be empty",
+			expectedError: errEmptyStorageClusterName,
 			client:        true,
 		},
 		{
@@ -226,7 +226,7 @@ func TestStorageClusterGet(t *testing.T) {
 		},
 		{
 			testStorageCluster: buildInValidStorageClusterBuilder(buildStorageClusterClientWithDummyObject()),
-			expectedError:      fmt.Errorf("storageCluster 'name' cannot be empty"),
+			expectedError:      fmt.Errorf(errEmptyStorageClusterName),
 		},
 		{
 			testStorageCluster: buildValidStorageClusterBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -258,7 +258,7 @@ func TestStorageClusterCreate(t *testing.T) {
 		},
 		{
 			testStorageCluster: buildInValidStorageClusterBuilder(buildStorageClusterClientWithDummyObject()),
-			expectedError:      "storageCluster 'name' cannot be empty",
+			expectedError:      errEmptyStorageClusterName,
 		},
 		{
 			testStorageCluster: buildValidStorageClusterBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -290,7 +290,7 @@ func TestStorageClusterDelete(t *testing.T) {
 		},
 		{
 			testStorageCluster: buildInValidStorageClusterBuilder(buildStorageClusterClientWithDummyObject()),
-			expectedError:      fmt.Errorf("storageCluster 'name' cannot be empty"),
+			expectedError:      fmt.Errorf(errEmptyStorageClusterName),
 		},
 		{
 			testStorageCluster: buildValidStorageClusterBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -323,7 +323,7 @@ func TestStorageClusterUpdate(t *testing.T) {
 		},
 		{
 			testStorageCluster: buildInValidStorageClusterBuilder(buildStorageClusterClientWithDummyObject()),
-			expectedError:      fmt.Errorf("storageCluster 'name' cannot be empty"),
+			expectedError:      fmt.Errorf(errEmptyStorageClusterName),
 			flexibleScaling:    true,
 		},
 	}

@@ -20,6 +20,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyTolerations = "'tolerations' argument cannot be empty"
+)
+
 // LocalVolumeDiscoveryBuilder provides a struct for localVolumeDiscovery object from the cluster
 // and a localVolumeDiscovery definition.
 type LocalVolumeDiscoveryBuilder struct {
@@ -295,7 +299,7 @@ func (builder *LocalVolumeDiscoveryBuilder) WithTolerations(
 	if len(tolerations) == 0 {
 		klog.V(100).Info("The tolerations list is empty")
 
-		builder.errorMsg = "'tolerations' argument cannot be empty"
+		builder.errorMsg = errEmptyTolerations
 
 		return builder
 	}

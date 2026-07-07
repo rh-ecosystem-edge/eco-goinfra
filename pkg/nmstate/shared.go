@@ -26,7 +26,7 @@ type NetworkInterface struct {
 }
 
 // InterfaceAltName is an alternative interface name in desired state (nmstate.io/v1).
-// Set State to "absent" to remove an existing alt-name.
+// Set State to interfaceStateAbsent to remove an existing alt-name.
 type InterfaceAltName struct {
 	Name  string `yaml:"name"`
 	State string `yaml:"state,omitempty"`

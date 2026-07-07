@@ -36,7 +36,7 @@ func TestConsoleNewBuilder(t *testing.T) {
 		{
 			name:          "",
 			client:        true,
-			expectedError: "console 'name' cannot be empty",
+			expectedError: errEmptyName,
 		},
 		{
 			name:          defaultConsoleName,
@@ -83,7 +83,7 @@ func TestConsolePull(t *testing.T) {
 			name:                "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("console 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyName),
 		},
 		{
 			name:                defaultConsoleName,
@@ -136,7 +136,7 @@ func TestConsoleGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidConsoleTestBuilder(buildTestClientWithDummyConsole()),
-			expectedError: "console 'name' cannot be empty",
+			expectedError: errEmptyName,
 		},
 		{
 			testBuilder:   buildValidConsoleTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -196,7 +196,7 @@ func TestConsoleCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidConsoleTestBuilder(buildTestClientWithDummyConsole()),
-			expectedError: fmt.Errorf("console 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyName),
 		},
 	}
 
@@ -225,7 +225,7 @@ func TestConsoleUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidConsoleTestBuilder(buildTestClientWithDummyConsole()),
-			expectedError: fmt.Errorf("console 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyName),
 		},
 	}
 
@@ -259,7 +259,7 @@ func TestConsoleDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidConsoleTestBuilder(buildTestClientWithDummyConsole()),
-			expectedError: fmt.Errorf("console 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyName),
 		},
 	}
 

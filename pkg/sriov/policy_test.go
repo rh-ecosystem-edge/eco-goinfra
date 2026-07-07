@@ -226,11 +226,11 @@ func TestPolicyWithDevType(t *testing.T) {
 		},
 		{
 			devType:           "",
-			expectedErrorText: "invalid device type, allowed devType values are: vfio-pci or netdevice",
+			expectedErrorText: errInvalidDeviceType,
 		},
 		{
 			devType:           "invalid",
-			expectedErrorText: "invalid device type, allowed devType values are: vfio-pci or netdevice",
+			expectedErrorText: errInvalidDeviceType,
 		},
 	}
 

@@ -38,7 +38,7 @@ func TestNewBackupBuilder(t *testing.T) {
 		{
 			name:           "backup-test-name-3",
 			namespace:      "",
-			expectedErrMsg: "backup namespace cannot be an empty string",
+			expectedErrMsg: errEmptyNamespace,
 		},
 	}
 
@@ -305,7 +305,7 @@ func TestBackupGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: "backup namespace cannot be an empty string",
+			expectedError: errEmptyNamespace,
 		},
 		{
 			testBuilder:   buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -362,7 +362,7 @@ func TestBackupCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: fmt.Errorf("backup namespace cannot be an empty string"),
+			expectedError: fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			testBuilder:   buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -392,7 +392,7 @@ func TestBackupUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: fmt.Errorf("backup namespace cannot be an empty string"),
+			expectedError: fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			testBuilder:   buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -425,7 +425,7 @@ func TestBackupDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: fmt.Errorf("backup namespace cannot be an empty string"),
+			expectedError: fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			testBuilder:   buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{})),

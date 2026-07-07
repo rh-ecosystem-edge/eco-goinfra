@@ -14,6 +14,10 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyName = "console 'name' cannot be empty"
+)
+
 // Builder provides a struct for console object from the cluster and a console definition.
 type Builder struct {
 	// Console definition, used to create the pod object.
@@ -55,7 +59,7 @@ func NewBuilder(apiClient *clients.Settings, name string) *Builder {
 	if name == "" {
 		klog.V(100).Info("The name of the Console is empty")
 
-		builder.errorMsg = "console 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -92,7 +96,7 @@ func Pull(apiClient *clients.Settings, name string) (*Builder, error) {
 	if name == "" {
 		klog.V(100).Info("The name of the Console is empty")
 
-		return builder, fmt.Errorf("console 'name' cannot be empty")
+		return builder, fmt.Errorf(errEmptyName)
 	}
 
 	klog.V(100).Infof("Pulling cluster console %s", name)

@@ -10,6 +10,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyModName = "'modName' cannot be empty"
+	errEmptyMapping = "'mapping' can not be empty nil"
+)
+
 // ModuleLoaderContainerBuilder provides struct for the module object containing the ModuleLoaderContainerSpec
 // definitions.
 type ModuleLoaderContainerBuilder struct {
@@ -39,7 +44,7 @@ func NewModLoaderContainerBuilder(modName string) *ModuleLoaderContainerBuilder 
 	if modName == "" {
 		klog.V(100).Info("The modName of the NewModLoaderContainerBuilder is empty")
 
-		builder.errorMsg = "'modName' cannot be empty"
+		builder.errorMsg = errEmptyModName
 
 		return builder
 	}
@@ -96,7 +101,7 @@ func (builder *ModuleLoaderContainerBuilder) WithKernelMapping(
 	if mapping == nil {
 		klog.V(100).Info("The mapping is undefined")
 
-		builder.errorMsg = "'mapping' can not be empty nil"
+		builder.errorMsg = errEmptyMapping
 
 		return builder
 	}

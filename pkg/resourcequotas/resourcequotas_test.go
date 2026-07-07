@@ -42,13 +42,13 @@ func TestResourceQuotaNewBuilder(t *testing.T) {
 			apiClientNil:  false,
 			testName:      "",
 			testNamespace: "testNamespace",
-			expectedError: "resource quota 'name' cannot be empty",
+			expectedError: errEmptyName,
 		},
 		{
 			apiClientNil:  false,
 			testName:      "testRQ",
 			testNamespace: "",
-			expectedError: "resource quota 'namespace' cannot be empty",
+			expectedError: errEmptyNamespace,
 		},
 	}
 
@@ -107,7 +107,7 @@ func TestResourceQuotaPull(t *testing.T) {
 			testNamespace:       "testNamespace",
 			expectedError:       true,
 			addToRuntimeObjects: false,
-			expectedErrorText:   "resource quota 'name' cannot be empty",
+			expectedErrorText:   errEmptyName,
 			apiClientNil:        false,
 		},
 		{
@@ -115,7 +115,7 @@ func TestResourceQuotaPull(t *testing.T) {
 			testNamespace:       "",
 			expectedError:       true,
 			addToRuntimeObjects: false,
-			expectedErrorText:   "resource quota 'namespace' cannot be empty",
+			expectedErrorText:   errEmptyNamespace,
 			apiClientNil:        false,
 		},
 		{

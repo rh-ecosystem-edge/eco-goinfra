@@ -12,6 +12,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyClusterRoleName           = "clusterrole 'name' cannot be empty"
+	clusterroleRuleMustContainAtLeast = "clusterrole rule must contain at least one Verb entry"
+)
+
 /*
 ClusterRoleBuilder provides struct for clusterrole object
 
@@ -56,7 +61,7 @@ func NewClusterRoleBuilder(apiClient *clients.Settings, name string, rule rbacv1
 	if name == "" {
 		klog.V(100).Info("The name of the clusterrole is empty")
 
-		builder.errorMsg = "clusterrole 'name' cannot be empty"
+		builder.errorMsg = errEmptyClusterRoleName
 
 		return builder
 	}
@@ -87,7 +92,7 @@ func (builder *ClusterRoleBuilder) WithRules(rules []rbacv1.PolicyRule) *Cluster
 		if len(rule.Verbs) == 0 {
 			klog.V(100).Info("The clusterrole rule must contain at least one Verb entry")
 
-			builder.errorMsg = "clusterrole rule must contain at least one Verb entry"
+			builder.errorMsg = clusterroleRuleMustContainAtLeast
 
 			return builder
 		}
@@ -144,7 +149,7 @@ func PullClusterRole(apiClient *clients.Settings, name string) (*ClusterRoleBuil
 	if name == "" {
 		klog.V(100).Info("The name of the clusterrole is empty")
 
-		return nil, fmt.Errorf("clusterrole 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyClusterRoleName)
 	}
 
 	if !builder.Exists() {

@@ -19,7 +19,8 @@ import (
 )
 
 const (
-	fiveScds time.Duration = 5 * time.Second
+	fiveScds        time.Duration = 5 * time.Second
+	errEmptyMCPName               = "machineconfigpool 'name' cannot be empty"
 )
 
 // MCPBuilder provides struct for MachineConfigPool object which contains connection to cluster
@@ -68,7 +69,7 @@ func NewMCPBuilder(apiClient *clients.Settings, mcpName string) *MCPBuilder {
 	if mcpName == "" {
 		klog.V(100).Info("The name of the MachineConfigPool is empty")
 
-		builder.errorMsg = "machineconfigpool 'name' cannot be empty"
+		builder.errorMsg = errEmptyMCPName
 
 		return builder
 	}
@@ -105,7 +106,7 @@ func Pull(apiClient *clients.Settings, name string) (*MCPBuilder, error) {
 	if name == "" {
 		klog.V(100).Info("The name of the machineconfigpool is empty")
 
-		return nil, fmt.Errorf("machineconfigpool 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyMCPName)
 	}
 
 	if !builder.Exists() {

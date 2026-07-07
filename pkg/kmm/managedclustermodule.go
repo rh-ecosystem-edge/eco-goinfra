@@ -14,6 +14,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyMCMNsname = "managedClusterModule 'nsname' cannot be empty"
+)
+
 // ManagedClusterModuleBuilder provides struct for the managedclustermodule object containing connection
 // to cluster and the managedclustermodule definitions.
 type ManagedClusterModuleBuilder struct {
@@ -66,7 +70,7 @@ func NewManagedClusterModuleBuilder(apiClient *clients.Settings, name, nsname st
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the ManagedClusterModule is empty")
 
-		builder.errorMsg = "managedClusterModule 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyMCMNsname
 
 		return builder
 	}

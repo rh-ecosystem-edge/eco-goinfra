@@ -14,6 +14,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	performanceprofileSNameIsEmpty = "PerformanceProfile's name is empty"
+)
+
 // Builder provides a struct for PerformanceProfile object from the cluster and a PerformanceProfile definition.
 type Builder struct {
 	// PerformanceProfile definition, used to create the PerformanceProfile object.
@@ -68,7 +72,7 @@ func NewBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the PerformanceProfile is empty")
 
-		builder.errorMsg = "PerformanceProfile's name is empty"
+		builder.errorMsg = performanceprofileSNameIsEmpty
 
 		return builder
 	}

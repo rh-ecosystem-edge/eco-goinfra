@@ -142,7 +142,7 @@ func TestNewBuilder(t *testing.T) {
 			cpuIsolated:     defaultIsolatedCPU,
 			cpuReserved:     defaultReservedCPU,
 			nodeSelector:    defaultNodeSelector,
-			expectedError:   "PerformanceProfile's name is empty",
+			expectedError:   performanceprofileSNameIsEmpty,
 		},
 		{
 			perfProfileName: defaultPerformanceProfileName,
@@ -219,7 +219,7 @@ func TestPerformanceProfileGet(t *testing.T) {
 		},
 		{
 			testPerformanceProfile: buildInValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          fmt.Errorf("PerformanceProfile's name is empty"),
+			expectedError:          fmt.Errorf(performanceprofileSNameIsEmpty),
 		},
 		{
 			testPerformanceProfile: buildValidPerformanceProfileBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -250,7 +250,7 @@ func TestPerformanceProfileCreate(t *testing.T) {
 		},
 		{
 			testPerformanceProfile: buildInValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          "PerformanceProfile's name is empty",
+			expectedError:          performanceprofileSNameIsEmpty,
 		},
 		{
 			testPerformanceProfile: buildValidPerformanceProfileBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -281,7 +281,7 @@ func TestPerformanceProfileDelete(t *testing.T) {
 		},
 		{
 			testPerformanceProfile: buildInValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          fmt.Errorf("PerformanceProfile's name is empty"),
+			expectedError:          fmt.Errorf(performanceprofileSNameIsEmpty),
 		},
 		{
 			testPerformanceProfile: buildValidPerformanceProfileBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -322,7 +322,7 @@ func TestPerformanceProfileUpdate(t *testing.T) {
 		},
 		{
 			testPerformanceProfile: buildInValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          "PerformanceProfile's name is empty",
+			expectedError:          performanceprofileSNameIsEmpty,
 		},
 	}
 

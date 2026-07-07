@@ -16,6 +16,10 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 )
 
+const (
+	nadNamespaceIsEmpty = "NAD namespace is empty"
+)
+
 // Builder provides struct for NAD object which contains connection to cluster and the NAD object itself.
 type Builder struct {
 	Definition        *nadV1.NetworkAttachmentDefinition
@@ -72,7 +76,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 	if builder.Definition.Namespace == "" {
 		klog.V(100).Info("The namespace of the NetworkAttachmentDefinition is empty")
 
-		builder.errorMsg = "NAD namespace is empty"
+		builder.errorMsg = nadNamespaceIsEmpty
 
 		return builder
 	}

@@ -39,7 +39,7 @@ func TestFecNewClusterConfigBuilder(t *testing.T) {
 			name:          defaultClusterConfigName,
 			nsname:        "",
 			client:        true,
-			expectedError: "SriovFecClusterConfig 'nsname' cannot be empty",
+			expectedError: errEmptyFecClusterConfigNsname,
 		},
 		{
 			name:          defaultClusterConfigName,
@@ -98,7 +98,7 @@ func TestFecPullClusterConfig(t *testing.T) {
 			nsname:              "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("SriovFecClusterConfig 'nsname' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyFecClusterConfigNsname),
 		},
 		{
 			name:                defaultClusterConfigName,
@@ -158,7 +158,7 @@ func TestFecClusterConfigGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedError: "SriovFecClusterConfig 'nsname' cannot be empty",
+			expectedError: errEmptyFecClusterConfigNsname,
 		},
 		{
 			testBuilder:   buildValidClusterConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -214,7 +214,7 @@ func TestFecClusterConfigCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedError: fmt.Errorf("SriovFecClusterConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyFecClusterConfigNsname),
 		},
 		{
 			testBuilder:   buildValidClusterConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -243,7 +243,7 @@ func TestFecClusterConfigDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedError: fmt.Errorf("SriovFecClusterConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyFecClusterConfigNsname),
 		},
 		{
 			testBuilder:   buildValidClusterConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -272,7 +272,7 @@ func TestFecClusterConfigUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedError: fmt.Errorf("SriovFecClusterConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyFecClusterConfigNsname),
 		},
 		{
 			testBuilder:   buildValidClusterConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -312,7 +312,7 @@ func TestFecClusterConfigWithOptions(t *testing.T) {
 			options: func(builder *ClusterConfigBuilder) (*ClusterConfigBuilder, error) {
 				return builder, nil
 			},
-			expectedError: "SriovFecClusterConfig 'nsname' cannot be empty",
+			expectedError: errEmptyFecClusterConfigNsname,
 		},
 		{
 			testBuilder: buildValidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),

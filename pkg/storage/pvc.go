@@ -3,9 +3,8 @@ package storage
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
-
-	"golang.org/x/exp/slices"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
@@ -19,11 +18,15 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	accessModeReadWriteOnce = "ReadWriteOnce"
+)
+
 var validPVCModesMap = map[string]string{
-	"ReadWriteOnce":    "ReadWriteOnce",
-	"ReadOnlyMany":     "ReadOnlyMany",
-	"ReadWriteMany":    "ReadWriteMany",
-	"ReadWriteOncePod": "ReadWriteOncePod",
+	accessModeReadWriteOnce: accessModeReadWriteOnce,
+	"ReadOnlyMany":          "ReadOnlyMany",
+	"ReadWriteMany":         "ReadWriteMany",
+	"ReadWriteOncePod":      "ReadWriteOncePod",
 }
 
 // PVCBuilder provides struct for persistentvolumeclaim object containing connection

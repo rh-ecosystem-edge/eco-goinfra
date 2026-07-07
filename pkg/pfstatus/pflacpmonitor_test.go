@@ -36,7 +36,7 @@ func TestNewPfStatusConfigurationBuilder(t *testing.T) {
 			name:          "",
 			namespace:     defaultPfStatusConfigurationNsName,
 			client:        true,
-			expectedError: "pfStatusConfiguration 'name' cannot be empty",
+			expectedError: errEmptyName,
 		},
 		{
 			name:          defaultPfStatusConfigurationName,
@@ -86,7 +86,7 @@ func TestPfStatusConfigurationCreate(t *testing.T) {
 		{
 			testPfStatusConfiguration: buildInValidPfStatusConfigurationBuilder(
 				buildPfStatusConfigurationTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("pfStatusConfiguration 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyName),
 		},
 	}
 
@@ -113,7 +113,7 @@ func TestPfStatusConfigurationGet(t *testing.T) {
 		{
 			testPfStatusConfiguration: buildInValidPfStatusConfigurationBuilder(
 				buildPfStatusConfigurationTestClientWithDummyObject()),
-			expectedError: "pfStatusConfiguration 'name' cannot be empty",
+			expectedError: errEmptyName,
 		},
 		{
 			testPfStatusConfiguration: buildValidPfStatusConfigurationBuilder(
@@ -162,7 +162,7 @@ func TestPullPfStatusConfiguration(t *testing.T) {
 			name:                "",
 			namespace:           defaultPfStatusConfigurationNsName,
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("pfStatusConfiguration 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyName),
 			client:              true,
 		},
 		{
@@ -254,7 +254,7 @@ func TestPfStatusConfigurationDelete(t *testing.T) {
 		{
 			testPfStatusConfiguration: buildInValidPfStatusConfigurationBuilder(
 				buildPfStatusConfigurationTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("pfStatusConfiguration 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyName),
 		},
 	}
 
@@ -336,12 +336,12 @@ func TestPfStatusConfigurationPollingInterval(t *testing.T) {
 		{
 			testPfStatus:    buildValidPfStatusConfigurationBuilder(buildPfStatusConfigurationTestClientWithDummyObject()),
 			pollingInterval: 10,
-			expectedError:   "pfStatusConfiguration 'pollingInterval' value is not valid",
+			expectedError:   pfstatusconfigurationPollingintervalValueIsNotValid,
 		},
 		{
 			testPfStatus:    buildValidPfStatusConfigurationBuilder(buildPfStatusConfigurationTestClientWithDummyObject()),
 			pollingInterval: 65555,
-			expectedError:   "pfStatusConfiguration 'pollingInterval' value is not valid",
+			expectedError:   pfstatusconfigurationPollingintervalValueIsNotValid,
 		},
 	}
 

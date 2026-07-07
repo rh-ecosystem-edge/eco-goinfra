@@ -41,14 +41,14 @@ func TestArgoCdPull(t *testing.T) {
 	}{
 		{
 			name:                "argocdtest",
-			namespace:           "test-namespace",
+			namespace:           defaultArgoCdNSName,
 			addToRuntimeObjects: true,
 			expectedError:       nil,
 			client:              true,
 		},
 		{
 			name:                "",
-			namespace:           "test-namespace",
+			namespace:           defaultArgoCdNSName,
 			addToRuntimeObjects: true,
 			expectedError:       fmt.Errorf("argocd 'name' cannot be empty"),
 			client:              true,
@@ -62,14 +62,14 @@ func TestArgoCdPull(t *testing.T) {
 		},
 		{
 			name:                "argocdtest",
-			namespace:           "test-namespace",
+			namespace:           defaultArgoCdNSName,
 			addToRuntimeObjects: false,
 			expectedError:       fmt.Errorf("argocd object argocdtest does not exist in namespace test-namespace"),
 			client:              true,
 		},
 		{
 			name:                "argocdtest",
-			namespace:           "test-namespace",
+			namespace:           defaultArgoCdNSName,
 			addToRuntimeObjects: true,
 			expectedError:       fmt.Errorf("argocd 'apiClient' cannot be empty"),
 			client:              false,
@@ -113,12 +113,12 @@ func TestArgoCdNewBuilder(t *testing.T) {
 	}{
 		{
 			name:          "argocdtest",
-			namespace:     "test-namespace",
+			namespace:     defaultArgoCdNSName,
 			expectedError: "",
 		},
 		{
 			name:          "",
-			namespace:     "test-namespace",
+			namespace:     defaultArgoCdNSName,
 			expectedError: "argocd 'name' cannot be empty",
 		},
 		{

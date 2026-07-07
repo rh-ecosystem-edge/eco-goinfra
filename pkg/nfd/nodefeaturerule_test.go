@@ -51,14 +51,14 @@ func TestNewNodeFeatureRuleBuilder(t *testing.T) {
 			ruleName:          "",
 			namespace:         nodeFeatureRuleNamespace,
 			client:            true,
-			expectedErrorText: "nodeFeatureRule 'name' cannot be empty",
+			expectedErrorText: errEmptyName,
 		},
 		{
 			name:              "Empty namespace",
 			ruleName:          nodeFeatureRuleExampleName,
 			namespace:         "",
 			client:            true,
-			expectedErrorText: "nodeFeatureRule 'namespace' cannot be empty",
+			expectedErrorText: errEmptyNamespace,
 		},
 		{
 			name:              "No Client Provided",
@@ -181,7 +181,7 @@ func TestNodeFeatureRuleBuilderWithRule(t *testing.T) {
 					"feature.node.kubernetes.io/test": "true",
 				},
 			},
-			expectedError: "rule 'name' cannot be empty",
+			expectedError: ruleNameEmptyError,
 		},
 	}
 
@@ -246,7 +246,7 @@ func TestNodeFeatureRuleBuilderWithRules(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "rule 'name' cannot be empty",
+			expectedError: ruleNameEmptyError,
 		},
 	}
 
@@ -308,7 +308,7 @@ func TestNodeFeatureRuleBuilderWithSimplePCIRule(t *testing.T) {
 			},
 			vendorIDs:     []string{"1d0f"},
 			deviceIDs:     []string{"7064"},
-			expectedError: "rule 'name' cannot be empty",
+			expectedError: ruleNameEmptyError,
 		},
 		{
 			name:          "Empty Labels",
@@ -535,7 +535,7 @@ func TestPullNodeFeatureRule(t *testing.T) {
 			namespace:     nodeFeatureRuleNamespace,
 			client:        buildTestClientWithNFDRuleScheme(),
 			exists:        false,
-			expectedError: "nodeFeatureRule 'name' cannot be empty",
+			expectedError: errEmptyName,
 		},
 		{
 			name:          "Empty Namespace",
@@ -543,7 +543,7 @@ func TestPullNodeFeatureRule(t *testing.T) {
 			namespace:     "",
 			client:        buildTestClientWithNFDRuleScheme(),
 			exists:        false,
-			expectedError: "nodeFeatureRule 'namespace' cannot be empty",
+			expectedError: errEmptyNamespace,
 		},
 		{
 			name:      "Non-Existent",

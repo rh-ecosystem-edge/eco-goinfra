@@ -39,13 +39,13 @@ func TestNewKACBuilder(t *testing.T) {
 			kacName:           "",
 			kacNamespace:      defaultKACNamespace,
 			client:            true,
-			expectedErrorText: "klusterletAddonConfig 'name' cannot be empty",
+			expectedErrorText: errEmptyAddonConfigName,
 		},
 		{
 			kacName:           defaultKACName,
 			kacNamespace:      "",
 			client:            true,
-			expectedErrorText: "klusterletAddonConfig 'nsname' cannot be empty",
+			expectedErrorText: errEmptyNsname,
 		},
 		{
 			kacName:           defaultKACName,
@@ -97,14 +97,14 @@ func TestPullKAC(t *testing.T) {
 			kacNamespace:        defaultKACNamespace,
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedErrorText:   "klusterletAddonConfig 'name' cannot be empty",
+			expectedErrorText:   errEmptyAddonConfigName,
 		},
 		{
 			kacName:             defaultKACName,
 			kacNamespace:        "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedErrorText:   "klusterletAddonConfig 'nsname' cannot be empty",
+			expectedErrorText:   errEmptyNsname,
 		},
 		{
 			kacName:             defaultKACName,
@@ -165,7 +165,7 @@ func TestKACGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidKACTestBuilder(buildTestClientWithDummyKAC()),
-			expectedError: "klusterletAddonConfig 'nsname' cannot be empty",
+			expectedError: errEmptyNsname,
 		},
 		{
 			testBuilder:   buildValidKACTestBuilder(buildTestClientWithKACScheme()),
@@ -226,7 +226,7 @@ func TestKACCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidKACTestBuilder(buildTestClientWithKACScheme()),
-			expectedError: fmt.Errorf("klusterletAddonConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyNsname),
 		},
 	}
 
@@ -319,7 +319,7 @@ func TestKACDelete(t *testing.T) {
 		},
 		{
 			testBuilder:       buildInvalidKACTestBuilder(buildTestClientWithKACScheme()),
-			expectedErrorText: "klusterletAddonConfig 'nsname' cannot be empty",
+			expectedErrorText: errEmptyNsname,
 		},
 	}
 
@@ -359,7 +359,7 @@ func TestKACWaitUntilSearchCollectorEnabled(t *testing.T) {
 			exists:        true,
 			valid:         false,
 			enabled:       true,
-			expectedError: fmt.Errorf("klusterletAddonConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyNsname),
 		},
 		{
 			exists:        true,

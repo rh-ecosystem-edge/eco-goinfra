@@ -50,14 +50,14 @@ func TestNewICSPBuilder(t *testing.T) {
 			source:        "",
 			mirrors:       defaultICSPMirrors,
 			client:        true,
-			expectedError: "imageContentSourcePolicy 'source' cannot be empty",
+			expectedError: errEmptySource,
 		},
 		{
 			name:          defaultICSPName,
 			source:        defaultICSPSource,
 			mirrors:       nil,
 			client:        true,
-			expectedError: "imageContentSourcePolicy 'mirrors' cannot be empty",
+			expectedError: errEmptyMirrors,
 		},
 		{
 			name:          defaultICSPName,
@@ -165,7 +165,7 @@ func TestICSPGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidICSPBuilder(buildTestClientWithDummyICSP()),
-			expectedError: "imageContentSourcePolicy 'mirrors' cannot be empty",
+			expectedError: errEmptyMirrors,
 		},
 		{
 			testBuilder:   buildValidICSPBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -221,7 +221,7 @@ func TestICSPCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidICSPBuilder(buildTestClientWithDummyICSP()),
-			expectedError: fmt.Errorf("imageContentSourcePolicy 'mirrors' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMirrors),
 		},
 		{
 			testBuilder:   buildValidICSPBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -250,7 +250,7 @@ func TestICSPDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidICSPBuilder(buildTestClientWithDummyICSP()),
-			expectedError: fmt.Errorf("imageContentSourcePolicy 'mirrors' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMirrors),
 		},
 		{
 			testBuilder:   buildValidICSPBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -279,7 +279,7 @@ func TestICSPUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidICSPBuilder(buildTestClientWithDummyICSP()),
-			expectedError: fmt.Errorf("imageContentSourcePolicy 'mirrors' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMirrors),
 		},
 		{
 			testBuilder:   buildValidICSPBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -317,19 +317,19 @@ func TestICSPWithRepositoryDigestMirror(t *testing.T) {
 			testBuilder:   buildInvalidICSPBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			source:        defaultICSPSource,
 			mirrors:       defaultICSPMirrors,
-			expectedError: "imageContentSourcePolicy 'mirrors' cannot be empty",
+			expectedError: errEmptyMirrors,
 		},
 		{
 			testBuilder:   buildValidICSPBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			source:        "",
 			mirrors:       defaultICSPMirrors,
-			expectedError: "imageContentSourcePolicy 'source' cannot be empty",
+			expectedError: errEmptySource,
 		},
 		{
 			testBuilder:   buildValidICSPBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			source:        defaultICSPSource,
 			mirrors:       nil,
-			expectedError: "imageContentSourcePolicy 'mirrors' cannot be empty",
+			expectedError: errEmptyMirrors,
 		},
 	}
 
@@ -366,7 +366,7 @@ func TestICSPWithOptions(t *testing.T) {
 			options: func(builder *ICSPBuilder) (*ICSPBuilder, error) {
 				return builder, nil
 			},
-			expectedError: "imageContentSourcePolicy 'mirrors' cannot be empty",
+			expectedError: errEmptyMirrors,
 		},
 		{
 			testBuilder: buildValidICSPBuilder(clients.GetTestClients(clients.TestClientParams{})),

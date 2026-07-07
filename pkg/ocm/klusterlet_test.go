@@ -29,7 +29,7 @@ func TestNewKlusterletBuilder(t *testing.T) {
 		{
 			name:          "",
 			client:        true,
-			expectedError: "klusterlet 'name' cannot be empty",
+			expectedError: errEmptyKlusterletName,
 		},
 		{
 			name:          KlusterletName,
@@ -76,7 +76,7 @@ func TestPullKlusterlet(t *testing.T) {
 			name:                "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("klusterlet 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyKlusterletName),
 		},
 		{
 			name:                KlusterletName,
@@ -129,7 +129,7 @@ func TestKlusterletGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidKlusterlettestbuilder(buildTestClientWithDummyKlusterlet()),
-			expectedError: "klusterlet 'name' cannot be empty",
+			expectedError: errEmptyKlusterletName,
 		},
 		{
 			testBuilder:   buildValidKlusterletTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -189,7 +189,7 @@ func TestKlusterletCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidKlusterlettestbuilder(buildTestClientWithDummyKlusterlet()),
-			expectedError: fmt.Errorf("klusterlet 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyKlusterletName),
 		},
 	}
 
@@ -218,7 +218,7 @@ func TestKlusterletUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidKlusterlettestbuilder(buildTestClientWithDummyKlusterlet()),
-			expectedError: fmt.Errorf("klusterlet 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyKlusterletName),
 		},
 	}
 
@@ -252,7 +252,7 @@ func TestKlusterletDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidKlusterlettestbuilder(buildTestClientWithDummyKlusterlet()),
-			expectedError: fmt.Errorf("klusterlet 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyKlusterletName),
 		},
 	}
 

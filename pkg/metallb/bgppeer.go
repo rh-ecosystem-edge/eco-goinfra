@@ -17,6 +17,14 @@ import (
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyBGPPeerName                  = "BGPPeer 'name' cannot be empty"
+	errEmptyBGPPeerNsname                = "BGPPeer 'nsname' cannot be empty"
+	bgppeerPeeripOfTheBgppeerContains    = "BGPPeer 'peerIP' of the BGPPeer contains invalid ip address"
+	bgppeerBgppeeripOfTheBgppeerContains = "BGPPeer 'bgpPeerIP' of the BGPPeer contains invalid ip address"
+	bgppeerConnecttimeValueIsNotValid    = "bgppeer 'connectTime' value is not valid"
+)
+
 // BGPPeerBuilder provides struct for the BGPPeer object containing connection to
 // the cluster and the BGPPeer definitions.
 type BGPPeerBuilder struct {
@@ -60,7 +68,7 @@ func NewBPGPeerBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the BGPPeer is empty")
 
-		builder.errorMsg = "BGPPeer 'name' cannot be empty"
+		builder.errorMsg = errEmptyBGPPeerName
 
 		return builder
 	}
@@ -68,7 +76,7 @@ func NewBPGPeerBuilder(
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the BGPPeer is empty")
 
-		builder.errorMsg = "BGPPeer 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyBGPPeerNsname
 
 		return builder
 	}
@@ -76,7 +84,7 @@ func NewBPGPeerBuilder(
 	if net.ParseIP(peerIP) == nil {
 		klog.V(100).Infof("The peerIP of the BGPPeer contains invalid ip address %s", peerIP)
 
-		builder.errorMsg = "BGPPeer 'peerIP' of the BGPPeer contains invalid ip address"
+		builder.errorMsg = bgppeerPeeripOfTheBgppeerContains
 
 		return builder
 	}
@@ -120,7 +128,7 @@ func NewBGPPeerBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the BGPPeer is empty")
 
-		builder.errorMsg = "BGPPeer 'name' cannot be empty"
+		builder.errorMsg = errEmptyBGPPeerName
 
 		return builder
 	}
@@ -128,7 +136,7 @@ func NewBGPPeerBuilder(
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the BGPPeer is empty")
 
-		builder.errorMsg = "BGPPeer 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyBGPPeerNsname
 
 		return builder
 	}
@@ -318,7 +326,7 @@ func (builder *BGPPeerBuilder) WithBGPPeerIP(bgpPeerIP string) *BGPPeerBuilder {
 	if net.ParseIP(bgpPeerIP) == nil {
 		klog.V(100).Infof("The peerIP of the BGPPeer contains invalid ip address %s", bgpPeerIP)
 
-		builder.errorMsg = "BGPPeer 'bgpPeerIP' of the BGPPeer contains invalid ip address"
+		builder.errorMsg = bgppeerBgppeeripOfTheBgppeerContains
 
 		return builder
 	}
@@ -507,7 +515,7 @@ func (builder *BGPPeerBuilder) WithConnectTime(connectTime metav1.Duration) *BGP
 	if duration < time.Second || duration > 65535*time.Second {
 		klog.V(100).Info("A valid connect time is between 1-65535")
 
-		builder.errorMsg = "bgppeer 'connectTime' value is not valid"
+		builder.errorMsg = bgppeerConnecttimeValueIsNotValid
 
 		return builder
 	}

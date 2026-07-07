@@ -307,13 +307,13 @@ func TestWithSign(t *testing.T) {
 			certSecret:    "signing-cert",
 			keySecret:     "signing-key",
 			filesToSign:   []string{},
-			expectedError: "'fileToSign' parameter can not be empty for KernelMapping Sign",
+			expectedError: errEmptyFileToSign,
 		},
 		{
 			certSecret:    "signing-cert",
 			keySecret:     "signing-key",
 			filesToSign:   nil,
-			expectedError: "'fileToSign' parameter can not be empty for KernelMapping Sign",
+			expectedError: errEmptyFileToSign,
 		},
 	}
 
@@ -408,11 +408,11 @@ func TestWithInTreeModulesToRemove(t *testing.T) {
 		},
 		{
 			existingModulesList: []string{},
-			expectedError:       "'existingModuleList' parameter can not be empty for KernelMapping inTreeModulesToRemove",
+			expectedError:       errEmptyExistingModuleList,
 		},
 		{
 			existingModulesList: nil,
-			expectedError:       "'existingModuleList' parameter can not be empty for KernelMapping inTreeModulesToRemove",
+			expectedError:       errEmptyExistingModuleList,
 		},
 	}
 

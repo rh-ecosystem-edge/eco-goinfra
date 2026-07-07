@@ -109,7 +109,7 @@ func (config DeleteTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 			assertError:  isErrorNil,
 		},
 		{
-			name:         "invalid builder returns error",
+			name:         testNameInvalidBuilder,
 			objectExists: true,
 			builderError: errInvalidBuilder,
 			assertError:  isInvalidBuilder,

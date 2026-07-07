@@ -16,6 +16,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errInvalidSourceIPBy = "invalid sourceIPBy parameter for the EgressService"
+)
+
 // EgressServiceBuilder provides a struct for EgressService object.
 type EgressServiceBuilder struct {
 	// EgressService definition, used to create the EgressService object.
@@ -81,7 +85,7 @@ func NewEgressServiceBuilder(
 	if _, err := validateSourceIPMode(sourceIPBy); err != nil {
 		klog.V(100).Info("Invalid sourceIPBy parameter for the EgressService")
 
-		builder.errorMsg = "invalid sourceIPBy parameter for the EgressService"
+		builder.errorMsg = errInvalidSourceIPBy
 
 		return builder
 	}

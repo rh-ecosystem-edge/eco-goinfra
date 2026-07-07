@@ -47,7 +47,7 @@ func TestNROSchedulerPull(t *testing.T) {
 			name:                "",
 			nsname:              defaultNROSchedulerNamespace,
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("NUMAResourcesScheduler 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptySchedulerName),
 			client:              true,
 		},
 		{
@@ -119,7 +119,7 @@ func TestNewNROSchedulerBuilder(t *testing.T) {
 		{
 			name:          "",
 			nsname:        defaultNROSchedulerNamespace,
-			expectedError: "NUMAResourcesScheduler 'name' cannot be empty",
+			expectedError: errEmptySchedulerName,
 		},
 		{
 			name:          defaultNROSchedulerName,
@@ -179,7 +179,7 @@ func TestNROSchedulerGet(t *testing.T) {
 		},
 		{
 			testNROS:      buildInValidNROSchedulerBuilder(buildNROSchedulerClientWithDummyObject()),
-			expectedError: fmt.Errorf("NUMAResourcesScheduler 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptySchedulerName),
 		},
 		{
 			testNROS: buildValidNROSchedulerBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -212,7 +212,7 @@ func TestNROSchedulerCreate(t *testing.T) {
 		},
 		{
 			testNROS:      buildInValidNROSchedulerBuilder(buildNROSchedulerClientWithDummyObject()),
-			expectedError: "NUMAResourcesScheduler 'name' cannot be empty",
+			expectedError: errEmptySchedulerName,
 		},
 		{
 			testNROS:      buildValidNROSchedulerBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -244,7 +244,7 @@ func TestNROSchedulerDelete(t *testing.T) {
 		},
 		{
 			testNROS:      buildInValidNROSchedulerBuilder(buildNROSchedulerClientWithDummyObject()),
-			expectedError: fmt.Errorf("NUMAResourcesScheduler 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptySchedulerName),
 		},
 		{
 			testNROS:      buildValidNROSchedulerBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -277,7 +277,7 @@ func TestNROSchedulerUpdate(t *testing.T) {
 		},
 		{
 			testNROS:      buildInValidNROSchedulerBuilder(buildNROSchedulerClientWithDummyObject()),
-			expectedError: "NUMAResourcesScheduler 'name' cannot be empty",
+			expectedError: errEmptySchedulerName,
 			imageSpec:     "",
 		},
 	}

@@ -262,7 +262,7 @@ func TestPolicyWithInterfaceAndVFs(t *testing.T) {
 				Interfaces: []NetworkInterface{
 					{
 						Name:  testCase.sriovInterface,
-						Type:  "ethernet",
+						Type:  interfaceTypeEthernet,
 						State: "up",
 						Ethernet: Ethernet{
 							Sriov: Sriov{
@@ -292,7 +292,7 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 			expectedError:     "",
 			slavePorts:        []string{"ens1", "ens2"},
 			bondName:          "bd1",
-			mode:              "active-backup",
+			mode:              bondModeActiveBackup,
 			miimon:            100,
 			lacpRate:          "fast",
 			minLinks:          1,
@@ -302,7 +302,7 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 			expectedError:     "The bondName is empty sting",
 			slavePorts:        []string{"ens1", "ens2"},
 			bondName:          "",
-			mode:              "active-backup",
+			mode:              bondModeActiveBackup,
 			miimon:            100,
 			lacpRate:          "fast",
 			minLinks:          1,
@@ -322,7 +322,7 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 			expectedError:     "",
 			slavePorts:        []string{"ens1", "ens2"},
 			bondName:          "bd1",
-			mode:              "active-backup",
+			mode:              bondModeActiveBackup,
 			miimon:            0,
 			lacpRate:          "",
 			minLinks:          0,
@@ -345,7 +345,7 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 				Interfaces: []NetworkInterface{
 					{
 						Name:  testCase.bondName,
-						Type:  "bond",
+						Type:  interfaceTypeBond,
 						State: "up",
 						LinkAggregation: LinkAggregation{
 							Mode: testCase.mode,
@@ -378,13 +378,13 @@ func TestPolicyWithVlanInterface(t *testing.T) {
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     "nodenetworkconfigurationpolicy 'baseInterface' cannot be empty",
+			expectedError:     errEmptyBaseInterface,
 			sriovInterface:    "",
 			vlanID:            10,
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     "invalid vlanID, allowed vlanID values are between 0-4094",
+			expectedError:     errInvalidVLANID,
 			sriovInterface:    "ens1",
 			vlanID:            4099,
 		},
@@ -400,7 +400,7 @@ func TestPolicyWithVlanInterface(t *testing.T) {
 				Interfaces: []NetworkInterface{
 					{
 						Name:  fmt.Sprintf("%s.%d", testCase.sriovInterface, testCase.vlanID),
-						Type:  "vlan",
+						Type:  interfaceTypeVlan,
 						State: "up",
 						Vlan: Vlan{
 							BaseIface: testCase.sriovInterface,
@@ -432,7 +432,7 @@ func TestPolicyWithVlanInterfaceIP(t *testing.T) {
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     "nodenetworkconfigurationpolicy 'baseInterface' cannot be empty",
+			expectedError:     errEmptyBaseInterface,
 			sriovInterface:    "",
 			vlanID:            10,
 			ipv4:              "10.10.10.10",
@@ -440,7 +440,7 @@ func TestPolicyWithVlanInterfaceIP(t *testing.T) {
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     "invalid vlanID, allowed vlanID values are between 0-4094",
+			expectedError:     errInvalidVLANID,
 			sriovInterface:    "ens1",
 			vlanID:            4099,
 			ipv4:              "10.10.10.10",
@@ -475,7 +475,7 @@ func TestPolicyWithVlanInterfaceIP(t *testing.T) {
 				Interfaces: []NetworkInterface{
 					{
 						Name:  fmt.Sprintf("%s.%d", testCase.sriovInterface, testCase.vlanID),
-						Type:  "vlan",
+						Type:  interfaceTypeVlan,
 						State: "up",
 						Vlan: Vlan{
 							BaseIface: testCase.sriovInterface,
@@ -546,7 +546,7 @@ func TestPolicyWithInterfaceAltnames(t *testing.T) {
 		assert.Equal(t, &DesiredState{
 			Interfaces: []NetworkInterface{{
 				Name:     testCase.interfaceName,
-				Type:     "ethernet",
+				Type:     interfaceTypeEthernet,
 				State:    "up",
 				AltNames: wantAlts,
 			}},
@@ -620,7 +620,7 @@ func TestPolicyWithMACAddressAltnames(t *testing.T) {
 		assert.Equal(t, &DesiredState{
 			Interfaces: []NetworkInterface{{
 				Name:       testCase.interfaceName,
-				Type:       "ethernet",
+				Type:       interfaceTypeEthernet,
 				State:      "up",
 				MacAddress: testCase.mac,
 				Identifier: "mac-address",
@@ -696,7 +696,7 @@ func TestPolicyWithPCIAddressAltnames(t *testing.T) {
 		assert.Equal(t, &DesiredState{
 			Interfaces: []NetworkInterface{{
 				Name:       testCase.interfaceName,
-				Type:       "ethernet",
+				Type:       interfaceTypeEthernet,
 				State:      "up",
 				PciAddress: testCase.pci,
 				Identifier: "pci-address",
@@ -719,7 +719,7 @@ func TestPolicyRemoveInterfaceAltname(t *testing.T) {
 			interfaceName:     "ens1",
 			altnames:          []string{"old-alt"},
 			expectedError:     "",
-			wantAltnames:      []InterfaceAltName{{Name: "old-alt", State: "absent"}},
+			wantAltnames:      []InterfaceAltName{{Name: "old-alt", State: interfaceStateAbsent}},
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
@@ -748,7 +748,7 @@ func TestPolicyRemoveInterfaceAltname(t *testing.T) {
 		assert.Equal(t, &DesiredState{
 			Interfaces: []NetworkInterface{{
 				Name:     testCase.interfaceName,
-				Type:     "ethernet",
+				Type:     interfaceTypeEthernet,
 				State:    "up",
 				AltNames: testCase.wantAltnames,
 			}},
@@ -773,7 +773,7 @@ func TestPolicyWithEthernetInterfaceIP(t *testing.T) {
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     "nodenetworkconfigurationpolicy 'interfaceName' cannot be empty",
+			expectedError:     nodeNetConfPolIntError,
 			sriovInterface:    "",
 			ipv4:              "10.10.10.10",
 			ipv6:              "2001:db8::68",
@@ -805,7 +805,7 @@ func TestPolicyWithEthernetInterfaceIP(t *testing.T) {
 				Interfaces: []NetworkInterface{
 					{
 						Name:  testCase.sriovInterface,
-						Type:  "ethernet",
+						Type:  interfaceTypeEthernet,
 						State: "up",
 						Ipv4: InterfaceIpv4{
 							Enabled: true,
@@ -840,7 +840,7 @@ func TestPolicyWithEthernetIPv6LinkLocalInterface(t *testing.T) {
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     "nodenetworkconfigurationpolicy 'interfaceName' cannot be empty",
+			expectedError:     nodeNetConfPolIntError,
 			sriovInterface:    "",
 		},
 	}
@@ -855,7 +855,7 @@ func TestPolicyWithEthernetIPv6LinkLocalInterface(t *testing.T) {
 				Interfaces: []NetworkInterface{
 					{
 						Name:  testCase.sriovInterface,
-						Type:  "ethernet",
+						Type:  interfaceTypeEthernet,
 						State: "up",
 						Ipv4: InterfaceIpv4{
 							Enabled: false,
@@ -883,7 +883,7 @@ func TestPolicyWithAbsentInterface(t *testing.T) {
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     "nodenetworkconfigurationpolicy 'interfaceName' cannot be empty",
+			expectedError:     nodeNetConfPolIntError,
 			baseInterface:     "",
 		},
 	}
@@ -895,7 +895,7 @@ func TestPolicyWithAbsentInterface(t *testing.T) {
 		if testCase.expectedError == "" {
 			_ = yaml.Unmarshal(testPolicy.Definition.Spec.DesiredState.Raw, desireState)
 			assert.Equal(t, desireState, &DesiredState{
-				Interfaces: []NetworkInterface{{Name: testCase.baseInterface, State: "absent"}}})
+				Interfaces: []NetworkInterface{{Name: testCase.baseInterface, State: interfaceStateAbsent}}})
 		}
 	}
 }
@@ -913,7 +913,7 @@ func TestPolicyWithInterfaceUp(t *testing.T) {
 		},
 		{
 			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     "nodenetworkconfigurationpolicy 'interfaceName' cannot be empty",
+			expectedError:     nodeNetConfPolIntError,
 			baseInterface:     "",
 		},
 	}
@@ -925,7 +925,7 @@ func TestPolicyWithInterfaceUp(t *testing.T) {
 		if testCase.expectedError == "" {
 			_ = yaml.Unmarshal(testPolicy.Definition.Spec.DesiredState.Raw, desireState)
 			assert.Equal(t, desireState, &DesiredState{
-				Interfaces: []NetworkInterface{{Name: testCase.baseInterface, Type: "ethernet", State: "up"}}})
+				Interfaces: []NetworkInterface{{Name: testCase.baseInterface, Type: interfaceTypeEthernet, State: "up"}}})
 		}
 	}
 }

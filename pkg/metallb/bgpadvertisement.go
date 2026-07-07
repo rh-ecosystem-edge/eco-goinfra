@@ -14,6 +14,12 @@ import (
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyBGPAdvertisementNsname = "BGPAdvertisement 'nsname' cannot be empty"
+	errEmptyIPAddressPools         = "error: IPAddressPools setting is empty list, the list should contain at least one element"
+	errEmptyNodeSelectors          = "error: nodeSelectors setting is empty list, the list should contain at least one element"
+)
+
 // BGPAdvertisementBuilder provides struct for the BGPAdvertisement object containing connection to
 // the cluster and the BGPAdvertisement definitions.
 type BGPAdvertisementBuilder struct {
@@ -60,7 +66,7 @@ func NewBGPAdvertisementBuilder(apiClient *clients.Settings, name, nsname string
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the BGPAdvertisement is empty")
 
-		builder.errorMsg = "BGPAdvertisement 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyBGPAdvertisementNsname
 
 		return builder
 	}
@@ -345,7 +351,7 @@ func (builder *BGPAdvertisementBuilder) WithIPAddressPools(ipAddressPools []stri
 		builder.Definition.Name, builder.Definition.Namespace, ipAddressPools)
 
 	if len(ipAddressPools) < 1 {
-		builder.errorMsg = "error: IPAddressPools setting is empty list, the list should contain at least one element"
+		builder.errorMsg = errEmptyIPAddressPools
 
 		return builder
 	}
@@ -389,7 +395,7 @@ func (builder *BGPAdvertisementBuilder) WithNodeSelector(
 		builder.Definition.Name, builder.Definition.Namespace, nodeSelectors)
 
 	if len(nodeSelectors) < 1 {
-		builder.errorMsg = "error: nodeSelectors setting is empty list, the list should contain at least one element"
+		builder.errorMsg = errEmptyNodeSelectors
 
 		return builder
 	}

@@ -37,13 +37,13 @@ func TestNewClassBuilder(t *testing.T) {
 			storageClassName:        "",
 			storageClassProvisioner: defaultStorageClassProvisioner,
 			client:                  true,
-			expectedErrorText:       "storageclass 'name' cannot be empty",
+			expectedErrorText:       errEmptyStorageClassName,
 		},
 		{
 			storageClassName:        defaultStorageClassName,
 			storageClassProvisioner: "",
 			client:                  true,
-			expectedErrorText:       "storageclass 'provisioner' cannot be empty",
+			expectedErrorText:       errEmptyProvisioner,
 		},
 		{
 			storageClassName:        defaultStorageClassName,
@@ -186,7 +186,7 @@ func TestClassWithOptions(t *testing.T) {
 		{
 			testBuilder:       buildInvalidClassTestBuilder(buildTestClientWithDummyStorageClass()),
 			option:            nil,
-			expectedErrorText: "storageclass 'provisioner' cannot be empty",
+			expectedErrorText: errEmptyProvisioner,
 		},
 	}
 
@@ -217,7 +217,7 @@ func TestPullClass(t *testing.T) {
 			storageClassName:    "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedErrorText:   "storageclass 'name' cannot be empty",
+			expectedErrorText:   errEmptyStorageClassName,
 		},
 		{
 			storageClassName:    defaultStorageClassName,
@@ -298,7 +298,7 @@ func TestClassCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("storageclass 'provisioner' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyProvisioner),
 		},
 	}
 
@@ -327,7 +327,7 @@ func TestClassDelete(t *testing.T) {
 		},
 		{
 			testBuilder:       buildInvalidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedErrorText: "storageclass 'provisioner' cannot be empty",
+			expectedErrorText: errEmptyProvisioner,
 		},
 	}
 
@@ -356,7 +356,7 @@ func TestClassDeleteAndWait(t *testing.T) {
 		},
 		{
 			testBuilder:       buildInvalidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedErrorText: "storageclass 'provisioner' cannot be empty",
+			expectedErrorText: errEmptyProvisioner,
 		},
 	}
 
@@ -385,7 +385,7 @@ func TestClassWaitUntilDeleted(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("storageclass 'provisioner' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyProvisioner),
 		},
 	}
 

@@ -24,6 +24,14 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errIncorrectAPIVIPFormat         = "agentclusterinstall apiVIP incorrectly formatted"
+	errIncorrectIngressVIPFormat     = "agentclusterinstall ingressVIP incorrectly formatted"
+	errInvalidControlplaneAgentCount = "agentclusterinstall controlplane agents must be greater than 0"
+	errInvalidClusterNetworkPrefix   = "agentclusterinstall contains invalid clusterNetwork prefix"
+	errInvalidServiceNetworkCIDR     = "agentclusterinstall contains invalid serviceNetwork cidr"
+)
+
 var (
 	eventsTransport http.RoundTripper
 )
@@ -118,7 +126,7 @@ func (builder *AgentClusterInstallBuilder) WithAPIVip(apiVIP string) *AgentClust
 	if net.ParseIP(apiVIP) == nil {
 		klog.V(100).Info("The apiVIP is not a properly formatted IP address")
 
-		builder.errorMsg = "agentclusterinstall apiVIP incorrectly formatted"
+		builder.errorMsg = errIncorrectAPIVIPFormat
 
 		return builder
 	}
@@ -137,7 +145,7 @@ func (builder *AgentClusterInstallBuilder) WithAdditionalAPIVip(apiVIP string) *
 	if net.ParseIP(apiVIP) == nil {
 		klog.V(100).Info("The apiVIP is not a properly formatted IP address")
 
-		builder.errorMsg = "agentclusterinstall apiVIP incorrectly formatted"
+		builder.errorMsg = errIncorrectAPIVIPFormat
 
 		return builder
 	}
@@ -156,7 +164,7 @@ func (builder *AgentClusterInstallBuilder) WithIngressVip(ingressVIP string) *Ag
 	if net.ParseIP(ingressVIP) == nil {
 		klog.V(100).Info("The ingressVIP is not a properly formatted IP address")
 
-		builder.errorMsg = "agentclusterinstall ingressVIP incorrectly formatted"
+		builder.errorMsg = errIncorrectIngressVIPFormat
 
 		return builder
 	}
@@ -175,7 +183,7 @@ func (builder *AgentClusterInstallBuilder) WithAdditionalIngressVip(ingressVIP s
 	if net.ParseIP(ingressVIP) == nil {
 		klog.V(100).Info("The ingressVIP is not a properly formatted IP address")
 
-		builder.errorMsg = "agentclusterinstall ingressVIP incorrectly formatted"
+		builder.errorMsg = errIncorrectIngressVIPFormat
 
 		return builder
 	}
@@ -215,7 +223,7 @@ func (builder *AgentClusterInstallBuilder) WithControlPlaneAgents(agentCount int
 	}
 
 	if agentCount <= 0 {
-		builder.errorMsg = "agentclusterinstall controlplane agents must be greater than 0"
+		builder.errorMsg = errInvalidControlplaneAgentCount
 	}
 
 	builder.Definition.Spec.ProvisionRequirements.ControlPlaneAgents = agentCount
@@ -290,7 +298,7 @@ func (builder *AgentClusterInstallBuilder) WithAdditionalClusterNetwork(
 	if prefix <= 0 {
 		klog.V(100).Infof("Agentclusterinstall passed invalid clusterNetwork prefix: %s", cidr)
 
-		builder.errorMsg = "agentclusterinstall contains invalid clusterNetwork prefix"
+		builder.errorMsg = errInvalidClusterNetworkPrefix
 
 		return builder
 	}
@@ -311,7 +319,7 @@ func (builder *AgentClusterInstallBuilder) WithAdditionalServiceNetwork(cidr str
 	if _, _, err := net.ParseCIDR(cidr); err != nil {
 		klog.V(100).Infof("The agentclusterinstall passed invalid serviceNetwork cidr: %s", cidr)
 
-		builder.errorMsg = "agentclusterinstall contains invalid serviceNetwork cidr"
+		builder.errorMsg = errInvalidServiceNetworkCIDR
 
 		return builder
 	}

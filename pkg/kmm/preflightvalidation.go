@@ -13,6 +13,11 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyPreflightNsname = "PreflightValidation 'nsname' cannot be empty"
+	errNilKernelVersion     = "invalid 'kernelVersion' argument can not be nil"
+)
+
 // PreflightValidationBuilder provides struct for the preflightvalidation object
 // containing connection to the cluster and the preflightvalidation definitions.
 type PreflightValidationBuilder struct {
@@ -70,7 +75,7 @@ func NewPreflightValidationBuilder(
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the PreflightValidation is empty")
 
-		builder.errorMsg = "PreflightValidation 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyPreflightNsname
 
 		return builder
 	}
@@ -85,7 +90,7 @@ func (builder *PreflightValidationBuilder) WithKernelVersion(kernelVersion strin
 	}
 
 	if kernelVersion == "" {
-		builder.errorMsg = "invalid 'kernelVersion' argument can not be nil"
+		builder.errorMsg = errNilKernelVersion
 
 		return builder
 	}

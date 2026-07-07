@@ -13,6 +13,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyForwarderName = "clusterlogforwarder 'name' cannot be empty"
+)
+
 // ClusterLogForwarderBuilder provides a struct for clusterlogforwarder object from the
 // cluster and a clusterlogforwarder definition.
 type ClusterLogForwarderBuilder struct {
@@ -58,7 +62,7 @@ func NewClusterLogForwarderBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the clusterlogforwarder is empty")
 
-		builder.errorMsg = "clusterlogforwarder 'name' cannot be empty"
+		builder.errorMsg = errEmptyForwarderName
 
 		return builder
 	}
@@ -202,7 +206,7 @@ func PullClusterLogForwarder(apiClient *clients.Settings, name, nsname string) (
 	if name == "" {
 		klog.V(100).Info("The name of the clusterlogforwarder is empty")
 
-		return nil, fmt.Errorf("clusterlogforwarder 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyForwarderName)
 	}
 
 	if nsname == "" {

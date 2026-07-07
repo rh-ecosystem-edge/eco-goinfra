@@ -25,10 +25,12 @@ const (
 	defaultDatabaseStorageSize   = "10Gi"
 	defaultFilesystemStorageSize = "20Gi"
 	defaultImageStoreStorageSize = "10Gi"
+	ipxeEnabled                  = "enabled"
+	accessModeReadWriteOnce      = "ReadWriteOnce"
 )
 
 var (
-	validIPXEOptions = []string{"enabled", "disabled"}
+	validIPXEOptions = []string{ipxeEnabled, "disabled"}
 )
 
 // AgentServiceConfigBuilder provides struct for the agentserviceconfig object containing connection to
@@ -490,7 +492,7 @@ func GetDefaultStorageSpec(defaultStorageSize string) (corev1.PersistentVolumeCl
 
 	defaultSpec := corev1.PersistentVolumeClaimSpec{
 		AccessModes: []corev1.PersistentVolumeAccessMode{
-			"ReadWriteOnce",
+			accessModeReadWriteOnce,
 		},
 		Resources: corev1.VolumeResourceRequirements{
 			Requests: corev1.ResourceList{

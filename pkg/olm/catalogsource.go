@@ -14,6 +14,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyCatalogSourceNsname = "catalogsource 'nsname' cannot be empty"
+	resourceCatalogSource       = "catalogsource"
+)
+
 // CatalogSourceBuilder provides a struct for catalogsource object
 // from the cluster and a catalogsource definition.
 type CatalogSourceBuilder struct {
@@ -66,7 +71,7 @@ func NewCatalogSourceBuilder(apiClient *clients.Settings, name, nsname string) *
 	if nsname == "" {
 		klog.V(100).Info("The nsname of the catalogsource is empty")
 
-		builder.errorMsg = "catalogsource 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyCatalogSourceNsname
 
 		return builder
 	}
@@ -252,7 +257,7 @@ func (builder *CatalogSourceBuilder) Delete() error {
 // validate will check that the builder and builder definition are properly initialized before
 // accessing any member fields.
 func (builder *CatalogSourceBuilder) validate() (bool, error) {
-	resourceCRD := "catalogsource"
+	resourceCRD := resourceCatalogSource
 
 	if builder == nil {
 		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)

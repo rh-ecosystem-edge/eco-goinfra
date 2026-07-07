@@ -53,7 +53,7 @@ func TestNewABMClusterDeploymentBuilder(t *testing.T) {
 			baseDomain:        "domaintest",
 			clusterInstallRef: "installreftest",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     "clusterdeployment 'name' cannot be empty",
+			expectedError:     errEmptyName,
 		},
 		{
 			name:              "testdeployment",
@@ -62,7 +62,7 @@ func TestNewABMClusterDeploymentBuilder(t *testing.T) {
 			baseDomain:        "domaintest",
 			clusterInstallRef: "installreftest",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     "clusterdeployment 'namespace' cannot be empty",
+			expectedError:     errEmptyNamespace,
 		},
 		{
 			name:              "testdeployment",
@@ -71,7 +71,7 @@ func TestNewABMClusterDeploymentBuilder(t *testing.T) {
 			baseDomain:        "domaintest",
 			clusterInstallRef: "installreftest",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     "clusterdeployment 'clusterName' cannot be empty",
+			expectedError:     errEmptyClusterName,
 		},
 		{
 			name:              "testdeployment",
@@ -80,7 +80,7 @@ func TestNewABMClusterDeploymentBuilder(t *testing.T) {
 			baseDomain:        "",
 			clusterInstallRef: "installreftest",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     "clusterdeployment 'baseDomain' cannot be empty",
+			expectedError:     errEmptyBaseDomain,
 		},
 		{
 			name:              "testdeployment",
@@ -89,7 +89,7 @@ func TestNewABMClusterDeploymentBuilder(t *testing.T) {
 			baseDomain:        "domaintest",
 			clusterInstallRef: "",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     "clusterdeployment 'clusterInstallRef.name' cannot be empty",
+			expectedError:     errEmptyClusterInstallRefName,
 		},
 		{
 			name:              "testdeployment",
@@ -135,7 +135,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 			clusterInstallRef: hivev1.ClusterInstallLocalReference{
 				Group:   hiveextV1Beta1.Group,
 				Version: hiveextV1Beta1.Version,
-				Kind:    "AgentClusterInstall",
+				Kind:    kindAgentClusterInstall,
 				Name:    "test-agentclusterinstall",
 			},
 			platform: hivev1.Platform{
@@ -169,7 +169,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 			clusterInstallRef: hivev1.ClusterInstallLocalReference{
 				Group:   hiveextV1Beta1.Group,
 				Version: hiveextV1Beta1.Version,
-				Kind:    "AgentClusterInstall",
+				Kind:    kindAgentClusterInstall,
 				Name:    "test-agentclusterinstall",
 			},
 			platform: hivev1.Platform{
@@ -177,7 +177,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
 				},
 			},
-			expectedError: "clusterdeployment 'name' cannot be empty",
+			expectedError: errEmptyName,
 		},
 		{
 			name:        "testdeployment",
@@ -187,7 +187,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 			clusterInstallRef: hivev1.ClusterInstallLocalReference{
 				Group:   hiveextV1Beta1.Group,
 				Version: hiveextV1Beta1.Version,
-				Kind:    "AgentClusterInstall",
+				Kind:    kindAgentClusterInstall,
 				Name:    "test-agentclusterinstall",
 			},
 			platform: hivev1.Platform{
@@ -195,7 +195,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
 				},
 			},
-			expectedError: "clusterdeployment 'namespace' cannot be empty",
+			expectedError: errEmptyNamespace,
 		},
 		{
 			name:        "testdeployment",
@@ -205,7 +205,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 			clusterInstallRef: hivev1.ClusterInstallLocalReference{
 				Group:   hiveextV1Beta1.Group,
 				Version: hiveextV1Beta1.Version,
-				Kind:    "AgentClusterInstall",
+				Kind:    kindAgentClusterInstall,
 				Name:    "test-agentclusterinstall",
 			},
 			platform: hivev1.Platform{
@@ -213,7 +213,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
 				},
 			},
-			expectedError: "clusterdeployment 'clusterName' cannot be empty",
+			expectedError: errEmptyClusterName,
 		},
 		{
 			name:        "testdeployment",
@@ -223,7 +223,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 			clusterInstallRef: hivev1.ClusterInstallLocalReference{
 				Group:   hiveextV1Beta1.Group,
 				Version: hiveextV1Beta1.Version,
-				Kind:    "AgentClusterInstall",
+				Kind:    kindAgentClusterInstall,
 				Name:    "test-agentclusterinstall",
 			},
 			platform: hivev1.Platform{
@@ -231,7 +231,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
 				},
 			},
-			expectedError: "clusterdeployment 'baseDomain' cannot be empty",
+			expectedError: errEmptyBaseDomain,
 		},
 		{
 			name:        "testdeployment",
@@ -241,7 +241,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 			clusterInstallRef: hivev1.ClusterInstallLocalReference{
 				Group:   hiveextV1Beta1.Group,
 				Version: hiveextV1Beta1.Version,
-				Kind:    "AgentClusterInstall",
+				Kind:    kindAgentClusterInstall,
 				Name:    "",
 			},
 			platform: hivev1.Platform{
@@ -249,7 +249,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
 				},
 			},
-			expectedError: "clusterdeployment 'clusterInstallRef.name' cannot be empty",
+			expectedError: errEmptyClusterInstallRefName,
 		},
 	}
 
@@ -299,14 +299,14 @@ func TestPullClusterDeployment(t *testing.T) {
 			name:                "",
 			namespace:           "test-namespace",
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("clusterdeployment 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyName),
 			client:              true,
 		},
 		{
 			name:                "imageset",
 			namespace:           "",
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("clusterdeployment 'namespace' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyNamespace),
 			client:              true,
 		},
 		{
@@ -364,7 +364,7 @@ func TestClusterDeploymentGet(t *testing.T) {
 		},
 		{
 			testClusterDeployment: buildInValidClusterDeploymentBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedError:         fmt.Errorf("clusterdeployment 'namespace' cannot be empty"),
+			expectedError:         fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			testClusterDeployment: buildValidClusterDeploymentBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -395,7 +395,7 @@ func TestClusterDeploymentCreate(t *testing.T) {
 		},
 		{
 			testClusterDeployment: buildInValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedError:         fmt.Errorf("clusterdeployment 'namespace' cannot be empty"),
+			expectedError:         fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			testClusterDeployment: buildValidClusterDeploymentBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -426,7 +426,7 @@ func TestClusterDeploymentUpdate(t *testing.T) {
 		},
 		{
 			testClusterDeployment: buildInValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedError:         fmt.Errorf("clusterdeployment 'namespace' cannot be empty"),
+			expectedError:         fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			testClusterDeployment: buildValidClusterDeploymentBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -460,7 +460,7 @@ func TestClusterDeploymentDelete(t *testing.T) {
 		},
 		{
 			testClusterDeployment: buildInValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedError:         fmt.Errorf("clusterdeployment 'namespace' cannot be empty"),
+			expectedError:         fmt.Errorf(errEmptyNamespace),
 		},
 		{
 			testClusterDeployment: buildValidClusterDeploymentBuilder(clients.GetTestClients(clients.TestClientParams{})),

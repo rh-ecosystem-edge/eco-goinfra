@@ -16,6 +16,11 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyKubeletConfigName = "kubeletconfig 'name' cannot be empty"
+	errEmptyKey               = "'key' cannot be empty"
+)
+
 // KubeletConfigBuilder provides struct for KubeletConfig Object which contains connection to cluster
 // and KubeletConfig definitions.
 type KubeletConfigBuilder struct {
@@ -62,7 +67,7 @@ func NewKubeletConfigBuilder(apiClient *clients.Settings, name string) *KubeletC
 	if name == "" {
 		klog.V(100).Info("The name of the KubeletConfig is empty")
 
-		builder.errorMsg = "kubeletconfig 'name' cannot be empty"
+		builder.errorMsg = errEmptyKubeletConfigName
 
 		return builder
 	}
@@ -99,7 +104,7 @@ func PullKubeletConfig(apiClient *clients.Settings, name string) (*KubeletConfig
 	if name == "" {
 		klog.V(100).Info("The name of the kubeletconfig is empty")
 
-		return nil, fmt.Errorf("kubeletconfig 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyKubeletConfigName)
 	}
 
 	if !builder.Exists() {
@@ -202,7 +207,7 @@ func (builder *KubeletConfigBuilder) WithMCPoolSelector(key, value string) *Kube
 	if key == "" {
 		klog.V(100).Info("The key cannot be empty")
 
-		builder.errorMsg = "'key' cannot be empty"
+		builder.errorMsg = errEmptyKey
 
 		return builder
 	}

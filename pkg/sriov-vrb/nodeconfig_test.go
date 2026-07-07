@@ -43,7 +43,7 @@ func TestVrbNewNodeConfigBuilder(t *testing.T) {
 			name:          defaultNodeConfigName,
 			nsname:        "",
 			client:        true,
-			expectedError: "sriovVrbNodeConfig 'nsname' cannot be empty",
+			expectedError: errEmptyVrbNodeConfigNsname,
 		},
 		{
 			name:          defaultNodeConfigName,
@@ -102,7 +102,7 @@ func TestVrbPullNodeConfig(t *testing.T) {
 			nsname:              "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("sriovVrbNodeConfig 'nsname' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyVrbNodeConfigNsname),
 		},
 		{
 			name:                defaultNodeConfigName,
@@ -161,7 +161,7 @@ func TestVrbNodeConfigGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidNodeConfigBuilder(buildTestClientWithDummyNodeConfig()),
-			expectedError: "sriovVrbNodeConfig 'nsname' cannot be empty",
+			expectedError: errEmptyVrbNodeConfigNsname,
 		},
 		{
 			testBuilder:   buildValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -217,7 +217,7 @@ func TestVrbNodeConfigCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidNodeConfigBuilder(buildTestClientWithDummyNodeConfig()),
-			expectedError: fmt.Errorf("sriovVrbNodeConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyVrbNodeConfigNsname),
 		},
 		{
 			testBuilder:   buildValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -246,7 +246,7 @@ func TestVrbNodeConfigDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidNodeConfigBuilder(buildTestClientWithDummyNodeConfig()),
-			expectedError: fmt.Errorf("sriovVrbNodeConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyVrbNodeConfigNsname),
 		},
 		{
 			testBuilder:   buildValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -275,7 +275,7 @@ func TestVrbNodeConfigUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidNodeConfigBuilder(buildTestClientWithDummyNodeConfig()),
-			expectedError: fmt.Errorf("sriovVrbNodeConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyVrbNodeConfigNsname),
 		},
 		{
 			testBuilder:   buildValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -318,7 +318,7 @@ func TestVrbNodeConfigWithOptions(t *testing.T) {
 			options: func(builder *NodeConfigBuilder) (*NodeConfigBuilder, error) {
 				return builder, nil
 			},
-			expectedError: "sriovVrbNodeConfig 'nsname' cannot be empty",
+			expectedError: errEmptyVrbNodeConfigNsname,
 		},
 		{
 			testBuilder: buildValidNodeConfigBuilder(buildTestClientWithDummyNodeConfig()),

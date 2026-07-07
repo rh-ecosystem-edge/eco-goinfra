@@ -140,7 +140,7 @@ func TestNewServiceBuilder(t *testing.T) {
 			namespace:     defaultServiceNamespace,
 			selectors:     defaultServiceSelector,
 			servicePort:   defaultServicePort,
-			expectedError: "Service 'name' cannot be empty",
+			expectedError: errEmptyName,
 			apiClient:     true,
 		},
 		{
@@ -230,7 +230,7 @@ func TestServiceCreate(t *testing.T) {
 		},
 		{
 			testService:   buildInValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedError: "Service 'name' cannot be empty",
+			expectedError: errEmptyName,
 		},
 		{
 			testService:   buildValidServiceBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -262,7 +262,7 @@ func TestServiceDelete(t *testing.T) {
 		},
 		{
 			testService:   buildInValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedError: fmt.Errorf("Service 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyName),
 		},
 		{
 			testService:   buildValidServiceBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -295,7 +295,7 @@ func TestServiceUpdate(t *testing.T) {
 		},
 		{
 			testService:    buildValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedError:  "annotation can not be empty map",
+			expectedError:  errEmptyAnnotation,
 			testAnnotation: map[string]string{},
 		},
 	}
@@ -488,7 +488,7 @@ func TestServiceWithAnnotation(t *testing.T) {
 		},
 		{
 			testAnnotation: map[string]string{},
-			expectedErrMsg: "annotation can not be empty map",
+			expectedErrMsg: errEmptyAnnotation,
 		},
 	}
 
@@ -550,12 +550,12 @@ func TestServiceWithIPFamily(t *testing.T) {
 		{
 			testIPFamily:      []corev1.IPFamily{corev1.IPFamilyUnknown},
 			testIPStackPolicy: "",
-			expectedErrorText: "failed to set empty ipStackPolicy",
+			expectedErrorText: failedToSetEmptyIpstackpolicy,
 		},
 		{
 			testIPFamily:      []corev1.IPFamily{},
 			testIPStackPolicy: "",
-			expectedErrorText: "failed to set empty ipStackPolicy",
+			expectedErrorText: failedToSetEmptyIpstackpolicy,
 		},
 	}
 

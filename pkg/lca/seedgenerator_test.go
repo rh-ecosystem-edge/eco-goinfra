@@ -312,13 +312,13 @@ func TestSeedGeneratorWaitUntilComplete(t *testing.T) {
 		{
 			expectedError: context.DeadlineExceeded,
 			status: lcasgv1.SeedGeneratorStatus{
-				Conditions: []metav1.Condition{{Status: "True1", Type: "SeedGenCompleted", Reason: "Completed"}},
+				Conditions: []metav1.Condition{{Status: "True1", Type: conditionTypeSeedGenCompleted, Reason: isComplete}},
 			},
 		},
 		{
 			expectedError: nil,
 			status: lcasgv1.SeedGeneratorStatus{
-				Conditions: []metav1.Condition{{Status: "True", Type: "SeedGenCompleted", Reason: "Completed"}},
+				Conditions: []metav1.Condition{{Status: isTrue, Type: conditionTypeSeedGenCompleted, Reason: isComplete}},
 			},
 		},
 	}

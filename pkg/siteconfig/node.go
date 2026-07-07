@@ -2,13 +2,17 @@ package siteconfig
 
 import (
 	"fmt"
+	"slices"
 
 	bmhv1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"
 	siteconfigv1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/siteconfig/v1alpha1"
-	"golang.org/x/exp/slices"
 	"k8s.io/klog/v2"
+)
+
+const (
+	siteconfigNodeAutomatedcleaningmodeMustBeOne = "siteconfig node automatedCleaningMode must be one of: disabled, metadata"
 )
 
 // NodeBuilder provides struct for the siteconfig NodeSpec object.
@@ -110,7 +114,7 @@ func (builder *NodeBuilder) WithAutomatedCleaningMode(mode string) *NodeBuilder 
 	klog.V(100).Infof("Setting automatedCleaningMode to %s on siteconfig node", mode)
 
 	if !slices.Contains([]string{"disabled", "metadata"}, mode) {
-		builder.errorMsg = "siteconfig node automatedCleaningMode must be one of: disabled, metadata"
+		builder.errorMsg = siteconfigNodeAutomatedcleaningmodeMustBeOne
 
 		return builder
 	}

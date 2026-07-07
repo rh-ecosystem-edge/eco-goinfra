@@ -69,7 +69,7 @@ func TestClusterLogForwarderPull(t *testing.T) {
 			name:                "",
 			namespace:           "openshift-logging",
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("clusterlogforwarder 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyForwarderName),
 			client:              true,
 		},
 		{
@@ -139,7 +139,7 @@ func TestNewClusterLogForwarderBuilder(t *testing.T) {
 		{
 			name:          "",
 			namespace:     defaultClusterLogForwarderNamespace,
-			expectedError: "clusterlogforwarder 'name' cannot be empty",
+			expectedError: errEmptyForwarderName,
 		},
 		{
 			name:          defaultClusterLogForwarderName,
@@ -197,7 +197,7 @@ func TestClusterLogForwarderGet(t *testing.T) {
 		},
 		{
 			testClusterLogForwarder: buildInValidClusterLogForwarderBuilder(buildClusterLogForwarderClientWithDummyObject()),
-			expectedError:           "clusterlogforwarder 'name' cannot be empty",
+			expectedError:           errEmptyForwarderName,
 		},
 		{
 			testClusterLogForwarder: buildValidClusterLogForwarderBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -229,7 +229,7 @@ func TestClusterLogForwarderCreate(t *testing.T) {
 		},
 		{
 			testClusterLogForwarder: buildInValidClusterLogForwarderBuilder(buildClusterLogForwarderClientWithDummyObject()),
-			expectedError:           "clusterlogforwarder 'name' cannot be empty",
+			expectedError:           errEmptyForwarderName,
 		},
 		{
 			testClusterLogForwarder: buildValidClusterLogForwarderBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -294,7 +294,7 @@ func TestClusterLogForwarderUpdate(t *testing.T) {
 		},
 		{
 			testClusterLogForwarder: buildInValidClusterLogForwarderBuilder(buildClusterLogForwarderClientWithDummyObject()),
-			expectedError:           "clusterlogforwarder 'name' cannot be empty",
+			expectedError:           errEmptyForwarderName,
 			outputs:                 newOutputs,
 			pipelines:               newPipelines,
 		},

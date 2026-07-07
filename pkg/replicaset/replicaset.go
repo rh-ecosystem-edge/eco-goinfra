@@ -17,6 +17,13 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyName               = "replicaset 'name' cannot be empty"
+	canNotApplyEmptyLabels     = "can not apply empty labels"
+	canNotApplyLabelsWithAn    = "can not apply labels with an empty labelKey value"
+	volumeNameParameterIsEmpty = "volume name parameter is empty"
+)
+
 // Builder provides struct for replicaset object containing connection to the cluster and the replicaset definitions.
 type Builder struct {
 	// Replicaset definition. Used to create a replicaset object.
@@ -72,7 +79,7 @@ func NewBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the replicaset is empty")
 
-		builder.errorMsg = "replicaset 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return &builder
 	}
@@ -125,7 +132,7 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	}
 
 	if name == "" {
-		return nil, fmt.Errorf("replicaset 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyName)
 	}
 
 	if nsname == "" {
@@ -152,7 +159,7 @@ func (builder *Builder) WithLabel(labels map[string]string) *Builder {
 	if len(labels) == 0 {
 		klog.V(100).Info("The 'labels' of the replicaset is empty")
 
-		builder.errorMsg = "can not apply empty labels"
+		builder.errorMsg = canNotApplyEmptyLabels
 
 		return builder
 	}
@@ -161,7 +168,7 @@ func (builder *Builder) WithLabel(labels map[string]string) *Builder {
 		if labelKey == "" {
 			klog.V(100).Info("The 'labels' labelKey cannot be empty")
 
-			builder.errorMsg = "can not apply labels with an empty labelKey value"
+			builder.errorMsg = canNotApplyLabelsWithAn
 
 			return builder
 		}
@@ -213,7 +220,7 @@ func (builder *Builder) WithVolume(rsVolume corev1.Volume) *Builder {
 	if rsVolume.Name == "" {
 		klog.V(100).Info("The Volume name parameter is empty")
 
-		builder.errorMsg = "volume name parameter is empty"
+		builder.errorMsg = volumeNameParameterIsEmpty
 
 		return builder
 	}

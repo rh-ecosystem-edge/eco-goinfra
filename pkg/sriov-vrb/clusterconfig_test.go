@@ -39,7 +39,7 @@ func TestVrbNewClusterConfigBuilder(t *testing.T) {
 			name:          defaultClusterConfigName,
 			nsname:        "",
 			client:        true,
-			expectedError: "SriovVrbClusterConfig 'nsname' cannot be empty",
+			expectedError: errEmptyVrbClusterConfigNsname,
 		},
 		{
 			name:          defaultClusterConfigName,
@@ -98,7 +98,7 @@ func TestVrbPullClusterConfig(t *testing.T) {
 			nsname:              "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("SriovVrbClusterConfig 'nsname' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyVrbClusterConfigNsname),
 		},
 		{
 			name:                defaultClusterConfigName,
@@ -158,7 +158,7 @@ func TestVrbClusterConfigGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedError: "SriovVrbClusterConfig 'nsname' cannot be empty",
+			expectedError: errEmptyVrbClusterConfigNsname,
 		},
 	}
 
@@ -214,7 +214,7 @@ func TestVrbClusterConfigCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidClusterConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "SriovVrbClusterConfig 'nsname' cannot be empty",
+			expectedError: errEmptyVrbClusterConfigNsname,
 		},
 	}
 
@@ -247,7 +247,7 @@ func TestVrbClusterConfigDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedError: "SriovVrbClusterConfig 'nsname' cannot be empty",
+			expectedError: errEmptyVrbClusterConfigNsname,
 		},
 	}
 
@@ -284,7 +284,7 @@ func TestVrbClusterConfigUpdate(t *testing.T) {
 		{
 			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
 			force:         false,
-			expectedError: "SriovVrbClusterConfig 'nsname' cannot be empty",
+			expectedError: errEmptyVrbClusterConfigNsname,
 		},
 	}
 
@@ -322,7 +322,7 @@ func TestVrbClusterConfigWithOptions(t *testing.T) {
 			options: func(builder *ClusterConfigBuilder) (*ClusterConfigBuilder, error) {
 				return builder, nil
 			},
-			expectedError: "SriovVrbClusterConfig 'nsname' cannot be empty",
+			expectedError: errEmptyVrbClusterConfigNsname,
 		},
 		{
 			testBuilder: buildValidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),

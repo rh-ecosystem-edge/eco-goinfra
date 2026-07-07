@@ -175,7 +175,7 @@ func (config PullTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 			assertError:    isErrorNil,
 		},
 		{
-			name:           "nil client returns error",
+			name:           nilClientReturnsError,
 			clientNil:      true,
 			builderName:    testResourceName,
 			builderNsName:  testResourceNamespace,
@@ -205,7 +205,7 @@ func (config PullTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 
 	if config.ResourceScope.IsNamespaced() {
 		testCases = append(testCases, testCase{
-			name:           "empty namespace returns error",
+			name:           emptyNamespaceReturnsError,
 			clientNil:      false,
 			builderName:    testResourceName,
 			builderNsName:  "",
@@ -217,7 +217,7 @@ func (config PullTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 
 	if config.testSchemeAttacher {
 		testCases = append(testCases, testCase{
-			name:           "scheme attachment failure returns error",
+			name:           schemeAttachmentFailureReturnsError,
 			clientNil:      false,
 			builderName:    testResourceName,
 			builderNsName:  testResourceNamespace,

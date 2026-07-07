@@ -21,19 +21,19 @@ func TestNewContainerBuilder(t *testing.T) {
 		{
 			name:          "container",
 			namespace:     "test-namespace",
-			cmd:           []string{"/bin/bash", "-c", "sleep"},
+			cmd:           []string{defaultShellBinBash, "-c", "sleep"},
 			expectedError: "",
 		},
 		{
 			name:          "",
 			namespace:     "test-namespace",
-			cmd:           []string{"/bin/bash", "-c", "sleep"},
+			cmd:           []string{defaultShellBinBash, "-c", "sleep"},
 			expectedError: "container's name is empty",
 		},
 		{
 			name:          "container",
 			namespace:     "",
-			cmd:           []string{"/bin/bash", "-c", "sleep"},
+			cmd:           []string{defaultShellBinBash, "-c", "sleep"},
 			expectedError: "container's image is empty",
 		},
 		{
@@ -60,17 +60,17 @@ func TestPodContainerWithSecurityCapabilities(t *testing.T) {
 		expectedError        string
 	}{
 		{
-			securityCapabilities: []string{"NET_RAW", "NET_ADMIN"},
+			securityCapabilities: []string{netRaw, capabilityNetAdmin},
 			redefine:             false,
 			expectedError:        "can not modify pre-existing security context",
 		},
 		{
-			securityCapabilities: []string{"NET_RAW", "NET_ADMIN"},
+			securityCapabilities: []string{netRaw, capabilityNetAdmin},
 			redefine:             true,
 			expectedError:        "",
 		},
 		{
-			securityCapabilities: []string{"NET_RAW", "NET_ADMIN", "invalid"},
+			securityCapabilities: []string{netRaw, capabilityNetAdmin, "invalid"},
 			redefine:             true,
 			expectedError: "one of the give securityCapabilities is invalid. " +
 				"Please extend allowed list or fix parameter",
@@ -78,7 +78,7 @@ func TestPodContainerWithSecurityCapabilities(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithSecurityCapabilities(testCase.securityCapabilities, testCase.redefine)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -95,7 +95,7 @@ func TestPodContainerWithDropSecurityCapabilities(t *testing.T) {
 		expectedError        string
 	}{
 		{
-			securityCapabilities: []string{"NET_RAW", "NET_ADMIN"},
+			securityCapabilities: []string{netRaw, capabilityNetAdmin},
 			redefine:             false,
 			expectedError:        "",
 		},
@@ -105,7 +105,7 @@ func TestPodContainerWithDropSecurityCapabilities(t *testing.T) {
 			expectedError:        "",
 		},
 		{
-			securityCapabilities: []string{"NET_RAW", "NET_ADMIN", "invalid"},
+			securityCapabilities: []string{netRaw, capabilityNetAdmin, "invalid"},
 			redefine:             true,
 			expectedError: "one of the provided securityCapabilities is invalid. " +
 				"Please extend the allowed list or fix parameter",
@@ -113,7 +113,7 @@ func TestPodContainerWithDropSecurityCapabilities(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithDropSecurityCapabilities(testCase.securityCapabilities, testCase.redefine)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -139,7 +139,7 @@ func TestPodContainerWithSecurityContext(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithSecurityContext(testCase.securityContext)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -183,7 +183,7 @@ func TestPodContainerWithResourceLimit(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithResourceLimit(testCase.hugepages, testCase.memory, testCase.cpu)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -227,7 +227,7 @@ func TestPodContainerWithResourceRequest(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithResourceRequest(testCase.hugepages, testCase.memory, testCase.cpu)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -253,7 +253,7 @@ func TestPodContainerWithCustomResourcesRequests(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithCustomResourcesRequests(testCase.customResourcesRequests)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -279,7 +279,7 @@ func TestPodContainerWithCustomResourcesLimits(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithCustomResourcesLimits(testCase.customResourcesRequests)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -305,7 +305,7 @@ func TestPodContainerWithImagePullPolicy(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithImagePullPolicy(testCase.pullPolicy)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -339,7 +339,7 @@ func TestPodContainerWithEnvVar(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithEnvVar(testCase.name, testCase.value)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -365,7 +365,7 @@ func TestPodContainerWithVolumeMount(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithVolumeMount(testCase.mount)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -391,7 +391,7 @@ func TestPodContainerWithPorts(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithPorts(testCase.ports)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -426,7 +426,7 @@ func TestPodContainerWithReadinessProbe(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithReadinessProbe(testCase.readinessProbe)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -453,7 +453,7 @@ func TestPodContainerWithTTY(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithTTY(testCase.enableTty)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -480,7 +480,7 @@ func TestPodContainerWithStdin(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		container := NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"})
+		container := NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"})
 		container = container.WithStdin(testCase.enableStdin)
 		assert.Equal(t, testCase.expectedError, container.errorMsg)
 
@@ -497,19 +497,19 @@ func TestPodContainerGetContainerCfg(t *testing.T) {
 		expectedError error
 	}{
 		{
-			builder:       NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"}),
+			builder:       NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"}),
 			expectedError: nil,
 		},
 		{
-			builder:       NewContainerBuilder("", "test", []string{"/bin/bash", "-c", "sleep"}),
+			builder:       NewContainerBuilder("", "test", []string{defaultShellBinBash, "-c", "sleep"}),
 			expectedError: fmt.Errorf("container's name is empty"),
 		},
 		{
-			builder:       NewContainerBuilder("container", "", []string{"/bin/bash", "-c", "sleep"}),
+			builder:       NewContainerBuilder("container", "", []string{defaultShellBinBash, "-c", "sleep"}),
 			expectedError: fmt.Errorf("container's image is empty"),
 		},
 		{
-			builder: NewContainerBuilder("container", "test", []string{"/bin/bash", "-c", "sleep"}).
+			builder: NewContainerBuilder("container", "test", []string{defaultShellBinBash, "-c", "sleep"}).
 				WithEnvVar("", ""),
 			expectedError: fmt.Errorf("container's environment var 'name' is empty"),
 		},

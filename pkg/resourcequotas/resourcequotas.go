@@ -14,6 +14,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyName      = "resource quota 'name' cannot be empty"
+	errEmptyNamespace = "resource quota 'namespace' cannot be empty"
+)
+
 // Builder provides struct for resource quotas containing connection to the cluster.
 type Builder struct {
 	// Resource Quota definition
@@ -52,7 +57,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 	if name == "" {
 		klog.V(100).Info("Resource Quota name is empty")
 
-		builder.errorMsg = "resource quota 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -60,7 +65,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 	if nsname == "" {
 		klog.V(100).Info("Resource Quota namespace is empty")
 
-		builder.errorMsg = "resource quota 'namespace' cannot be empty"
+		builder.errorMsg = errEmptyNamespace
 
 		return builder
 	}
@@ -91,13 +96,13 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	if name == "" {
 		klog.V(100).Info("Resource Quota name is empty")
 
-		return nil, fmt.Errorf("resource quota 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyName)
 	}
 
 	if nsname == "" {
 		klog.V(100).Info("Resource Quota namespace is empty")
 
-		return nil, fmt.Errorf("resource quota 'namespace' cannot be empty")
+		return nil, fmt.Errorf(errEmptyNamespace)
 	}
 
 	if !builder.Exists() {

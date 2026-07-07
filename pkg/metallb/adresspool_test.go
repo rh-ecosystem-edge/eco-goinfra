@@ -335,7 +335,7 @@ func TestIPAddressPoolWithOptions(t *testing.T) {
 func TestGetIPAddressPoolGVR(t *testing.T) {
 	assert.Equal(t, GetIPAddressPoolGVR(),
 		schema.GroupVersionResource{
-			Group: APIGroup, Version: APIVersion, Resource: "ipaddresspools",
+			Group: APIGroup, Version: APIVersion, Resource: resourceIPAddressPools,
 		})
 }
 

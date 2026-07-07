@@ -43,7 +43,7 @@ func TestNewManagedClusterModuleBuilder(t *testing.T) {
 		{
 			name:        defaultManagedClusterModuleName,
 			namespace:   "",
-			expectedErr: "managedClusterModule 'nsname' cannot be empty",
+			expectedErr: errEmptyMCMNsname,
 			client:      true,
 		},
 		{
@@ -164,7 +164,7 @@ func TestManagedClusterModuleBuilderGet(t *testing.T) {
 		{
 			testManagedClusterModule: buildInValidTestManagedClusterModule(
 				buildManagedClusterModuleTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("managedClusterModule 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMCMNsname),
 		},
 		{
 			testManagedClusterModule: buildValidTestManagedClusterModule(clients.GetTestClients(clients.TestClientParams{})),
@@ -225,7 +225,7 @@ func TestManagedClusterModuleCreate(t *testing.T) {
 		{
 			testManagedClusterModule: buildInValidTestManagedClusterModule(
 				buildManagedClusterModuleTestClientWithDummyObject()),
-			expectedError: "managedClusterModule 'nsname' cannot be empty",
+			expectedError: errEmptyMCMNsname,
 		},
 		{
 			testManagedClusterModule: buildValidTestManagedClusterModule(clients.GetTestClients(clients.TestClientParams{})),
@@ -256,7 +256,7 @@ func TestManagedClusterModuleDelete(t *testing.T) {
 		{
 			testManagedClusterModule: buildInValidTestManagedClusterModule(
 				buildManagedClusterModuleTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("managedClusterModule 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMCMNsname),
 		},
 		{
 			testManagedClusterModule: buildValidTestManagedClusterModule(clients.GetTestClients(clients.TestClientParams{})),
@@ -287,7 +287,7 @@ func TestManagedClusterModuleUpdate(t *testing.T) {
 		{
 			testManagedClusterModule: buildInValidTestManagedClusterModule(
 				buildManagedClusterModuleTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("managedClusterModule 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMCMNsname),
 		},
 		{
 			testManagedClusterModule: buildValidTestManagedClusterModule(clients.GetTestClients(clients.TestClientParams{})),

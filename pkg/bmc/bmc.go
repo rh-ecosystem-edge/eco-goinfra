@@ -19,8 +19,12 @@ const (
 	defaultSSHPort = 22
 	defaultTimeOut = 5 * time.Second
 
-	manufacturerDell = "Dell Inc."
-	manufacturerHPE  = "HPE"
+	manufacturerDell               = "Dell Inc."
+	manufacturerHPE                = "HPE"
+	errEmptyRedfishUsername        = "redfish 'username' cannot be empty"
+	redfishTimeoutCannotBeLessThan = "redfish 'timeout' cannot be less than or equal to zero"
+	errEmptySSHUsername            = "ssh 'username' cannot be empty"
+	sshTimeoutCannotBeLessThan     = "ssh 'timeout' cannot be less than or equal to zero"
 )
 
 var (
@@ -105,7 +109,7 @@ func (bmc *BMC) WithRedfishUser(username, password string) *BMC {
 	if username == "" {
 		klog.V(100).Info("The Redfish username is empty")
 
-		bmc.errorMsg = "redfish 'username' cannot be empty"
+		bmc.errorMsg = errEmptyRedfishUsername
 
 		return bmc
 	}
@@ -135,7 +139,7 @@ func (bmc *BMC) WithRedfishTimeout(timeout time.Duration) *BMC {
 	if timeout <= 0 {
 		klog.V(100).Infof("The Redfish timeout %s is less than or equal to zero", timeout)
 
-		bmc.errorMsg = "redfish 'timeout' cannot be less than or equal to zero"
+		bmc.errorMsg = redfishTimeoutCannotBeLessThan
 
 		return bmc
 	}
@@ -197,7 +201,7 @@ func (bmc *BMC) WithSSHUser(username, password string) *BMC {
 	if username == "" {
 		klog.V(100).Info("The SSH username is empty")
 
-		bmc.errorMsg = "ssh 'username' cannot be empty"
+		bmc.errorMsg = errEmptySSHUsername
 
 		return bmc
 	}
@@ -248,7 +252,7 @@ func (bmc *BMC) WithSSHTimeout(timeout time.Duration) *BMC {
 	if timeout <= 0 {
 		klog.V(100).Infof("The SSH timeout %s is less than or equal to zero", timeout)
 
-		bmc.errorMsg = "ssh 'timeout' cannot be less than or equal to zero"
+		bmc.errorMsg = sshTimeoutCannotBeLessThan
 
 		return bmc
 	}

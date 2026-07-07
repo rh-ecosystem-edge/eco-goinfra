@@ -125,8 +125,8 @@ func TestKubeAPIServerGetCondition(t *testing.T) {
 		expectedError            error
 	}{
 		{
-			condition:                "NodeInstallerProgressing",
-			conditionStatus:          "True",
+			condition:                conditionTypeNodeInstallerProgressing,
+			conditionStatus:          operatorv1.ConditionTrue,
 			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(buildKubeAPIServerWithDummyObject()),
 			expectedError:            nil,
 		},
@@ -143,8 +143,8 @@ func TestKubeAPIServerGetCondition(t *testing.T) {
 			expectedError:            fmt.Errorf("kubeAPIServer 'conditionType' cannot be empty"),
 		},
 		{
-			condition:                "NodeInstallerProgressing",
-			conditionStatus:          "True",
+			condition:                conditionTypeNodeInstallerProgressing,
+			conditionStatus:          operatorv1.ConditionTrue,
 			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			expectedError:            fmt.Errorf("cluster kubeAPIServer not found"),
 		},
@@ -170,7 +170,7 @@ func TestKubeAPIServerWaitUntilConditionTrue(t *testing.T) {
 		expectedError            error
 	}{
 		{
-			condition:                "NodeInstallerProgressing",
+			condition:                conditionTypeNodeInstallerProgressing,
 			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(buildKubeAPIServerWithDummyObject()),
 			expectedError:            nil,
 		},
@@ -185,7 +185,7 @@ func TestKubeAPIServerWaitUntilConditionTrue(t *testing.T) {
 			expectedError:            fmt.Errorf("kubeAPIServer 'conditionType' cannot be empty"),
 		},
 		{
-			condition:                "NodeInstallerProgressing",
+			condition:                conditionTypeNodeInstallerProgressing,
 			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			expectedError:            fmt.Errorf("cluster kubeAPIServer not found"),
 		},
@@ -318,7 +318,7 @@ func buildValidKubeAPIServerBuilder(apiClient *clients.Settings) *KubeAPIServerB
 				StaticPodOperatorStatus: operatorv1.StaticPodOperatorStatus{
 					OperatorStatus: operatorv1.OperatorStatus{
 						Conditions: []operatorv1.OperatorCondition{
-							{Type: "NodeInstallerProgressing", Status: "True", Reason: "AllNodesAtLatestRevision"}},
+							{Type: conditionTypeNodeInstallerProgressing, Status: operatorv1.ConditionTrue, Reason: conditionReasonAllNodesAtLatestRevision}},
 					},
 				},
 			},
@@ -342,7 +342,7 @@ func buildDummyKubeAPIServerObject() []runtime.Object {
 			StaticPodOperatorStatus: operatorv1.StaticPodOperatorStatus{
 				OperatorStatus: operatorv1.OperatorStatus{
 					Conditions: []operatorv1.OperatorCondition{
-						{Type: "NodeInstallerProgressing", Status: "True", Reason: "AllNodesAtLatestRevision"}},
+						{Type: conditionTypeNodeInstallerProgressing, Status: operatorv1.ConditionTrue, Reason: conditionReasonAllNodesAtLatestRevision}},
 				},
 			},
 		},

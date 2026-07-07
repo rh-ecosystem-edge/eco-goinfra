@@ -37,7 +37,7 @@ func TestNewMCPBuilder(t *testing.T) {
 		{
 			name:              "",
 			client:            true,
-			expectedErrorText: "machineconfigpool 'name' cannot be empty",
+			expectedErrorText: errEmptyMCPName,
 		},
 		{
 			name:              defaultMCPName,
@@ -84,7 +84,7 @@ func TestPullMachineConfigPool(t *testing.T) {
 			name:                "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("machineconfigpool 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyMCPName),
 		},
 		{
 			name:                defaultMCPName,
@@ -139,7 +139,7 @@ func TestMachineConfigPoolGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			expectedError: "machineconfigpool 'name' cannot be empty",
+			expectedError: errEmptyMCPName,
 		},
 		{
 			testBuilder:   buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -170,7 +170,7 @@ func TestMachineConfigPoolCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			expectedError: fmt.Errorf("machineconfigpool 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMCPName),
 		},
 		{
 			testBuilder:   buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -199,7 +199,7 @@ func TestMachineConfigPoolDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			expectedError: fmt.Errorf("machineconfigpool 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMCPName),
 		},
 		{
 			testBuilder:   buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -292,7 +292,7 @@ func TestMachineConfigPoolWaitToBeInCondition(t *testing.T) {
 			exists:        true,
 			valid:         false,
 			hasCondition:  true,
-			expectedError: fmt.Errorf("machineconfigpool 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMCPName),
 		},
 		{
 			exists:        true,
@@ -333,7 +333,7 @@ func TestMachineConfigPoolWaitForUpdate(t *testing.T) {
 			valid:         false,
 			exists:        true,
 			updating:      true,
-			expectedError: fmt.Errorf("machineconfigpool 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMCPName),
 		},
 		{
 			valid:    true,
@@ -373,7 +373,7 @@ func TestMachineConfigPoolWaitToBeStableFor(t *testing.T) {
 			valid:         false,
 			exists:        true,
 			stable:        true,
-			expectedError: fmt.Errorf("machineconfigpool 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMCPName),
 		},
 		{
 			valid:         true,
@@ -441,7 +441,7 @@ func TestMachineConfigPoolWithOptions(t *testing.T) {
 			options: func(builder *MCPBuilder) (*MCPBuilder, error) {
 				return builder, nil
 			},
-			expectedError: "machineconfigpool 'name' cannot be empty",
+			expectedError: errEmptyMCPName,
 		},
 		{
 			testBuilder: buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),

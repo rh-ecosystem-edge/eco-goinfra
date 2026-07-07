@@ -13,6 +13,11 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptySource  = "imageContentSourcePolicy 'source' cannot be empty"
+	errEmptyMirrors = "imageContentSourcePolicy 'mirrors' cannot be empty"
+)
+
 // ICSPBuilder provides struct for the ImageContentSourcePolicy object with connection to the cluster.
 type ICSPBuilder struct {
 	// ImageContentSourcePolicy definition. Used to create ImageContentSourcePolicy object.
@@ -76,7 +81,7 @@ func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []
 	if source == "" {
 		klog.V(100).Info("The Source of the ImageContentSourcePolicy is empty")
 
-		icspBuilder.errorMsg = "imageContentSourcePolicy 'source' cannot be empty"
+		icspBuilder.errorMsg = errEmptySource
 
 		return icspBuilder
 	}
@@ -84,7 +89,7 @@ func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []
 	if len(mirrors) == 0 {
 		klog.V(100).Info("The mirrors of the ImageContentSourcePolicy are empty")
 
-		icspBuilder.errorMsg = "imageContentSourcePolicy 'mirrors' cannot be empty"
+		icspBuilder.errorMsg = errEmptyMirrors
 
 		return icspBuilder
 	}
@@ -255,7 +260,7 @@ func (builder *ICSPBuilder) WithRepositoryDigestMirror(source string, mirrors []
 	if source == "" {
 		klog.V(100).Info("The source is empty")
 
-		builder.errorMsg = "imageContentSourcePolicy 'source' cannot be empty"
+		builder.errorMsg = errEmptySource
 
 		return builder
 	}
@@ -263,7 +268,7 @@ func (builder *ICSPBuilder) WithRepositoryDigestMirror(source string, mirrors []
 	if len(mirrors) == 0 {
 		klog.V(100).Info("Mirrors is empty")
 
-		builder.errorMsg = "imageContentSourcePolicy 'mirrors' cannot be empty"
+		builder.errorMsg = errEmptyMirrors
 
 		return builder
 	}

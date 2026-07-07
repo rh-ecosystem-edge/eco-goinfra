@@ -42,7 +42,7 @@ func TestNewPreflightValidationBuilder(t *testing.T) {
 			name:              defaultPreflightName,
 			namespace:         "",
 			expectedPreflight: nil,
-			expectedErr:       "PreflightValidation 'nsname' cannot be empty",
+			expectedErr:       errEmptyPreflightNsname,
 		},
 		{
 			name:              "",
@@ -78,7 +78,7 @@ func TestPreflightValidationWithKernelVersion(t *testing.T) {
 		},
 		{
 			kernelVersion: "",
-			expectedErr:   "invalid 'kernelVersion' argument can not be nil",
+			expectedErr:   errNilKernelVersion,
 		},
 	}
 
@@ -214,7 +214,7 @@ func TestPreflightValidationCreate(t *testing.T) {
 		},
 		{
 			testPreflight: buildInValidTestPreflight(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "PreflightValidation 'nsname' cannot be empty",
+			expectedError: errEmptyPreflightNsname,
 		},
 		{
 			testPreflight: buildValidTestPreflight(buildPreflightTestClientWithDummyObject()),
@@ -241,7 +241,7 @@ func TestPreflightValidationUpdate(t *testing.T) {
 	}{
 		{
 			testPreflight: buildInValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("PreflightValidation 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyPreflightNsname),
 			kernelVersion: "testkernel",
 		},
 		{
@@ -311,7 +311,7 @@ func TestPreflightValidationDelete(t *testing.T) {
 		},
 		{
 			testPreflight: buildInValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("PreflightValidation 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyPreflightNsname),
 		},
 		{
 			testPreflight: buildValidTestPreflight(clients.GetTestClients(clients.TestClientParams{})),
@@ -340,7 +340,7 @@ func TestPreflightValidationGet(t *testing.T) {
 		},
 		{
 			testPreflight: buildInValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("PreflightValidation 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyPreflightNsname),
 		},
 	}
 

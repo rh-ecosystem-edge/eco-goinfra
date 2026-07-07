@@ -15,6 +15,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
+const (
+	nilClientReturnsError               = "nil client returns error"
+	schemeAttachmentFailureReturnsError = "scheme attachment failure returns error"
+	emptyNamespaceReturnsError          = "empty namespace returns error"
+)
+
 // ListInAllNamespacesFunc is a List function signature for listing resources in all namespaces (e.g.,
 // ListInAllNamespaces). In addition to a type parameter representing a pointer to the builder type (SB), it also takes
 // a type parameter representing the list option type (LO). This allows representing functions that take ListOption and
@@ -169,7 +175,7 @@ func (config ListTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 			expectedCount:  0,
 		},
 		{
-			name:           "nil client returns error",
+			name:           nilClientReturnsError,
 			clientNil:      true,
 			schemeAttacher: config.SchemeAttacher,
 			nsname:         testResourceNamespace,
@@ -191,7 +197,7 @@ func (config ListTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 
 	if config.testSchemeAttacher {
 		testCases = append(testCases, testCase{
-			name:           "scheme attachment failure returns error",
+			name:           schemeAttachmentFailureReturnsError,
 			clientNil:      false,
 			schemeAttacher: testFailingSchemeAttacher,
 			nsname:         testResourceNamespace,
@@ -203,7 +209,7 @@ func (config ListTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 
 	if config.testEmptyNamespace {
 		testCases = append(testCases, testCase{
-			name:           "empty namespace returns error",
+			name:           emptyNamespaceReturnsError,
 			clientNil:      false,
 			schemeAttacher: config.SchemeAttacher,
 			nsname:         "",

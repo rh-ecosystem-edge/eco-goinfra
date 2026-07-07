@@ -49,7 +49,7 @@ func TestPullServiceMonitor(t *testing.T) {
 			name:                "",
 			namespace:           defaultServiceMonitorNamespace,
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("serviceMonitor 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyName),
 			client:              true,
 		},
 		{
@@ -124,7 +124,7 @@ func TestNewServiceMonitorBuilder(t *testing.T) {
 		{
 			name:          "",
 			namespace:     defaultServiceMonitorNamespace,
-			expectedError: "serviceMonitor 'name' cannot be empty",
+			expectedError: errEmptyName,
 			client:        true,
 		},
 		{
@@ -199,7 +199,7 @@ func TestServiceMonitorGet(t *testing.T) {
 		},
 		{
 			testServiceMonitor: buildInValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			expectedError:      fmt.Errorf("serviceMonitor 'name' cannot be empty"),
+			expectedError:      fmt.Errorf(errEmptyName),
 		},
 		{
 			testServiceMonitor: buildValidServiceMonitorBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -231,7 +231,7 @@ func TestServiceMonitorCreate(t *testing.T) {
 		},
 		{
 			testServiceMonitor: buildInValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			expectedError:      "serviceMonitor 'name' cannot be empty",
+			expectedError:      errEmptyName,
 		},
 		{
 			testServiceMonitor: buildValidServiceMonitorBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -294,7 +294,7 @@ func TestServiceMonitorUpdate(t *testing.T) {
 		{
 			testServiceMonitor: buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
 			testLabels:         map[string]string{},
-			expectedError:      "labels can not be empty",
+			expectedError:      errEmptyLabels,
 		},
 	}
 
@@ -383,7 +383,7 @@ func TestServiceMonitorWithLabel(t *testing.T) {
 		},
 		{
 			testLabel:      map[string]string{},
-			expectedErrMsg: "labels can not be empty",
+			expectedErrMsg: errEmptyLabels,
 		},
 	}
 

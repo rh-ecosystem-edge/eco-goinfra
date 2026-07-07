@@ -9,6 +9,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyFileToSign         = "'fileToSign' parameter can not be empty for KernelMapping Sign"
+	errEmptyExistingModuleList = "'existingModuleList' parameter can not be empty for KernelMapping inTreeModulesToRemove"
+)
+
 // KernelMappingBuilder builds kernelMapping struct based on given parameters.
 type KernelMappingBuilder struct {
 	// Module definition. Used to create a Module object.
@@ -225,7 +230,7 @@ func (builder *KernelMappingBuilder) WithSign(certSecret, keySecret string, file
 	if len(fileToSign) < 1 {
 		klog.V(100).Info("The fileToSign of WithSign is empty")
 
-		builder.errorMsg = "'fileToSign' parameter can not be empty for KernelMapping Sign"
+		builder.errorMsg = errEmptyFileToSign
 
 		return builder
 	}
@@ -288,7 +293,7 @@ func (builder *KernelMappingBuilder) WithInTreeModulesToRemove(existingModulesLi
 	if len(existingModulesList) == 0 {
 		klog.V(100).Infof("The 'existingModuleList' is empty")
 
-		builder.errorMsg = "'existingModuleList' parameter can not be empty for KernelMapping inTreeModulesToRemove"
+		builder.errorMsg = errEmptyExistingModuleList
 
 		return builder
 	}

@@ -18,6 +18,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyName = "SriovNetworkPoolConfig 'name' cannot be empty"
+)
+
 // PoolConfigBuilder provides struct for SriovNetworkPoolConfig object containing connection to the cluster
 // and the SriovNetworkPoolConfig definitions.
 type PoolConfigBuilder struct {
@@ -60,7 +64,7 @@ func NewPoolConfigBuilder(apiClient *clients.Settings, name, nsname string) *Poo
 		}}
 
 	if name == "" {
-		builder.errorMsg = "SriovNetworkPoolConfig 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -310,7 +314,7 @@ func PullPoolConfig(apiClient *clients.Settings, name, nsname string) (*PoolConf
 	if name == "" {
 		klog.V(100).Info("The name of the SriovNetworkPoolConfig is empty")
 
-		return nil, errors.New("SriovNetworkPoolConfig 'name' cannot be empty")
+		return nil, errors.New(errEmptyName)
 	}
 
 	if nsname == "" {

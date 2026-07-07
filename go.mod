@@ -49,7 +49,6 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/thoas/go-funk v0.9.3
 	golang.org/x/crypto v0.53.0
-	golang.org/x/exp v0.0.0-20260611194520-c48552f49976
 	gopkg.in/k8snetworkplumbingwg/multus-cni.v4 v4.3.0
 	gopkg.in/yaml.v2 v2.4.0
 	gorm.io/gorm v1.31.2

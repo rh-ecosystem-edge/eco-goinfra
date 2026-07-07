@@ -50,14 +50,14 @@ func TestPullApplication(t *testing.T) {
 	}{
 		{
 			name:                "applicationdtest",
-			namespace:           "test-namespace",
+			namespace:           defaultArgoCdNSName,
 			addToRuntimeObjects: true,
 			expectedError:       nil,
 			client:              true,
 		},
 		{
 			name:                "",
-			namespace:           "test-namespace",
+			namespace:           defaultArgoCdNSName,
 			addToRuntimeObjects: true,
 			expectedError:       fmt.Errorf("application 'name' cannot be empty"),
 			client:              true,
@@ -71,14 +71,14 @@ func TestPullApplication(t *testing.T) {
 		},
 		{
 			name:                "applicationtest",
-			namespace:           "test-namespace",
+			namespace:           defaultArgoCdNSName,
 			addToRuntimeObjects: false,
 			expectedError:       fmt.Errorf("application object applicationtest does not exist in namespace test-namespace"),
 			client:              true,
 		},
 		{
 			name:                "applicationtest",
-			namespace:           "test-namespace",
+			namespace:           defaultArgoCdNSName,
 			addToRuntimeObjects: true,
 			expectedError:       fmt.Errorf("application 'apiClient' cannot be empty"),
 			client:              false,

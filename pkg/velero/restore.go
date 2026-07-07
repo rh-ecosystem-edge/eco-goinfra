@@ -13,6 +13,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyBackupName = "restore backupName cannot be an empty string"
+)
+
 // RestoreBuilder provides a struct for restore object from the cluster and a restore definition.
 type RestoreBuilder struct {
 	// Restore definition, used to create the restore object.
@@ -76,7 +80,7 @@ func NewRestoreBuilder(apiClient *clients.Settings, name, nsname, backupName str
 	if backupName == "" {
 		klog.V(100).Info("The backupName of the restore is empty")
 
-		builder.errorMsg = "restore backupName cannot be an empty string"
+		builder.errorMsg = errEmptyBackupName
 
 		return builder
 	}

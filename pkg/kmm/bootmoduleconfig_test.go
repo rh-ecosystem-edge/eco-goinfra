@@ -41,7 +41,7 @@ func TestNewBootModuleConfigBuilder(t *testing.T) {
 		{
 			name:        defaultBootModuleConfigName,
 			namespace:   "",
-			expectedErr: "bootmoduleconfig 'namespace' cannot be empty",
+			expectedErr: errEmptyBootModuleNamespace,
 			client:      true,
 		},
 		{
@@ -100,7 +100,7 @@ func TestBootModuleConfigPull(t *testing.T) {
 		{
 			name:                "test",
 			namespace:           "",
-			expectedError:       fmt.Errorf("bootmoduleconfig 'namespace' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyBootModuleNamespace),
 			addToRuntimeObjects: true,
 			client:              true,
 		},
@@ -161,7 +161,7 @@ func TestBootModuleConfigGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("bootmoduleconfig 'namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyBootModuleNamespace),
 		},
 		{
 			testBuilder:   buildValidBootModuleConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -217,7 +217,7 @@ func TestBootModuleConfigCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("bootmoduleconfig 'namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyBootModuleNamespace),
 		},
 	}
 
@@ -245,7 +245,7 @@ func TestBootModuleConfigDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("bootmoduleconfig 'namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyBootModuleNamespace),
 		},
 		{
 			testBuilder:   buildValidBootModuleConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -279,7 +279,7 @@ func TestBootModuleConfigUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: "bootmoduleconfig 'namespace' cannot be empty",
+			expectedError: errEmptyBootModuleNamespace,
 			newKernelName: "newkernelmodule",
 		},
 	}

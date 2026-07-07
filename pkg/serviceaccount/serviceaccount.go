@@ -17,6 +17,10 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+const (
+	errEmptyName = "serviceaccount 'name' cannot be empty"
+)
+
 // Builder provides struct for serviceaccount object containing connection to the cluster and the
 // serviceaccount definitions.
 type Builder struct {
@@ -50,7 +54,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 	if name == "" {
 		klog.V(100).Info("The name of the serviceaccount is empty")
 
-		builder.errorMsg = "serviceaccount 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -81,9 +85,9 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	}
 
 	if name == "" {
-		builder.errorMsg = "serviceaccount 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
-		return builder, fmt.Errorf("serviceaccount 'name' cannot be empty")
+		return builder, fmt.Errorf(errEmptyName)
 	}
 
 	if nsname == "" {

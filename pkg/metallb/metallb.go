@@ -15,6 +15,10 @@ import (
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyMetallbName = "metallb 'name' cannot be empty"
+)
+
 // Builder provides struct for the MetalLb object containing connection to
 // the cluster and the MetalLb definitions.
 type Builder struct {
@@ -56,7 +60,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string, nodeSelector m
 	if name == "" {
 		klog.V(100).Info("The name of the metallb is empty")
 
-		builder.errorMsg = "metallb 'name' cannot be empty"
+		builder.errorMsg = errEmptyMetallbName
 
 		return builder
 	}
@@ -111,7 +115,7 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	if name == "" {
 		klog.V(100).Info("The name of the metallb is empty")
 
-		return nil, fmt.Errorf("metallb 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyMetallbName)
 	}
 
 	if nsname == "" {

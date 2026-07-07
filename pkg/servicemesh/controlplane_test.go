@@ -52,7 +52,7 @@ func TestPullControlPlane(t *testing.T) {
 			name:                "",
 			namespace:           "istio-system",
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("serviceMeshControlPlane 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyControlPlaneName),
 			client:              true,
 		},
 		{
@@ -123,7 +123,7 @@ func TestNewControlPlaneBuilder(t *testing.T) {
 		{
 			name:          "",
 			namespace:     defaultServiceMeshNamespace,
-			expectedError: "serviceMeshControlPlane 'name' cannot be empty",
+			expectedError: errEmptyControlPlaneName,
 		},
 		{
 			name:          defaultControlPlaneName,
@@ -181,7 +181,7 @@ func TestControlPlaneGet(t *testing.T) {
 		},
 		{
 			testControlPlane: buildInValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    fmt.Errorf("serviceMeshControlPlane 'name' cannot be empty"),
+			expectedError:    fmt.Errorf(errEmptyControlPlaneName),
 		},
 		{
 			testControlPlane: buildValidControlPlaneBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -211,7 +211,7 @@ func TestControlPlaneCreate(t *testing.T) {
 		},
 		{
 			testControlPlane: buildInValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    "serviceMeshControlPlane 'name' cannot be empty",
+			expectedError:    errEmptyControlPlaneName,
 		},
 		{
 			testControlPlane: buildValidControlPlaneBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -241,7 +241,7 @@ func TestControlPlaneDelete(t *testing.T) {
 		},
 		{
 			testControlPlane: buildInValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    fmt.Errorf("serviceMeshControlPlane 'name' cannot be empty"),
+			expectedError:    fmt.Errorf(errEmptyControlPlaneName),
 		},
 		{
 			testControlPlane: buildValidControlPlaneBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -273,7 +273,7 @@ func TestControlPlaneUpdate(t *testing.T) {
 		},
 		{
 			testControlPlane: buildInValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    "serviceMeshControlPlane 'name' cannot be empty",
+			expectedError:    errEmptyControlPlaneName,
 			addonEnablement:  false,
 		},
 	}

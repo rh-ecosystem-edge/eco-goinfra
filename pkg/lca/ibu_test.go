@@ -537,7 +537,7 @@ func TestImageBasedUpgradeWaitUntilStageComplete(t *testing.T) {
 		{
 			expectedError:       nil,
 			addToRuntimeObjects: true,
-			stage:               "Idle",
+			stage:               idle,
 		},
 	}
 
@@ -577,7 +577,7 @@ func TestImageBasedUpgradeWithStage(t *testing.T) {
 		{
 			expectedError:       nil,
 			addToRuntimeObjects: true,
-			stage:               "Idle",
+			stage:               idle,
 		},
 		{
 			expectedError:       nil,
@@ -644,13 +644,13 @@ func buildDummyIBU() []runtime.Object {
 			Name: "upgrade",
 		},
 		Spec: lcav1.ImageBasedUpgradeSpec{
-			Stage: "Idle",
+			Stage: idle,
 		},
 		Status: lcav1.ImageBasedUpgradeStatus{
 			Conditions: []metav1.Condition{
 				{
 					Type:   idle,
-					Status: "True",
+					Status: isTrue,
 				},
 			},
 		},

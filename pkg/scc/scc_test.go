@@ -35,7 +35,7 @@ func TestSCCNewBuilder(t *testing.T) {
 			name:           "",
 			user:           "test-user",
 			seLinuxContent: "default",
-			expectedErrMsg: "securityContextConstraints 'name' cannot be empty",
+			expectedErrMsg: errEmptyName,
 		},
 		{
 			name:           "test-name",
@@ -47,7 +47,7 @@ func TestSCCNewBuilder(t *testing.T) {
 			name:           "test-name",
 			user:           "test-user",
 			seLinuxContent: "",
-			expectedErrMsg: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrMsg: errEmptySELinuxContext,
 		},
 	}
 
@@ -83,7 +83,7 @@ func TestSCCPull(t *testing.T) {
 			name:                "",
 			addToRuntimeObjects: true,
 			expectedError:       true,
-			expectedErrorText:   "securityContextConstraints 'name' cannot be empty",
+			expectedErrorText:   errEmptyName,
 		},
 		{
 			name:                "test-name",
@@ -138,7 +138,7 @@ func TestSCCGet(t *testing.T) {
 		},
 		{
 			sccBuilder:    buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedError: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedError: errEmptySELinuxContext,
 		},
 		{
 			sccBuilder: buildValidSCCBuilder(
@@ -196,7 +196,7 @@ func TestSCCCreate(t *testing.T) {
 		},
 		{
 			testSCC:       buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("securityContextConstraints 'selinuxContext' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptySELinuxContext),
 		},
 		{
 			testSCC: buildValidSCCBuilder(
@@ -226,7 +226,7 @@ func TestSCCDelete(t *testing.T) {
 		},
 		{
 			scc:           buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("securityContextConstraints 'selinuxContext' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptySELinuxContext),
 		},
 		{
 			scc: buildValidSCCBuilder(
@@ -259,7 +259,7 @@ func TestSCCUpdate(t *testing.T) {
 		},
 		{
 			scc:           buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("securityContextConstraints 'selinuxContext' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptySELinuxContext),
 			users:         []string{"test"},
 		},
 		{
@@ -303,7 +303,7 @@ func TestSCCWithPrivilegedContainer(t *testing.T) {
 		{
 			allowPrivileged:   false,
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -336,7 +336,7 @@ func TestSCCWithPrivilegedEscalation(t *testing.T) {
 		{
 			allowEscalation:   false,
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -369,7 +369,7 @@ func TestSCCWithHostDirVolumePlugin(t *testing.T) {
 		{
 			allowPlugin:       false,
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -402,7 +402,7 @@ func TestSCCWithHostIPC(t *testing.T) {
 		{
 			allowHostIPC:      false,
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -435,7 +435,7 @@ func TestSCCWithHostNetwork(t *testing.T) {
 		{
 			allowHostNet:      false,
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -468,7 +468,7 @@ func TestSCCWithHostPID(t *testing.T) {
 		{
 			allowHostPID:      false,
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -501,7 +501,7 @@ func TestSCCWithHostPorts(t *testing.T) {
 		{
 			allowHostPorts:    false,
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -534,7 +534,7 @@ func TestSCCWithReadOnlyRootFilesystem(t *testing.T) {
 		{
 			readOnlyFS:        false,
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -567,7 +567,7 @@ func TestSCCWithDropCapabilities(t *testing.T) {
 		{
 			dropCapability:    []corev1.Capability{"NET_RAW", "NET_ADMIN"},
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -600,7 +600,7 @@ func TestSCCWithAllowCapabilities(t *testing.T) {
 		{
 			allowCapability:   []corev1.Capability{"NET_RAW", "NET_ADMIN"},
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -633,7 +633,7 @@ func TestSCCWithDefaultAddCapabilities(t *testing.T) {
 		{
 			defaultAddCapability: []corev1.Capability{"NET_RAW", "NET_ADMIN"},
 			sccBuilder:           buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText:    "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText:    errEmptySELinuxContext,
 		},
 	}
 
@@ -661,7 +661,7 @@ func TestSCCWithPriority(t *testing.T) {
 		{
 			priority:          100,
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -694,7 +694,7 @@ func TestSCCWithFSGroup(t *testing.T) {
 		{
 			fsGroup:           "default",
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -731,7 +731,7 @@ func TestSCCWithFSGroupRange(t *testing.T) {
 			fsGroupMin:        1005,
 			fsGroupMax:        1001,
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -765,7 +765,7 @@ func TestSCCWithGroups(t *testing.T) {
 		{
 			groups:            []string{"1001", "1002"},
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -798,7 +798,7 @@ func TestSCCWithSeccompProfiles(t *testing.T) {
 		{
 			seccompProfiles:   []string{"test1", "test2"},
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -831,7 +831,7 @@ func TestSCCWithSupplementalGroups(t *testing.T) {
 		{
 			supplementalGroupsType: "test",
 			sccBuilder:             buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText:      "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText:      errEmptySELinuxContext,
 		},
 	}
 
@@ -865,7 +865,7 @@ func TestSCCWithUsers(t *testing.T) {
 		{
 			users:             []string{"1001", "1002"},
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 
@@ -898,7 +898,7 @@ func TestSCCWithVolumes(t *testing.T) {
 		{
 			volumes:           []securityV1.FSType{"test1", "test2"},
 			sccBuilder:        buildInValidSCCBuilder(buildTestClientWithDummyObject()),
-			expectedErrorText: "securityContextConstraints 'selinuxContext' cannot be empty",
+			expectedErrorText: errEmptySELinuxContext,
 		},
 	}
 

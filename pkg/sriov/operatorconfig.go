@@ -19,11 +19,12 @@ import (
 
 const (
 	sriovOperatorConfigName = "default"
+	pluginMellanox          = "mellanox"
 )
 
 var (
 	// allowedDisablePlugins represents all allowed plugins that could be disabled.
-	allowedDisablePlugins = []string{"mellanox"}
+	allowedDisablePlugins = []string{pluginMellanox}
 )
 
 // OperatorConfigBuilder provides a struct for SriovOperatorConfig object from the cluster and

@@ -17,6 +17,11 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	conditionTypeAPIServerDeploymentProgressing = "APIServerDeploymentProgressing"
+	conditionReasonAsExpected                   = "AsExpected"
+)
+
 var openshiftAPIServerObjName = "cluster"
 
 // OpenshiftAPIServerBuilder provides struct for openshiftAPIServer object.
@@ -154,7 +159,7 @@ func (builder *OpenshiftAPIServerBuilder) WaitUntilConditionTrue(
 
 			for _, condition := range builder.Object.Status.Conditions {
 				if condition.Type == conditionType {
-					if condition.Status == "True" {
+					if condition.Status == operatorV1.ConditionTrue {
 						return true, nil
 					}
 
@@ -178,8 +183,8 @@ func (builder *OpenshiftAPIServerBuilder) WaitUntilConditionTrue(
 // WaitAllPodsAtTheLatestGeneration waits for timeout duration or until openshiftAPIServer
 // pods will reach the latest generation.
 func (builder *OpenshiftAPIServerBuilder) WaitAllPodsAtTheLatestGeneration(timeout time.Duration) error {
-	conditionType := "APIServerDeploymentProgressing"
-	verificationStr := "AsExpected"
+	conditionType := conditionTypeAPIServerDeploymentProgressing
+	verificationStr := conditionReasonAsExpected
 
 	err := builder.WaitUntilConditionTrue(conditionType, timeout)
 	if err != nil {

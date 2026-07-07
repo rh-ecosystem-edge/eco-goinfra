@@ -2,11 +2,11 @@ package rbac
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	"golang.org/x/exp/slices"
 	rbacv1 "k8s.io/api/rbac/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

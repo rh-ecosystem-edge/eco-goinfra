@@ -46,7 +46,7 @@ func TestNewSubscriptionBuilder(t *testing.T) { //nolint:funlen
 			catalogSourceNamespace: "test-namespace",
 			packageName:            "package-test",
 			client:                 true,
-			expectedError:          "subscription 'subNamespace' cannot be empty",
+			expectedError:          errEmptySubNamespace,
 		},
 		{
 			name:                   "subscription",
@@ -152,7 +152,7 @@ func TestPullSubscription(t *testing.T) {
 			name:                "subscription",
 			namespace:           "",
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("subscription 'subNamespace' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptySubNamespace),
 			client:              true,
 		},
 		{
@@ -210,7 +210,7 @@ func TestSubscriptionGet(t *testing.T) {
 		},
 		{
 			subscription:  buildInValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedError: "subscription 'subNamespace' cannot be empty",
+			expectedError: errEmptySubNamespace,
 		},
 		{
 			subscription: buildValidSubscriptionBuilder(
@@ -292,7 +292,7 @@ func TestSubscriptionUpdate(t *testing.T) {
 		},
 		{
 			subscription:  buildInValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedError: fmt.Errorf("subscription 'subNamespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptySubNamespace),
 			startingCSV:   "",
 		},
 	}
@@ -322,7 +322,7 @@ func TestSubscriptionCreate(t *testing.T) {
 		},
 		{
 			subscription:  buildInValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedError: fmt.Errorf("subscription 'subNamespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptySubNamespace),
 		},
 		{
 			subscription: buildValidSubscriptionBuilder(

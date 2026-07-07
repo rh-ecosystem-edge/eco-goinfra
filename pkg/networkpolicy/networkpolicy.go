@@ -15,6 +15,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyName      = "The networkPolicy 'name' cannot be empty"
+	errEmptyNamespace = "The networkPolicy 'namespace' cannot be empty"
+)
+
 // NetworkPolicyBuilder provides struct for networkPolicy object.
 type NetworkPolicyBuilder struct {
 	// NetworkPolicy definition. Used to create networkPolicy object with minimum set of required elements.
@@ -58,7 +63,7 @@ func NewNetworkPolicyBuilder(apiClient *clients.Settings, name, nsname string) *
 	if name == "" {
 		klog.V(100).Info("The name of the networkPolicy is empty")
 
-		builder.errorMsg = "The networkPolicy 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -66,7 +71,7 @@ func NewNetworkPolicyBuilder(apiClient *clients.Settings, name, nsname string) *
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the networkPolicy is empty")
 
-		builder.errorMsg = "The networkPolicy 'namespace' cannot be empty"
+		builder.errorMsg = errEmptyNamespace
 
 		return builder
 	}

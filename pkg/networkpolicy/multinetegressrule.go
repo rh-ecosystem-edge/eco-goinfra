@@ -12,6 +12,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errInvalidProtocol  = "invalid protocol argument. Allowed protocols: TCP, UDP & SCTP"
+	portNumberCannotBe0 = "port number cannot be 0"
+)
+
 // EgressAdditionalOptions additional options for MultiNetworkPolicyEgressRule object.
 type EgressAdditionalOptions func(builder *EgressRuleBuilder) (*EgressRuleBuilder, error)
 
@@ -70,7 +75,7 @@ func (builder *EgressRuleBuilder) WithProtocol(protocol corev1.Protocol) *Egress
 	if protocol != corev1.ProtocolTCP && protocol != corev1.ProtocolUDP && protocol != corev1.ProtocolSCTP {
 		klog.V(100).Info("invalid protocol argument. Allowed protocols: TCP, UDP & SCTP ")
 
-		builder.errorMsg = "invalid protocol argument. Allowed protocols: TCP, UDP & SCTP"
+		builder.errorMsg = errInvalidProtocol
 
 		return builder
 	}
@@ -92,7 +97,7 @@ func (builder *EgressRuleBuilder) WithPort(port uint16) *EgressRuleBuilder {
 	if port == 0 {
 		klog.V(100).Info("Cannot set port number to 0")
 
-		builder.errorMsg = "port number cannot be 0"
+		builder.errorMsg = portNumberCannotBe0
 
 		return builder
 	}

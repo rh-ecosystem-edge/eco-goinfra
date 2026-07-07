@@ -19,7 +19,7 @@ func TestPullOperatorConfig(t *testing.T) {
 	generatePolicy := func(namespace string) *srIovV1.SriovOperatorConfig {
 		return &srIovV1.SriovOperatorConfig{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "default",
+				Name:      sriovOperatorConfigName,
 				Namespace: namespace,
 			},
 			Spec: srIovV1.SriovOperatorConfigSpec{},
@@ -287,7 +287,7 @@ func TestOperatorConfigWithDisablePlugins(t *testing.T) {
 		expectedErrorText string
 	}{
 		{
-			plugins:           []string{"mellanox"},
+			plugins:           []string{pluginMellanox},
 			expectedErrorText: "",
 		},
 		{
@@ -322,7 +322,7 @@ func TestOperatorConfigRemoveDisablePlugins(t *testing.T) {
 		{
 			testOperatorConfig: NewOperatorConfigBuilder(
 				buildTestClientWithDummyOperatorConfigObject(),
-				defaultOperatorConfigNsName).WithDisablePlugins([]string{"mellanox"}),
+				defaultOperatorConfigNsName).WithDisablePlugins([]string{pluginMellanox}),
 		},
 	}
 	for _, testCase := range testCases {
@@ -410,7 +410,7 @@ func buildTestClientWithDummyOperatorConfigObject() *clients.Settings {
 func buildDummySrIovOperatorConfigObject() []runtime.Object {
 	return append([]runtime.Object{}, &srIovV1.SriovOperatorConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default",
+			Name:      sriovOperatorConfigName,
 			Namespace: defaultOperatorConfigNsName,
 		},
 		Spec: srIovV1.SriovOperatorConfigSpec{},

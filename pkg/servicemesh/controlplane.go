@@ -13,6 +13,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyControlPlaneName = "serviceMeshControlPlane 'name' cannot be empty"
+)
+
 // ControlPlaneBuilder provides a struct for serviceMeshControlPlane object from the cluster and
 // a serviceMeshControlPlane definition.
 type ControlPlaneBuilder struct {
@@ -58,7 +62,7 @@ func NewControlPlaneBuilder(apiClient *clients.Settings, name, nsname string) *C
 	if name == "" {
 		klog.V(100).Info("The name of the serviceMeshControlPlane is empty")
 
-		builder.errorMsg = "serviceMeshControlPlane 'name' cannot be empty"
+		builder.errorMsg = errEmptyControlPlaneName
 
 		return builder
 	}
@@ -359,7 +363,7 @@ func PullControlPlane(apiClient *clients.Settings, name, nsname string) (*Contro
 	if name == "" {
 		klog.V(100).Info("The name of the serviceMeshControlPlane is empty")
 
-		return nil, fmt.Errorf("serviceMeshControlPlane 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyControlPlaneName)
 	}
 
 	if nsname == "" {

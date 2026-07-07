@@ -139,7 +139,7 @@ func TestNADNewNetworkBuilder(t *testing.T) {
 		{
 			networkName:       "test1",
 			networkNamespace:  "",
-			expectedErrorText: "NAD namespace is empty",
+			expectedErrorText: nadNamespaceIsEmpty,
 			client:            true,
 		},
 		{
@@ -177,7 +177,7 @@ func TestNADGet(t *testing.T) {
 		},
 		{
 			networkBuilder: buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError:  fmt.Errorf("NAD namespace is empty"),
+			expectedError:  fmt.Errorf(nadNamespaceIsEmpty),
 		},
 		{
 			networkBuilder: buildValidNADNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -207,7 +207,7 @@ func TestNADCreate(t *testing.T) {
 		},
 		{
 			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("NAD namespace is empty"),
+			expectedError: fmt.Errorf(nadNamespaceIsEmpty),
 		},
 		{
 			testNetwork:   buildValidNADNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -236,7 +236,7 @@ func TestNADDelete(t *testing.T) {
 		},
 		{
 			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("NAD namespace is empty"),
+			expectedError: fmt.Errorf(nadNamespaceIsEmpty),
 		},
 		{
 			testNetwork:   buildValidNADNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -290,7 +290,7 @@ func TestNADUpdate(t *testing.T) {
 		},
 		{
 			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("NAD namespace is empty"),
+			expectedError: fmt.Errorf(nadNamespaceIsEmpty),
 		},
 		{
 			testNetwork:   buildValidNADNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -309,7 +309,7 @@ func TestNADUpdate(t *testing.T) {
 		assert.Equal(t, testCase.expectedError, err)
 
 		if testCase.expectedError == nil {
-			assert.Equal(t, `{"cniVersion":"0.3.1","name":"test","type":"macvlan"}`,
+			assert.Equal(t, fmt.Sprintf(`{"cniVersion":%q,"name":"test","type":"macvlan"}`, cniVersion031),
 				testCase.testNetwork.Object.Spec.Config)
 			assert.Equal(t, netBuilder.Definition, netBuilder.Object)
 		}
@@ -325,7 +325,7 @@ func TestNADWithMasterPlugin(t *testing.T) {
 	}{
 		{
 			testNetwork: buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			plugin:      &MasterPlugin{CniVersion: "0.3.1", Name: "test", Type: "ipvlan"},
+			plugin:      &MasterPlugin{CniVersion: cniVersion031, Name: "test", Type: cniTypeIpvlan},
 		},
 		{
 			testNetwork:   buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
@@ -334,8 +334,8 @@ func TestNADWithMasterPlugin(t *testing.T) {
 		},
 		{
 			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			plugin:        &MasterPlugin{CniVersion: "0.3.1", Name: "test", Type: "ipvlan"},
-			expectedError: "NAD namespace is empty",
+			plugin:        &MasterPlugin{CniVersion: cniVersion031, Name: "test", Type: cniTypeIpvlan},
+			expectedError: nadNamespaceIsEmpty,
 		},
 	}
 
@@ -365,7 +365,7 @@ func TestNADWithPlugins(t *testing.T) {
 			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
 			name:          "test",
 			plugins:       []Plugin{{Name: "test"}, {Name: "test2"}},
-			expectedError: "NAD namespace is empty",
+			expectedError: nadNamespaceIsEmpty,
 		},
 	}
 
@@ -396,7 +396,7 @@ func TestNADGetString(t *testing.T) {
 		{
 			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
 			name:          "test",
-			expectedError: fmt.Errorf("NAD namespace is empty"),
+			expectedError: fmt.Errorf(nadNamespaceIsEmpty),
 		},
 	}
 

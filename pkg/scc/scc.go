@@ -14,6 +14,11 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyName           = "securityContextConstraints 'name' cannot be empty"
+	errEmptySELinuxContext = "securityContextConstraints 'selinuxContext' cannot be empty"
+)
+
 const redefiningMsg = "Redefining SecurityContextConstraints"
 
 // Builder provides struct for SecurityContextConstraints object containing connection
@@ -69,7 +74,7 @@ func NewBuilder(apiClient *clients.Settings, name, runAsUser, selinuxContext str
 	if name == "" {
 		klog.V(100).Info("The name of the SecurityContextConstraints is empty")
 
-		builder.errorMsg = "securityContextConstraints 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -85,7 +90,7 @@ func NewBuilder(apiClient *clients.Settings, name, runAsUser, selinuxContext str
 	if selinuxContext == "" {
 		klog.V(100).Info("The selinuxContext of the SecurityContextConstraints is empty")
 
-		builder.errorMsg = "securityContextConstraints 'selinuxContext' cannot be empty"
+		builder.errorMsg = errEmptySELinuxContext
 
 		return builder
 	}
@@ -122,7 +127,7 @@ func Pull(apiClient *clients.Settings, name string) (*Builder, error) {
 	if name == "" {
 		klog.V(100).Info("The name of the SecurityContextConstraints is empty")
 
-		return nil, fmt.Errorf("securityContextConstraints 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyName)
 	}
 
 	if !builder.Exists() {

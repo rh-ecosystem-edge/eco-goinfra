@@ -287,15 +287,15 @@ func TestImageClusterInstallWithMachineNetwork(t *testing.T) {
 		},
 		{
 			machineNetwork:   "192.168.0.0/255.255.255.0",
-			expectedErrorMsg: "imageclusterinstall machinenetwork incorrectly formatted",
+			expectedErrorMsg: errInvalidMachineNetworkFormat,
 		},
 		{
 			machineNetwork:   "fd2e:6f44:5dd8::",
-			expectedErrorMsg: "imageclusterinstall machinenetwork incorrectly formatted",
+			expectedErrorMsg: errInvalidMachineNetworkFormat,
 		},
 		{
 			machineNetwork:   "",
-			expectedErrorMsg: "imageclusterinstall machinenetwork incorrectly formatted",
+			expectedErrorMsg: errInvalidMachineNetworkFormat,
 		},
 	}
 

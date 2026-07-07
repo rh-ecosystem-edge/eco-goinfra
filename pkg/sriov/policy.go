@@ -2,6 +2,7 @@ package sriov
 
 import (
 	"fmt"
+	"slices"
 
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -11,9 +12,12 @@ import (
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"golang.org/x/exp/slices"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	errInvalidDeviceType = "invalid device type, allowed devType values are: vfio-pci or netdevice"
 )
 
 // PolicyBuilder provides struct for srIovPolicy object containing connection to the cluster and the srIovPolicy
@@ -122,7 +126,7 @@ func (builder *PolicyBuilder) WithDevType(devType string) *PolicyBuilder {
 	allowedDevTypes := []string{"vfio-pci", "netdevice"}
 
 	if !slices.Contains(allowedDevTypes, devType) {
-		builder.errorMsg = "invalid device type, allowed devType values are: vfio-pci or netdevice"
+		builder.errorMsg = errInvalidDeviceType
 
 		return builder
 	}

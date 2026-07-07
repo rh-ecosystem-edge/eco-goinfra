@@ -14,6 +14,10 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyVrbNodeConfigNsname = "sriovVrbNodeConfig 'nsname' cannot be empty"
+)
+
 // NodeConfigBuilder provides struct for the SriovVrbNodeConfig object containing connection to
 // the cluster and the SriovVrbNodeConfig definitions.
 type NodeConfigBuilder struct {
@@ -73,7 +77,7 @@ func NewNodeConfigBuilder(
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the sriovVrbNodeConfig is empty")
 
-		builder.errorMsg = "sriovVrbNodeConfig 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyVrbNodeConfigNsname
 
 		return builder
 	}
@@ -118,7 +122,7 @@ func PullNodeConfig(apiClient *clients.Settings, name, nsname string) (*NodeConf
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the SriovVrbNodeConfig is empty")
 
-		return nil, fmt.Errorf("sriovVrbNodeConfig 'nsname' cannot be empty")
+		return nil, fmt.Errorf(errEmptyVrbNodeConfigNsname)
 	}
 
 	if !builder.Exists() {

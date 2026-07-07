@@ -13,6 +13,10 @@ import (
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptySubNamespace = "subscription 'subNamespace' cannot be empty"
+)
+
 // SubscriptionBuilder provides a struct for Subscription object containing connection to the
 // cluster and the Subscription definition.
 type SubscriptionBuilder struct {
@@ -73,7 +77,7 @@ func NewSubscriptionBuilder(apiClient *clients.Settings, subName, subNamespace, 
 	if subNamespace == "" {
 		klog.V(100).Info("The Namespace of the Subscription is empty")
 
-		builder.errorMsg = "subscription 'subNamespace' cannot be empty"
+		builder.errorMsg = errEmptySubNamespace
 
 		return builder
 	}
@@ -321,7 +325,7 @@ func PullSubscription(apiClient *clients.Settings, subName, subNamespace string)
 	if subNamespace == "" {
 		klog.V(100).Info("The namespace of the Subscription is empty")
 
-		return nil, fmt.Errorf("subscription 'subNamespace' cannot be empty")
+		return nil, fmt.Errorf(errEmptySubNamespace)
 	}
 
 	if !builder.Exists() {

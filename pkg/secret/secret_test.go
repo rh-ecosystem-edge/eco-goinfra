@@ -45,14 +45,14 @@ func TestSecretPull(t *testing.T) {
 			secretNamespace:     defaultSecretNamespace,
 			addToRuntimeObjects: false,
 			client:              true,
-			expectedErrorText:   "secret 'name' cannot be empty",
+			expectedErrorText:   errEmptyName,
 		},
 		{
 			secretName:          defaultSecretName,
 			secretNamespace:     "",
 			addToRuntimeObjects: false,
 			client:              true,
-			expectedErrorText:   "secret 'nsname' cannot be empty",
+			expectedErrorText:   errEmptyNsname,
 		},
 		{
 			secretName:          defaultSecretName,
@@ -113,13 +113,13 @@ func TestSecretNewBuilder(t *testing.T) {
 			name:          "",
 			namespace:     defaultSecretNamespace,
 			secretType:    defaultSecretType,
-			expectedError: "secret 'name' cannot be empty",
+			expectedError: errEmptyName,
 		},
 		{
 			name:          defaultSecretName,
 			namespace:     "",
 			secretType:    defaultSecretType,
-			expectedError: "secret 'nsname' cannot be empty",
+			expectedError: errEmptyNsname,
 		},
 	}
 
@@ -152,7 +152,7 @@ func TestSecretCreate(t *testing.T) {
 		},
 		{
 			testSecret:    buildInvalidSecretBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("secret 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyName),
 		},
 		{
 			testSecret:    buildValidSecretBuilder(nil), // Pass nil client to simulate no client

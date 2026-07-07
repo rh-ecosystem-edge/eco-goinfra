@@ -30,7 +30,7 @@ func TestNewAgentServiceConfigBuilder(t *testing.T) {
 			filesystemStorageSize: resource.MustParse("10Gi"),
 			databaseStorage: corev1.PersistentVolumeClaimSpec{
 				AccessModes: []corev1.PersistentVolumeAccessMode{
-					"ReadWriteOnce",
+					accessModeReadWriteOnce,
 				},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
@@ -40,7 +40,7 @@ func TestNewAgentServiceConfigBuilder(t *testing.T) {
 			},
 			filesystemStorage: corev1.PersistentVolumeClaimSpec{
 				AccessModes: []corev1.PersistentVolumeAccessMode{
-					"ReadWriteOnce",
+					accessModeReadWriteOnce,
 				},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
@@ -55,7 +55,7 @@ func TestNewAgentServiceConfigBuilder(t *testing.T) {
 			filesystemStorageSize: resource.MustParse("10Gi"),
 			databaseStorage: corev1.PersistentVolumeClaimSpec{
 				AccessModes: []corev1.PersistentVolumeAccessMode{
-					"ReadWriteOnce",
+					accessModeReadWriteOnce,
 				},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
@@ -65,7 +65,7 @@ func TestNewAgentServiceConfigBuilder(t *testing.T) {
 			},
 			filesystemStorage: corev1.PersistentVolumeClaimSpec{
 				AccessModes: []corev1.PersistentVolumeAccessMode{
-					"ReadWriteOnce",
+					accessModeReadWriteOnce,
 				},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
@@ -279,13 +279,13 @@ func TestAgentServiceConfigUpdate(t *testing.T) {
 
 		testBuilder := buildTestASCBuilderWithFakeObjects(runtimeObjects)
 
-		testBuilder.Definition.Spec.IPXEHTTPRoute = "enabled"
+		testBuilder.Definition.Spec.IPXEHTTPRoute = ipxeEnabled
 
 		aci, err := testBuilder.Update(true)
 		assert.Equal(t, testCase.expectedError, err)
 
 		if testCase.expectedError == nil {
-			assert.Equal(t, aci.Object.Spec.IPXEHTTPRoute, "enabled")
+			assert.Equal(t, aci.Object.Spec.IPXEHTTPRoute, ipxeEnabled)
 		}
 	}
 }
@@ -392,7 +392,7 @@ func TestAgentServiceConfigWithImageStorage(t *testing.T) {
 		{
 			pvc: corev1.PersistentVolumeClaimSpec{
 				AccessModes: []corev1.PersistentVolumeAccessMode{
-					"ReadWriteOnce",
+					accessModeReadWriteOnce,
 				},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
@@ -545,7 +545,7 @@ func TestAgentServiceConfigWithIPXEHTTPRoute(t *testing.T) {
 		expectedError string
 	}{
 		{
-			route:         "enabled",
+			route:         ipxeEnabled,
 			expectedError: "",
 		},
 		{
@@ -778,7 +778,7 @@ func generateAgentServiceConfig() *agentInstallV1Beta1.AgentServiceConfig {
 		Spec: agentInstallV1Beta1.AgentServiceConfigSpec{
 			DatabaseStorage: corev1.PersistentVolumeClaimSpec{
 				AccessModes: []corev1.PersistentVolumeAccessMode{
-					"ReadWriteOnce",
+					accessModeReadWriteOnce,
 				},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
@@ -788,7 +788,7 @@ func generateAgentServiceConfig() *agentInstallV1Beta1.AgentServiceConfig {
 			},
 			FileSystemStorage: corev1.PersistentVolumeClaimSpec{
 				AccessModes: []corev1.PersistentVolumeAccessMode{
-					"ReadWriteOnce",
+					accessModeReadWriteOnce,
 				},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{

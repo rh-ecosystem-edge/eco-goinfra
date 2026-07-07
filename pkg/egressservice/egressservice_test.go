@@ -55,13 +55,13 @@ func TestNewEgressServiceBuilder(t *testing.T) {
 			name:          egressTestSvcName,
 			namespace:     egressTestSvcNamespace,
 			sourceIPBy:    "",
-			expectedError: "invalid sourceIPBy parameter for the EgressService",
+			expectedError: errInvalidSourceIPBy,
 		},
 		{
 			name:          egressTestSvcName,
 			namespace:     egressTestSvcNamespace,
 			sourceIPBy:    "DemoByIp",
-			expectedError: "invalid sourceIPBy parameter for the EgressService",
+			expectedError: errInvalidSourceIPBy,
 		},
 	}
 
@@ -411,7 +411,7 @@ func TestCreate(t *testing.T) {
 			name:          egressTestSvcName,
 			namespace:     egressTestSvcNamespace,
 			sourceIPBy:    "fake",
-			expectedError: fmt.Errorf("invalid sourceIPBy parameter for the EgressService"),
+			expectedError: fmt.Errorf(errInvalidSourceIPBy),
 		},
 	}
 

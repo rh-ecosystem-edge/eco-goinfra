@@ -42,7 +42,7 @@ func TestNewBPGPeerBuilder(t *testing.T) {
 			peerIP:        "192.168.1.1",
 			asn:           5001,
 			remoteAsn:     5002,
-			expectedError: "BGPPeer 'name' cannot be empty",
+			expectedError: errEmptyBGPPeerName,
 		},
 		{
 			name:          "bgppeer",
@@ -50,7 +50,7 @@ func TestNewBPGPeerBuilder(t *testing.T) {
 			peerIP:        "192.168.1.1",
 			asn:           5001,
 			remoteAsn:     5002,
-			expectedError: "BGPPeer 'nsname' cannot be empty",
+			expectedError: errEmptyBGPPeerNsname,
 		},
 		{
 			name:          "bgppeer",
@@ -58,7 +58,7 @@ func TestNewBPGPeerBuilder(t *testing.T) {
 			peerIP:        "",
 			asn:           5001,
 			remoteAsn:     5002,
-			expectedError: "BGPPeer 'peerIP' of the BGPPeer contains invalid ip address",
+			expectedError: bgppeerPeeripOfTheBgppeerContains,
 		},
 		{
 			name:          "bgppeer",
@@ -66,7 +66,7 @@ func TestNewBPGPeerBuilder(t *testing.T) {
 			peerIP:        "192.168.1.1000",
 			asn:           5001,
 			remoteAsn:     5002,
-			expectedError: "BGPPeer 'peerIP' of the BGPPeer contains invalid ip address",
+			expectedError: bgppeerPeeripOfTheBgppeerContains,
 		},
 	}
 
@@ -108,14 +108,14 @@ func TestNewBGPPeerBuilder(t *testing.T) {
 			namespace:     "test-namespace",
 			asn:           5001,
 			remoteAsn:     5002,
-			expectedError: "BGPPeer 'name' cannot be empty",
+			expectedError: errEmptyBGPPeerName,
 		},
 		{
 			name:          "bgppeer",
 			namespace:     "",
 			asn:           5001,
 			remoteAsn:     5002,
-			expectedError: "BGPPeer 'nsname' cannot be empty",
+			expectedError: errEmptyBGPPeerNsname,
 		},
 	}
 
@@ -181,12 +181,12 @@ func TestBGPPeerWithBGPPeerIP(t *testing.T) {
 		{
 			testBGPPeer:   buildValidBGPPeerBuilder(buildBGPPeerTestClientWithDummyObject()),
 			peerIP:        "test",
-			expectedError: "BGPPeer 'bgpPeerIP' of the BGPPeer contains invalid ip address",
+			expectedError: bgppeerBgppeeripOfTheBgppeerContains,
 		},
 		{
 			testBGPPeer:   buildValidBGPPeerBuilder(buildBGPPeerTestClientWithDummyObject()),
 			peerIP:        "",
-			expectedError: "BGPPeer 'bgpPeerIP' of the BGPPeer contains invalid ip address",
+			expectedError: bgppeerBgppeeripOfTheBgppeerContains,
 		},
 	}
 
@@ -406,14 +406,14 @@ func TestBGPPeerWithConnectTime(t *testing.T) {
 			connectTimer: &metav1.Duration{
 				Duration: 0 * time.Second,
 			},
-			expectedError: "bgppeer 'connectTime' value is not valid",
+			expectedError: bgppeerConnecttimeValueIsNotValid,
 		},
 		{
 			testBGPPeer: buildValidBGPPeerBuilder(buildBGPPeerTestClientWithDummyObject()),
 			connectTimer: &metav1.Duration{
 				Duration: 65555 * time.Second,
 			},
-			expectedError: "bgppeer 'connectTime' value is not valid",
+			expectedError: bgppeerConnecttimeValueIsNotValid,
 		},
 	}
 
