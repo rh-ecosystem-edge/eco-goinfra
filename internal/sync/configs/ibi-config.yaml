@@ -9,6 +9,7 @@
     - old: '"github.com/openshift/hive/apis/hive/v1"'
       new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/imagebasedinstall/hive/api/v1"'
   excludes:
+    - "*_webhook.go"
     - "*_test.go"
 
 - name: image-based-install-hive-scheme

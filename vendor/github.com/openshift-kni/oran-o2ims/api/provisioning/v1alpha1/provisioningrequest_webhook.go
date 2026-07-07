@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/openshift-kni/oran-o2ims/internal/constants"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -20,6 +21,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	clustervalidation "github.com/openshift-kni/oran-o2ims/internal/validation"
 )
 
 const HardwareConfigInProgress = "Hardware configuring is in progress"
@@ -144,6 +147,20 @@ func (v *provisioningRequestValidator) validateCreateOrUpdate(ctx context.Contex
 		return err
 	}
 
+	// Best-effort clusterName validation on the raw PR input. The controller
+	// performs the authoritative check on the merged value after defaults are
+	// applied; this catches obvious issues at admission time.
+	if inputMap, ok := newPrClusterInstanceInput.(map[string]any); ok {
+		if clusterName, ok := inputMap["clusterName"].(string); ok && clusterName != "" {
+			if err := clustervalidation.ValidateClusterNameFormat(clusterName); err != nil {
+				return fmt.Errorf("clusterInstanceParameters.clusterName: %w", err)
+			}
+			if err := clustervalidation.ValidateClusterNameNotReserved(clusterName); err != nil {
+				return fmt.Errorf("clusterInstanceParameters.clusterName: %w", err)
+			}
+		}
+	}
+
 	if oldPr == nil {
 		// ProvisioningRequest is being created, no immutable fields to check
 		return nil
@@ -177,10 +194,10 @@ func (v *provisioningRequestValidator) validateCreateOrUpdate(ctx context.Contex
 	// updates are disallowed. After cluster installation is completed, only permissible
 	// fields can be updated.
 	oldPrClusterInstanceInput, err := ExtractMatchingInput(
-		oldPr.Spec.TemplateParameters.Raw, TemplateParamClusterInstance)
+		oldPr.Spec.TemplateParameters.Raw, constants.TemplateParamClusterInstance)
 	if err != nil {
 		return fmt.Errorf(
-			"failed to extract matching input for subSchema %s: %w", TemplateParamClusterInstance, err)
+			"failed to extract matching input for subSchema %s: %w", constants.TemplateParamClusterInstance, err)
 	}
 
 	var disallowedFields, scalingNodes []string

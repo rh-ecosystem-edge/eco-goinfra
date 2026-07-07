@@ -205,6 +205,7 @@ type MachineConfigPool struct {
 
 // NUMAResourcesOperator is the Schema for the numaresourcesoperators API
 // +operator-sdk:csv:customresourcedefinitions:displayName="NUMA Resources Operator",resources={{DaemonSet,v1,rte-daemonset,ConfigMap,v1,rte-configmap}}
+// +kubebuilder:validation:XValidation:rule="has(self.metadata.name) && self.metadata.name == 'numaresourcesoperator'",message="This is a singleton resource and the object name must be 'numaresourcesoperator'."
 type NUMAResourcesOperator struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -250,11 +251,31 @@ func (ng *NodeGroup) GetName() string {
 	return "<missingName>"
 }
 
+func (ng *NodeGroup) GetPoolName() string {
+	if ng == nil {
+		return "nil"
+	}
+	if ng.PoolName == nil {
+		return "<missing>"
+	}
+	return *ng.PoolName
+}
+
+func (ng *NodeGroup) GetMCPSelector() string {
+	if ng == nil {
+		return "nil"
+	}
+	if ng.MachineConfigPoolSelector == nil {
+		return "<missing>"
+	}
+	return ng.MachineConfigPoolSelector.String()
+}
+
 func (ng *NodeGroup) ToString() string {
 	if ng == nil {
 		return "nil"
 	}
-	return fmt.Sprintf("PoolName: %s Config: %s Annotations: %s", ng.GetName(), ng.Config.ToString(), annsToString(ng.Annotations))
+	return fmt.Sprintf("PoolName: %s MCPSelector: %s Config: %s Annotations: %s", ng.GetPoolName(), ng.GetMCPSelector(), ng.Config.ToString(), annsToString(ng.Annotations))
 }
 
 func annsToString(anns map[string]string) string {

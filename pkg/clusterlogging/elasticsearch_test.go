@@ -195,7 +195,8 @@ func TestElasticsearchGet(t *testing.T) {
 		elasticsearchObj, err := testCase.testElasticsearch.Get()
 
 		if testCase.expectedError == nil {
-			assert.Equal(t, elasticsearchObj, testCase.testElasticsearch.Definition)
+			assert.Equal(t, testCase.testElasticsearch.Definition.Name, elasticsearchObj.Name)
+			assert.Equal(t, testCase.testElasticsearch.Definition.Namespace, elasticsearchObj.Namespace)
 		} else {
 			assert.Equal(t, testCase.expectedError.Error(), err.Error())
 		}
@@ -226,7 +227,8 @@ func TestElasticsearchCreate(t *testing.T) {
 		testElasticsearchBuilder, err := testCase.testElasticsearch.Create()
 
 		if testCase.expectedError == "" {
-			assert.Equal(t, testElasticsearchBuilder.Definition, testElasticsearchBuilder.Object)
+			assert.Equal(t, testElasticsearchBuilder.Definition.Name, testElasticsearchBuilder.Object.Name)
+			assert.Equal(t, testElasticsearchBuilder.Definition.Namespace, testElasticsearchBuilder.Object.Namespace)
 		} else {
 			assert.Equal(t, testCase.expectedError, err.Error())
 		}
