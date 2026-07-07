@@ -8,7 +8,9 @@ import (
 
 	"github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/clustergroupupgrades/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -22,428 +24,301 @@ var (
 	defaultCguCondition      = conditionComplete
 )
 
-var (
-	testSchemes = []clients.SchemeAttacher{
-		v1alpha1.AddToScheme,
-	}
-)
+var cguGVK = v1alpha1.SchemeGroupVersion.WithKind("ClusterGroupUpgrade")
 
 func TestPullCgu(t *testing.T) {
-	generateCgu := func(name, namespace string) *v1alpha1.ClusterGroupUpgrade {
-		return &v1alpha1.ClusterGroupUpgrade{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: v1alpha1.ClusterGroupUpgradeSpec{},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		cguName             string
-		cguNamespace        string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-		client              bool
-	}{
-		{
-			cguName:             "test1",
-			cguNamespace:        "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			cguName:             "test2",
-			cguNamespace:        "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "cgu object test2 does not exist in namespace test-namespace",
-			client:              true,
-		},
-		{
-			cguName:             "",
-			cguNamespace:        "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "cgu 'name' cannot be empty",
-			client:              true,
-		},
-		{
-			cguName:             "test3",
-			cguNamespace:        "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "cgu 'namespace' cannot be empty",
-			client:              true,
-		},
-		{
-			cguName:             "test3",
-			cguNamespace:        "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "cgu 'apiClient' cannot be empty",
-			client:              false,
-		},
-	}
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testCgu := generateCgu(testCase.cguName, testCase.cguNamespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testCgu)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		// Test the Pull method
-		builderResult, err := Pull(testSettings, testCgu.Name, testCgu.Namespace)
-
-		// Check the error
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			// Check the error message
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testCgu.Name, builderResult.Object.Name)
-			assert.Equal(t, testCgu.Namespace, builderResult.Object.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(Pull, v1alpha1.AddToScheme, cguGVK).ExecuteTests(t)
 }
 
 func TestNewCguBuilder(t *testing.T) {
-	generateCguBuilder := NewCguBuilder
+	t.Parallel()
 
-	testCases := []struct {
-		cguName           string
-		cguNamespace      string
-		cguMaxConcurrency int
-		client            bool
-		expectedErrorText string
-	}{
-		{
-			cguName:           "test1",
-			cguNamespace:      "test-namespace",
-			cguMaxConcurrency: 1,
-			client:            true,
-			expectedErrorText: "",
-		},
-		{
-			cguName:           "",
-			cguNamespace:      "test-namespace",
-			cguMaxConcurrency: 1,
-			client:            true,
-			expectedErrorText: "CGU 'name' cannot be empty",
-		},
-		{
-			cguName:           "test1",
-			cguNamespace:      "",
-			cguMaxConcurrency: 1,
-			client:            true,
-			expectedErrorText: "CGU 'nsname' cannot be empty",
-		},
-		{
-			cguName:           "test1",
-			cguNamespace:      "test-namespace",
-			cguMaxConcurrency: 0,
-			client:            true,
-			expectedErrorText: "CGU 'maxConcurrency' cannot be less than 1",
-		},
-		{
-			cguName:           "test1",
-			cguNamespace:      "test-namespace",
-			cguMaxConcurrency: 1,
-			client:            false,
-			expectedErrorText: "CGU 'apiClient' cannot be nil",
-		},
-	}
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *CguBuilder {
+				return NewCguBuilder(apiClient, name, nsname, defaultCguMaxConcurrency)
+			},
+			v1alpha1.AddToScheme,
+			cguGVK,
+		).ExecuteTests(t)
+	})
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
+	t.Run("maxConcurrency less than 1 returns error", func(t *testing.T) {
+		t.Parallel()
 
-		testCguStructure := generateCguBuilder(
-			testSettings,
-			testCase.cguName,
-			testCase.cguNamespace,
-			testCase.cguMaxConcurrency)
+		testBuilder := NewCguBuilder(
+			clients.GetTestClients(clients.TestClientParams{}),
+			defaultCguName,
+			defaultCguNsName,
+			0,
+		)
 
-		if testCase.client {
-			assert.NotNil(t, testCguStructure)
-			assert.Equal(t, testCase.expectedErrorText, testCguStructure.errorMsg)
-		} else {
-			assert.Nil(t, testCguStructure)
-		}
-	}
+		assert.Equal(t, errInvalidCguMaxConcurrency, testBuilder.GetError())
+	})
+
+	t.Run("valid maxConcurrency sets remediation strategy", func(t *testing.T) {
+		t.Parallel()
+
+		testBuilder := NewCguBuilder(
+			clients.GetTestClients(clients.TestClientParams{}),
+			defaultCguName,
+			defaultCguNsName,
+			defaultCguMaxConcurrency,
+		)
+
+		require.NoError(t, testBuilder.GetError())
+		require.NotNil(t, testBuilder.Definition.Spec.RemediationStrategy)
+		assert.Equal(t, defaultCguMaxConcurrency, testBuilder.Definition.Spec.RemediationStrategy.MaxConcurrency)
+	})
+}
+
+func TestCguBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[v1alpha1.ClusterGroupUpgrade, CguBuilder](
+		v1alpha1.AddToScheme,
+		cguGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestCguWithCluster(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		cluster           string
-		expectedErrorText string
+		name          string
+		cluster       string
+		expectedError error
 	}{
 		{
-			cluster:           "test-cluster",
-			expectedErrorText: "",
+			name:          "non-empty cluster appends to spec",
+			cluster:       "test-cluster",
+			expectedError: nil,
 		},
 		{
-			cluster:           "",
-			expectedErrorText: "cluster in CGU cluster spec cannot be empty",
+			name:          "empty cluster returns error",
+			cluster:       "",
+			expectedError: fmt.Errorf("cluster in CGU cluster spec cannot be empty"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyCguObject()
-		cguBuilder := buildValidCguTestBuilder(testSettings).WithCluster(testCase.cluster)
-		assert.Equal(t, testCase.expectedErrorText, cguBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, cguBuilder.Definition.Spec.Clusters, []string{testCase.cluster})
-		}
+			testBuilder := buildValidCguTestBuilder(buildTestClientWithDummyCguObject())
+			testBuilder.WithCluster(testCase.cluster)
+
+			assert.Equal(t, testCase.expectedError, testBuilder.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, []string{testCase.cluster}, testBuilder.Definition.Spec.Clusters)
+			}
+		})
 	}
+
+	t.Run("invalid builder short-circuits", func(t *testing.T) {
+		t.Parallel()
+
+		testBuilder := buildInvalidCguTestBuilder(buildTestClientWithDummyCguObject())
+		testBuilder.WithCluster("test-cluster")
+
+		assert.Equal(t, errInvalidCguMaxConcurrency, testBuilder.GetError())
+	})
 }
 
 func TestCguWithManagedPolicy(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		policy            string
-		expectedErrorText string
+		name          string
+		policy        string
+		expectedError error
 	}{
 		{
-			policy:            "test-policy",
-			expectedErrorText: "",
+			name:          "non-empty policy appends to spec",
+			policy:        "test-policy",
+			expectedError: nil,
 		},
 		{
-			policy:            "",
-			expectedErrorText: "policy in CGU managedpolicies spec cannot be empty",
+			name:          "empty policy returns error",
+			policy:        "",
+			expectedError: fmt.Errorf("policy in CGU managedpolicies spec cannot be empty"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyCguObject()
-		cguBuilder := buildValidCguTestBuilder(testSettings).WithManagedPolicy(testCase.policy)
-		assert.Equal(t, testCase.expectedErrorText, cguBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, cguBuilder.Definition.Spec.ManagedPolicies, []string{testCase.policy})
-		}
+			testBuilder := buildValidCguTestBuilder(buildTestClientWithDummyCguObject())
+			testBuilder.WithManagedPolicy(testCase.policy)
+
+			assert.Equal(t, testCase.expectedError, testBuilder.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, []string{testCase.policy}, testBuilder.Definition.Spec.ManagedPolicies)
+			}
+		})
 	}
+
+	t.Run("invalid builder short-circuits", func(t *testing.T) {
+		t.Parallel()
+
+		testBuilder := buildInvalidCguTestBuilder(buildTestClientWithDummyCguObject())
+		testBuilder.WithManagedPolicy("test-policy")
+
+		assert.Equal(t, errInvalidCguMaxConcurrency, testBuilder.GetError())
+	})
 }
 
 func TestCguWithCanary(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		canary            string
-		expectedErrorText string
-	}{
-		{
-			canary:            "test-canary",
-			expectedErrorText: "",
-		},
-		{
-			canary:            "",
-			expectedErrorText: "canary in CGU remediationstrategy spec cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyCguObject()
-		cguBuilder := buildValidCguTestBuilder(testSettings).WithCanary(testCase.canary)
-		assert.Equal(t, testCase.expectedErrorText, cguBuilder.errorMsg)
-
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, cguBuilder.Definition.Spec.RemediationStrategy.Canaries, []string{testCase.canary})
-		}
-	}
-}
-
-func TestCguCreate(t *testing.T) {
-	testCases := []struct {
-		testCgu       *CguBuilder
+		name          string
+		canary        string
 		expectedError error
 	}{
 		{
-			testCgu:       buildValidCguTestBuilder(buildTestClientWithDummyCguObject()),
+			name:          "non-empty canary appends to spec",
+			canary:        "test-canary",
 			expectedError: nil,
 		},
 		{
-			testCgu:       buildInvalidCguTestBuilder(buildTestClientWithDummyCguObject()),
-			expectedError: fmt.Errorf("CGU 'nsname' cannot be empty"),
+			name:          "empty canary returns error",
+			canary:        "",
+			expectedError: fmt.Errorf("canary in CGU remediationstrategy spec cannot be empty"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		cguBuilder, err := testCase.testCgu.Create()
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, cguBuilder.Definition, cguBuilder.Object)
-		}
-	}
-}
+			testBuilder := buildValidCguTestBuilder(buildTestClientWithDummyCguObject())
+			testBuilder.WithCanary(testCase.canary)
 
-func TestCguDelete(t *testing.T) {
-	testCases := []struct {
-		testCgu       *CguBuilder
-		expectedError error
-	}{
-		{
-			testCgu:       buildValidCguTestBuilder(buildTestClientWithDummyCguObject()),
-			expectedError: nil,
-		},
-		{
-			testCgu:       buildValidCguTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-		{
-			testCgu:       buildInvalidCguTestBuilder(buildTestClientWithDummyCguObject()),
-			expectedError: fmt.Errorf("CGU 'nsname' cannot be empty"),
-		},
+			assert.Equal(t, testCase.expectedError, testBuilder.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, []string{testCase.canary}, testBuilder.Definition.Spec.RemediationStrategy.Canaries)
+			}
+		})
 	}
 
-	for _, testCase := range testCases {
-		_, err := testCase.testCgu.Delete()
-		assert.Equal(t, testCase.expectedError, err)
+	t.Run("invalid builder short-circuits", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testCgu.Object)
-			assert.Nil(t, testCase.testCgu.Object)
-		}
-	}
-}
+		testBuilder := buildInvalidCguTestBuilder(buildTestClientWithDummyCguObject())
+		testBuilder.WithCanary("test-canary")
 
-func TestCguExist(t *testing.T) {
-	testCases := []struct {
-		testCgu        *CguBuilder
-		expectedStatus bool
-	}{
-		{
-			testCgu:        buildValidCguTestBuilder(buildTestClientWithDummyCguObject()),
-			expectedStatus: true,
-		},
-		{
-			testCgu:        buildInvalidCguTestBuilder(buildTestClientWithDummyCguObject()),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testCgu.Exists()
-		assert.Equal(t, testCase.expectedStatus, exists)
-	}
-}
-
-func TestCguUpdate(t *testing.T) {
-	testCases := []struct {
-		force bool
-	}{
-		{
-			force: true,
-		},
-		{
-			force: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Create the builder rather than just adding it to the client so that the proper metadata is added and
-		// the update will not fail.
-		var err error
-
-		testBuilder := buildValidCguTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder, err = testBuilder.Create()
-		assert.Nil(t, err)
-
-		assert.NotNil(t, testBuilder.Definition)
-		assert.False(t, testBuilder.Definition.Spec.PreCaching)
-
-		testBuilder.Definition.Spec.PreCaching = true
-
-		cguBuilder, err := testBuilder.Update(testCase.force)
-		assert.NotNil(t, testBuilder.Definition)
-
-		assert.Nil(t, err)
-		assert.Equal(t, testBuilder.Definition.Name, cguBuilder.Definition.Name)
-		assert.Equal(t, testBuilder.Definition.Spec.PreCaching, cguBuilder.Definition.Spec.PreCaching)
-	}
+		assert.Equal(t, errInvalidCguMaxConcurrency, testBuilder.GetError())
+	})
 }
 
 func TestCguDeleteAndWait(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		testCgu       *CguBuilder
 		expectedError error
 	}{
 		{
+			name:          "deletes existing cgu and waits",
 			testCgu:       buildValidCguTestBuilder(buildTestClientWithDummyCguObject()),
 			expectedError: nil,
 		},
 		{
+			name:          "deletes created cgu and waits",
 			testCgu:       buildValidCguTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			expectedError: nil,
 		},
 		{
+			name:          "invalid builder returns validation error",
 			testCgu:       buildInvalidCguTestBuilder(buildTestClientWithDummyCguObject()),
-			expectedError: fmt.Errorf("CGU 'nsname' cannot be empty"),
+			expectedError: errInvalidCguMaxConcurrency,
 		},
 	}
 
 	for _, testCase := range testCases {
-		_, err := testCase.testCgu.DeleteAndWait(time.Second)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testCgu.Object)
-			assert.Nil(t, testCase.testCgu.Object)
-		}
+			_, err := testCase.testCgu.DeleteAndWait(time.Second)
+
+			if testCase.expectedError == nil {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, testCase.expectedError)
+			}
+
+			if testCase.expectedError == nil {
+				assert.Nil(t, testCase.testCgu.Object)
+			}
+		})
 	}
 }
 
 func TestCguWaitUntilDeleted(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		testCgu       *CguBuilder
 		expectedError error
 	}{
 		{
+			name:          "waits until deleted after delete",
 			testCgu:       buildValidCguTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			expectedError: nil,
 		},
 		{
+			name:          "times out when cgu still exists",
 			testCgu:       buildValidCguTestBuilder(buildTestClientWithDummyCguObject()),
 			expectedError: context.DeadlineExceeded,
 		},
 		{
+			name:          "invalid builder returns validation error",
 			testCgu:       buildInvalidCguTestBuilder(buildTestClientWithDummyCguObject()),
-			expectedError: fmt.Errorf("CGU 'nsname' cannot be empty"),
+			expectedError: errInvalidCguMaxConcurrency,
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testCgu.WaitUntilDeleted(time.Second)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testCgu.Object)
-		}
+			err := testCase.testCgu.WaitUntilDeleted(time.Second)
+
+			if testCase.expectedError == nil {
+				assert.NoError(t, err)
+				assert.Nil(t, testCase.testCgu.Object)
+			} else {
+				assert.ErrorIs(t, err, testCase.expectedError)
+			}
+		})
 	}
 }
 
 func TestCguWaitForCondition(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		condition     metav1.Condition
 		exists        bool
 		conditionMet  bool
@@ -451,6 +326,7 @@ func TestCguWaitForCondition(t *testing.T) {
 		expectedError error
 	}{
 		{
+			name:          "condition met",
 			condition:     defaultCguCondition,
 			exists:        true,
 			conditionMet:  true,
@@ -458,13 +334,15 @@ func TestCguWaitForCondition(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			name:          "cgu does not exist",
 			condition:     defaultCguCondition,
 			exists:        false,
 			conditionMet:  true,
 			valid:         true,
-			expectedError: fmt.Errorf("cgu object %s does not exist in namespace %s", defaultCguName, defaultCguNsName),
+			expectedError: errCguObjectNotExists(defaultCguName, defaultCguNsName),
 		},
 		{
+			name:          "condition not met times out",
 			condition:     defaultCguCondition,
 			exists:        true,
 			conditionMet:  false,
@@ -472,82 +350,107 @@ func TestCguWaitForCondition(t *testing.T) {
 			expectedError: context.DeadlineExceeded,
 		},
 		{
+			name:          "invalid builder returns validation error",
 			condition:     defaultCguCondition,
 			exists:        true,
 			conditionMet:  true,
 			valid:         false,
-			expectedError: fmt.Errorf("CGU 'nsname' cannot be empty"),
+			expectedError: errInvalidCguMaxConcurrency,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			cguBuilder     *CguBuilder
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			cgu := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
+			var runtimeObjects []runtime.Object
 
-			if testCase.conditionMet {
-				cgu.Status.Conditions = append(cgu.Status.Conditions, testCase.condition)
+			if testCase.exists {
+				cgu := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
+
+				if testCase.conditionMet {
+					cgu.Status.Conditions = append(cgu.Status.Conditions, testCase.condition)
+				}
+
+				runtimeObjects = append(runtimeObjects, cgu)
 			}
 
-			runtimeObjects = append(runtimeObjects, cgu)
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  runtimeObjects,
+				SchemeAttachers: []clients.SchemeAttacher{v1alpha1.AddToScheme},
+			})
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: testSchemes,
+			var cguBuilder *CguBuilder
+			if testCase.valid {
+				cguBuilder = buildValidCguTestBuilder(testSettings)
+			} else {
+				cguBuilder = buildInvalidCguTestBuilder(testSettings)
+			}
+
+			_, err := cguBuilder.WaitForCondition(testCase.condition, time.Second)
+
+			if testCase.expectedError == nil {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, testCase.expectedError)
+			}
 		})
-
-		if testCase.valid {
-			cguBuilder = buildValidCguTestBuilder(testSettings)
-		} else {
-			cguBuilder = buildInvalidCguTestBuilder(testSettings)
-		}
-
-		_, err := cguBuilder.WaitForCondition(testCase.condition, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
 func TestCguWaitUntilComplete(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		complete      bool
 		expectedError error
 	}{
 		{
+			name:          "cgu complete",
 			complete:      true,
 			expectedError: nil,
 		},
 		{
+			name:          "cgu not complete times out",
 			complete:      false,
 			expectedError: context.DeadlineExceeded,
 		},
 	}
 
 	for _, testCase := range testCases {
-		cgu := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.complete {
-			cgu.Status.Conditions = append(cgu.Status.Conditions, conditionComplete)
-		}
+			cgu := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  []runtime.Object{cgu},
-			SchemeAttachers: testSchemes,
+			if testCase.complete {
+				cgu.Status.Conditions = append(cgu.Status.Conditions, conditionComplete)
+			}
+
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  []runtime.Object{cgu},
+				SchemeAttachers: []clients.SchemeAttacher{v1alpha1.AddToScheme},
+			})
+
+			cguBuilder := buildValidCguTestBuilder(testSettings)
+			_, err := cguBuilder.WaitUntilComplete(time.Second)
+
+			if testCase.expectedError == nil {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, testCase.expectedError)
+			}
 		})
-
-		cguBuilder := buildValidCguTestBuilder(testSettings)
-		_, err := cguBuilder.WaitUntilComplete(time.Second)
-
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
+//nolint:funlen // table-driven test with multiple wait scenarios.
 func TestCguWaitUntilClusterInState(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		cluster       string
 		state         string
 		exists        bool
@@ -556,6 +459,7 @@ func TestCguWaitUntilClusterInState(t *testing.T) {
 		expectedError error
 	}{
 		{
+			name:          "cluster in state",
 			cluster:       defaultCguClusterName,
 			state:         defaultCguClusterState,
 			exists:        true,
@@ -564,30 +468,34 @@ func TestCguWaitUntilClusterInState(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			name:          "empty cluster name",
 			cluster:       "",
 			state:         defaultCguClusterState,
 			exists:        true,
 			inState:       true,
 			valid:         true,
-			expectedError: fmt.Errorf("cluster name cannot be empty"),
+			expectedError: errClusterNameEmpty,
 		},
 		{
+			name:          "empty state",
 			cluster:       defaultCguClusterName,
 			state:         "",
 			exists:        true,
 			inState:       true,
 			valid:         true,
-			expectedError: fmt.Errorf("state cannot be empty"),
+			expectedError: errStateEmpty,
 		},
 		{
+			name:          "cgu does not exist",
 			cluster:       defaultCguClusterName,
 			state:         defaultCguClusterState,
 			exists:        false,
 			inState:       true,
 			valid:         true,
-			expectedError: fmt.Errorf("cgu object %s does not exist in namespace %s", defaultCguName, defaultCguNsName),
+			expectedError: errCguObjectNotExists(defaultCguName, defaultCguNsName),
 		},
 		{
+			name:          "cluster not in state times out",
 			cluster:       defaultCguClusterName,
 			state:         defaultCguClusterState,
 			exists:        true,
@@ -596,220 +504,181 @@ func TestCguWaitUntilClusterInState(t *testing.T) {
 			expectedError: context.DeadlineExceeded,
 		},
 		{
+			name:          "invalid builder returns validation error",
 			cluster:       defaultCguClusterName,
 			state:         defaultCguClusterState,
 			exists:        true,
 			inState:       true,
 			valid:         false,
-			expectedError: fmt.Errorf("CGU 'nsname' cannot be empty"),
+			expectedError: errInvalidCguMaxConcurrency,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			cguBuilder     *CguBuilder
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			cgu := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
+			var runtimeObjects []runtime.Object
 
-			if testCase.inState {
-				cgu.Status.Status.CurrentBatchRemediationProgress = map[string]*v1alpha1.ClusterRemediationProgress{
-					testCase.cluster: {State: testCase.state},
+			if testCase.exists {
+				cgu := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
+
+				if testCase.inState {
+					cgu.Status.Status.CurrentBatchRemediationProgress = map[string]*v1alpha1.ClusterRemediationProgress{
+						testCase.cluster: {State: testCase.state},
+					}
 				}
+
+				runtimeObjects = append(runtimeObjects, cgu)
 			}
 
-			runtimeObjects = append(runtimeObjects, cgu)
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  runtimeObjects,
+				SchemeAttachers: []clients.SchemeAttacher{v1alpha1.AddToScheme},
+			})
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: testSchemes,
+			var cguBuilder *CguBuilder
+			if testCase.valid {
+				cguBuilder = buildValidCguTestBuilder(testSettings)
+			} else {
+				cguBuilder = buildInvalidCguTestBuilder(testSettings)
+			}
+
+			_, err := cguBuilder.WaitUntilClusterInState(testCase.cluster, testCase.state, time.Second)
+
+			if testCase.expectedError == nil {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, testCase.expectedError)
+			}
 		})
-
-		if testCase.valid {
-			cguBuilder = buildValidCguTestBuilder(testSettings)
-		} else {
-			cguBuilder = buildInvalidCguTestBuilder(testSettings)
-		}
-
-		_, err := cguBuilder.WaitUntilClusterInState(testCase.cluster, testCase.state, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
 func TestCguWaitUntilClusterComplete(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		complete      bool
 		expectedError error
 	}{
 		{
+			name:          "cluster complete",
 			complete:      true,
 			expectedError: nil,
 		},
 		{
+			name:          "cluster not complete times out",
 			complete:      false,
 			expectedError: context.DeadlineExceeded,
 		},
 	}
 
 	for _, testCase := range testCases {
-		cgu := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.complete {
-			cgu.Status.Status.CurrentBatchRemediationProgress = map[string]*v1alpha1.ClusterRemediationProgress{
-				defaultCguClusterName: {State: v1alpha1.Completed},
+			cgu := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
+
+			if testCase.complete {
+				cgu.Status.Status.CurrentBatchRemediationProgress = map[string]*v1alpha1.ClusterRemediationProgress{
+					defaultCguClusterName: {State: v1alpha1.Completed},
+				}
 			}
-		}
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  []runtime.Object{cgu},
-			SchemeAttachers: testSchemes,
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  []runtime.Object{cgu},
+				SchemeAttachers: []clients.SchemeAttacher{v1alpha1.AddToScheme},
+			})
+
+			cguBuilder := buildValidCguTestBuilder(testSettings)
+			_, err := cguBuilder.WaitUntilClusterComplete(defaultCguClusterName, time.Second)
+
+			if testCase.expectedError == nil {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, testCase.expectedError)
+			}
 		})
-
-		cguBuilder := buildValidCguTestBuilder(testSettings)
-		_, err := cguBuilder.WaitUntilClusterComplete(defaultCguClusterName, time.Second)
-
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
 func TestCguWaitUntilClusterInProgress(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		inProgress    bool
 		expectedError error
 	}{
 		{
+			name:          "cluster in progress",
 			inProgress:    true,
 			expectedError: nil,
 		},
 		{
+			name:          "cluster not in progress times out",
 			inProgress:    false,
 			expectedError: context.DeadlineExceeded,
 		},
 	}
 
 	for _, testCase := range testCases {
-		cgu := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.inProgress {
-			cgu.Status.Status.CurrentBatchRemediationProgress = map[string]*v1alpha1.ClusterRemediationProgress{
-				defaultCguClusterName: {State: v1alpha1.InProgress},
+			cgu := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
+
+			if testCase.inProgress {
+				cgu.Status.Status.CurrentBatchRemediationProgress = map[string]*v1alpha1.ClusterRemediationProgress{
+					defaultCguClusterName: {State: v1alpha1.InProgress},
+				}
 			}
-		}
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  []runtime.Object{cgu},
-			SchemeAttachers: testSchemes,
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  []runtime.Object{cgu},
+				SchemeAttachers: []clients.SchemeAttacher{v1alpha1.AddToScheme},
+			})
+
+			cguBuilder := buildValidCguTestBuilder(testSettings)
+			_, err := cguBuilder.WaitUntilClusterInProgress(defaultCguClusterName, time.Second)
+
+			if testCase.expectedError == nil {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, testCase.expectedError)
+			}
 		})
-
-		cguBuilder := buildValidCguTestBuilder(testSettings)
-		_, err := cguBuilder.WaitUntilClusterInProgress(defaultCguClusterName, time.Second)
-
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
 func TestWaitUntilBackupStarts(t *testing.T) {
+	t.Parallel()
+
 	cguObject := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
 	cguObject.Status.Backup = &v1alpha1.BackupStatus{}
 
 	cguBuilder := buildValidCguTestBuilder(clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  []runtime.Object{cguObject},
-		SchemeAttachers: testSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{v1alpha1.AddToScheme},
 	}))
 	cguBuilder, err := cguBuilder.WaitUntilBackupStarts(5 * time.Second)
 
 	assert.Nil(t, err)
-	assert.Equal(t, cguBuilder.Object.Name, defaultCguName)
-	assert.Equal(t, cguBuilder.Object.Namespace, defaultCguNsName)
-}
-
-func TestCguBuilderValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		expectedError error
-		builderErrMsg string
-	}{
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: nil,
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: fmt.Errorf("error: received nil cgu builder"),
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: fmt.Errorf("can not redefine the undefined cgu"),
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: fmt.Errorf("cgu builder cannot have nil apiClient"),
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			builderErrMsg: "test error",
-			expectedError: fmt.Errorf("test error"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidCguTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		if testCase.builderErrMsg != "" {
-			testBuilder.errorMsg = testCase.builderErrMsg
-		}
-
-		valid, err := testBuilder.validate()
-		if testCase.expectedError != nil {
-			assert.False(t, valid)
-			assert.Equal(t, testCase.expectedError, err)
-		} else {
-			assert.True(t, valid)
-			assert.Nil(t, err)
-		}
-	}
+	assert.Equal(t, defaultCguName, cguBuilder.Object.Name)
+	assert.Equal(t, defaultCguNsName, cguBuilder.Object.Namespace)
 }
 
 func buildTestClientWithDummyCguObject() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  buildDummyCguObject(),
-		SchemeAttachers: testSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{v1alpha1.AddToScheme},
 	})
 }
 
 func buildDummyCguObject() []runtime.Object {
-	return append([]runtime.Object{}, buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency))
+	return []runtime.Object{buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)}
 }
 
 func buildDummyCgu(name, namespace string, maxConcurrency int) *v1alpha1.ClusterGroupUpgrade {
@@ -826,20 +695,10 @@ func buildDummyCgu(name, namespace string, maxConcurrency int) *v1alpha1.Cluster
 	}
 }
 
-// buildValidCguTestBuilder returns a valid CguBuilder for testing purposes.
 func buildValidCguTestBuilder(apiClient *clients.Settings) *CguBuilder {
-	return NewCguBuilder(
-		apiClient,
-		defaultCguName,
-		defaultCguNsName,
-		defaultCguMaxConcurrency)
+	return NewCguBuilder(apiClient, defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
 }
 
-// buildinInvalidCguTestBuilder returns an invalid CguBuilder for testing purposes.
 func buildInvalidCguTestBuilder(apiClient *clients.Settings) *CguBuilder {
-	return NewCguBuilder(
-		apiClient,
-		defaultCguName,
-		"",
-		defaultCguMaxConcurrency)
+	return NewCguBuilder(apiClient, defaultCguName, defaultCguNsName, 0)
 }
