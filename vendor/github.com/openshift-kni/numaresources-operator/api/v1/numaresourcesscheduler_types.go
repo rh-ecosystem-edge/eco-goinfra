@@ -148,6 +148,7 @@ type NUMAResourcesSchedulerStatus struct {
 
 // NUMAResourcesScheduler is the Schema for the numaresourcesschedulers API
 // +operator-sdk:csv:customresourcedefinitions:displayName="NUMA Aware Scheduler",resources={{Deployment,v1,secondary-scheduler-deployment}}
+// +kubebuilder:validation:XValidation:rule="has(self.metadata.name) && self.metadata.name == 'numaresourcesscheduler'",message="This is a singleton resource and the object name must be 'numaresourcesscheduler'."
 type NUMAResourcesScheduler struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

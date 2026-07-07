@@ -110,6 +110,15 @@ type OperandSpec struct {
 
 	// WorkerNodeSelector describes on which nodes the worker pod should be deployed.
 	WorkerNodeSelector map[string]string `json:"workerNodeSelector,omitempty"`
+
+	// WorkerPriorityClassName allows setting a specific priority class for the worker pods
+	WorkerPriorityClassName string `json:"workerPriorityClassName,omitempty"`
+
+	// GCNodeSelector describes on which node the GC pod should be deployed.
+	GCNodeSelector map[string]string `json:"gcNodeSelector,omitempty"`
+
+	// GCTolerations defines tolerations to be applied to the GC deployment
+	GCTolerations []corev1.Toleration `json:"gcTolerations,omitempty"`
 }
 
 // ConfigMap describes configuration options for the NFD worker
