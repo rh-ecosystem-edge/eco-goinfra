@@ -46,7 +46,7 @@ func TestNewPtpConfigBuilder(t *testing.T) {
 			name:          defaultPtpConfigName,
 			nsname:        "",
 			client:        true,
-			expectedError: "ptpConfig 'nsname' cannot be empty",
+			expectedError: errEmptyNsname,
 		},
 		{
 			name:          defaultPtpConfigName,
@@ -125,7 +125,7 @@ func TestGetIntelPlugin(t *testing.T) {
 			name:           "invalid ptpConfig",
 			ptpConfigValid: false,
 			profileExists:  true,
-			expectedError:  "ptpConfig 'nsname' cannot be empty",
+			expectedError:  errEmptyNsname,
 		},
 		{
 			name:           "profile not found",
@@ -229,7 +229,7 @@ func TestWithIntelPlugin(t *testing.T) {
 			ptpConfigValid: false,
 			profileExists:  true,
 			pluginType:     PluginTypeE810,
-			expectedError:  "ptpConfig 'nsname' cannot be empty",
+			expectedError:  errEmptyNsname,
 		},
 		{
 			name:           "profile does not exist",
@@ -338,7 +338,7 @@ func TestGetPluginType(t *testing.T) {
 			name:           "invalid ptpConfig",
 			ptpConfigValid: false,
 			profileExists:  true,
-			expectedError:  "ptpConfig 'nsname' cannot be empty",
+			expectedError:  errEmptyNsname,
 		},
 		{
 			name:           "profile not found",
@@ -422,7 +422,7 @@ func TestPullPtpConfig(t *testing.T) {
 			nsname:              "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("ptpConfig 'nsname' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyNsname),
 		},
 		{
 			name:                defaultPtpConfigName,
@@ -481,7 +481,7 @@ func TestPtpConfigGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPtpConfigBuilder(buildTestClientWithDummyPtpConfig()),
-			expectedError: "ptpConfig 'nsname' cannot be empty",
+			expectedError: errEmptyNsname,
 		},
 		{
 			testBuilder:   buildValidPtpConfigBuilder(buildTestClientWithPtpScheme()),
@@ -542,7 +542,7 @@ func TestPtpConfigCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPtpConfigBuilder(buildTestClientWithPtpScheme()),
-			expectedError: fmt.Errorf("ptpConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyNsname),
 		},
 	}
 
@@ -610,7 +610,7 @@ func TestPtpConfigDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPtpConfigBuilder(buildTestClientWithDummyPtpConfig()),
-			expectedError: fmt.Errorf("ptpConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyNsname),
 		},
 	}
 

@@ -385,7 +385,7 @@ func TestPersistentVolumeClaimWithPVCAccessMode(t *testing.T) {
 		expectedError  string
 	}{
 		{
-			testAccessMode: "ReadWriteOnce",
+			testAccessMode: accessModeReadWriteOnce,
 			expectedError:  "",
 		},
 		{

@@ -41,7 +41,12 @@ const (
 	// defaultResponseHeaderTimeout is the maximum time to wait for server response headers.
 	defaultResponseHeaderTimeout = 30 * time.Second
 	// defaultIdleConnTimeout is the maximum time an idle connection can remain in the pool.
-	defaultIdleConnTimeout = 90 * time.Second
+	defaultIdleConnTimeout           = 90 * time.Second
+	errEmptyNamespace                = "pod 'namespace' cannot be empty"
+	defaultShellBinBash              = "/bin/bash"
+	taintEffectNoSchedule            = "NoSchedule"
+	nodeRoleKubernetesIoControlPlane = "node-role.kubernetes.io/control-plane"
+	volumeNameHugepages              = "hugepages"
 )
 
 // Builder provides a struct for pod object from the cluster and a pod definition.
@@ -88,7 +93,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname, image string) *Builde
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the pod is empty")
 
-		builder.errorMsg = "pod 'namespace' cannot be empty"
+		builder.errorMsg = errEmptyNamespace
 
 		return builder
 	}
@@ -101,7 +106,7 @@ func NewBuilder(apiClient *clients.Settings, name, nsname, image string) *Builde
 		return builder
 	}
 
-	defaultContainer, err := NewContainerBuilder("test", image, []string{"/bin/bash", "-c", "sleep INF"}).GetContainerCfg()
+	defaultContainer, err := NewContainerBuilder("test", image, []string{defaultShellBinBash, "-c", "sleep INF"}).GetContainerCfg()
 	if err != nil {
 		klog.V(100).Info("Failed to define the default container settings")
 
@@ -144,7 +149,7 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the pod is empty")
 
-		return nil, fmt.Errorf("pod 'namespace' cannot be empty")
+		return nil, fmt.Errorf(errEmptyNamespace)
 	}
 
 	if !builder.Exists() {
@@ -753,7 +758,7 @@ func (builder *Builder) WithTolerationToMaster() *Builder {
 	builder.Definition.Spec.Tolerations = []corev1.Toleration{
 		{
 			Key:    "node-role.kubernetes.io/master",
-			Effect: "NoSchedule",
+			Effect: taintEffectNoSchedule,
 		},
 	}
 
@@ -776,8 +781,8 @@ func (builder *Builder) WithTolerationToControlPlane() *Builder {
 
 	builder.Definition.Spec.Tolerations = []corev1.Toleration{
 		{
-			Key:    "node-role.kubernetes.io/control-plane",
-			Effect: "NoSchedule",
+			Key:    nodeRoleKubernetesIoControlPlane,
+			Effect: taintEffectNoSchedule,
 		},
 	}
 
@@ -1065,15 +1070,15 @@ func (builder *Builder) WithHugePages() *Builder {
 
 	klog.V(100).Infof("Applying hugePages configuration to all containers in pod: %s", builder.Definition.Name)
 
-	builder.isMutationAllowed("hugepages")
+	builder.isMutationAllowed(volumeNameHugepages)
 
 	if builder.Definition.Spec.Volumes != nil {
 		builder.Definition.Spec.Volumes = append(builder.Definition.Spec.Volumes, corev1.Volume{
-			Name: "hugepages", VolumeSource: corev1.VolumeSource{
+			Name: volumeNameHugepages, VolumeSource: corev1.VolumeSource{
 				EmptyDir: &corev1.EmptyDirVolumeSource{Medium: "HugePages"}}})
 	} else {
 		builder.Definition.Spec.Volumes = []corev1.Volume{
-			{Name: "hugepages", VolumeSource: corev1.VolumeSource{
+			{Name: volumeNameHugepages, VolumeSource: corev1.VolumeSource{
 				EmptyDir: &corev1.EmptyDirVolumeSource{Medium: "HugePages"}},
 			},
 		}
@@ -1083,10 +1088,10 @@ func (builder *Builder) WithHugePages() *Builder {
 		if builder.Definition.Spec.Containers[idx].VolumeMounts != nil {
 			builder.Definition.Spec.Containers[idx].VolumeMounts = append(
 				builder.Definition.Spec.Containers[idx].VolumeMounts,
-				corev1.VolumeMount{Name: "hugepages", MountPath: "/mnt/huge"})
+				corev1.VolumeMount{Name: volumeNameHugepages, MountPath: "/mnt/huge"})
 		} else {
 			builder.Definition.Spec.Containers[idx].VolumeMounts = []corev1.VolumeMount{{
-				Name:      "hugepages",
+				Name:      volumeNameHugepages,
 				MountPath: "/mnt/huge",
 			},
 			}

@@ -45,7 +45,7 @@ func TestPullTriggerAuthentication(t *testing.T) {
 			name:                "",
 			namespace:           defaultTriggerAuthNamespace,
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("triggerAuthentication 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyTriggerAuthName),
 			client:              true,
 		},
 		{
@@ -120,7 +120,7 @@ func TestNewTriggerAuthenticationBuilder(t *testing.T) {
 		{
 			name:          "",
 			namespace:     defaultTriggerAuthNamespace,
-			expectedError: "triggerAuthentication 'name' cannot be empty",
+			expectedError: errEmptyTriggerAuthName,
 			client:        true,
 		},
 		{
@@ -195,7 +195,7 @@ func TestTriggerAuthenticationGet(t *testing.T) {
 		},
 		{
 			testTriggerAuth: buildInValidTriggerAuthBuilder(buildTriggerAuthClientWithDummyObject()),
-			expectedError:   fmt.Errorf("triggerAuthentication 'name' cannot be empty"),
+			expectedError:   fmt.Errorf(errEmptyTriggerAuthName),
 		},
 		{
 			testTriggerAuth: buildValidTriggerAuthBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -227,7 +227,7 @@ func TestTriggerAuthenticationCreate(t *testing.T) {
 		},
 		{
 			testTriggerAuth: buildInValidTriggerAuthBuilder(buildTriggerAuthClientWithDummyObject()),
-			expectedError:   "triggerAuthentication 'name' cannot be empty",
+			expectedError:   errEmptyTriggerAuthName,
 		},
 		{
 			testTriggerAuth: buildValidTriggerAuthBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -295,7 +295,7 @@ func TestTriggerAuthenticationUpdate(t *testing.T) {
 		},
 		{
 			testTriggerAuth:     buildInValidTriggerAuthBuilder(buildTriggerAuthClientWithDummyObject()),
-			expectedError:       "triggerAuthentication 'name' cannot be empty",
+			expectedError:       errEmptyTriggerAuthName,
 			testSecretTargetRef: []kedav2v1alpha1.AuthSecretTargetRef{},
 		},
 	}

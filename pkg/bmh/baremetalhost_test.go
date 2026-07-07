@@ -19,7 +19,7 @@ var (
 	defaultBmHostAddress    = "1.1.1.1"
 	defaultBmHostSecretName = "testsecret"
 	defaultBmHostMacAddress = "AA:BB:CC:11:22:33"
-	defaultBmHostBootMode   = "UEFISecureBoot"
+	defaultBmHostBootMode   = bootModeUEFISecureBoot
 	defaultBmHostAnnotation = "annotation.openshift.io/test-annotation"
 	testSchemes             = []clients.SchemeAttacher{
 		bmhv1alpha1.AddToScheme,
@@ -128,7 +128,7 @@ func TestBareMetalHostPullNewBuilder(t *testing.T) {
 			bmcAddress:    "1.1.1.1",
 			bmcSecretName: "test-secret",
 			bmcMacAddress: "AA:BB:CC:DD:11:22",
-			bootMode:      "UEFISecureBoot",
+			bootMode:      bootModeUEFISecureBoot,
 			label:         map[string]string{"test": "test"},
 			expectedError: "",
 		},
@@ -138,7 +138,7 @@ func TestBareMetalHostPullNewBuilder(t *testing.T) {
 			bmcAddress:    "1.1.1.1",
 			bmcSecretName: "test-secret",
 			bmcMacAddress: "AA:BB:CC:DD:11:22",
-			bootMode:      "UEFISecureBoot",
+			bootMode:      bootModeUEFISecureBoot,
 			label:         map[string]string{"test": "test"},
 			expectedError: "BMH 'name' cannot be empty",
 		},
@@ -148,7 +148,7 @@ func TestBareMetalHostPullNewBuilder(t *testing.T) {
 			bmcAddress:    "1.1.1.1",
 			bmcSecretName: "test-secret",
 			bmcMacAddress: "AA:BB:CC:DD:11:22",
-			bootMode:      "UEFISecureBoot",
+			bootMode:      bootModeUEFISecureBoot,
 			label:         map[string]string{"test": "test"},
 			expectedError: "BMH 'nsname' cannot be empty",
 		},
@@ -158,7 +158,7 @@ func TestBareMetalHostPullNewBuilder(t *testing.T) {
 			bmcAddress:    "",
 			bmcSecretName: "test-secret",
 			bmcMacAddress: "AA:BB:CC:DD:11:22",
-			bootMode:      "UEFISecureBoot",
+			bootMode:      bootModeUEFISecureBoot,
 			label:         map[string]string{"test": "test"},
 			expectedError: "BMH 'bmcAddress' cannot be empty",
 		},
@@ -168,7 +168,7 @@ func TestBareMetalHostPullNewBuilder(t *testing.T) {
 			bmcAddress:    "1.1.1.1",
 			bmcSecretName: "",
 			bmcMacAddress: "AA:BB:CC:DD:11:22",
-			bootMode:      "UEFISecureBoot",
+			bootMode:      bootModeUEFISecureBoot,
 			expectedError: "BMH 'bmcSecretName' cannot be empty",
 		},
 		{
@@ -177,7 +177,7 @@ func TestBareMetalHostPullNewBuilder(t *testing.T) {
 			bmcAddress:    "1.1.1.1",
 			bmcSecretName: "test-secret",
 			bmcMacAddress: "",
-			bootMode:      "UEFISecureBoot",
+			bootMode:      bootModeUEFISecureBoot,
 			expectedError: "BMH 'bootMacAddress' cannot be empty",
 		},
 		{
@@ -187,7 +187,7 @@ func TestBareMetalHostPullNewBuilder(t *testing.T) {
 			bmcSecretName: "test-secret",
 			bmcMacAddress: "AA:BB:CC:DD:11:22",
 			bootMode:      "",
-			expectedError: "not acceptable 'bootMode' value",
+			expectedError: errInvalidBootMode,
 		},
 		{
 			name:          "metallbio",
@@ -195,7 +195,7 @@ func TestBareMetalHostPullNewBuilder(t *testing.T) {
 			bmcAddress:    "1.1.1.1",
 			bmcSecretName: "test-secret",
 			bmcMacAddress: "AA:BB:CC:DD:11:22",
-			bootMode:      "UEFISecureBoot",
+			bootMode:      bootModeUEFISecureBoot,
 			expectedError: "",
 		},
 	}
@@ -260,7 +260,7 @@ func TestBareMetalHostGet(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 
@@ -291,7 +291,7 @@ func TestBareMetalHostCreate(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 
@@ -322,7 +322,7 @@ func TestBareMetalHostDelete(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 
@@ -355,7 +355,7 @@ func TestBareMetalHostWithRootDeviceDeviceName(t *testing.T) {
 		{
 			testBmHost:       buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
 			deviceDeviceName: "123",
-			expectedError:    "not acceptable 'bootMode' value",
+			expectedError:    errInvalidBootMode,
 		},
 	}
 
@@ -388,7 +388,7 @@ func TestBareMetalHostWithRootDeviceHTCL(t *testing.T) {
 		{
 			testBmHost:     buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
 			rootDeviceHTCL: "123",
-			expectedError:  "not acceptable 'bootMode' value",
+			expectedError:  errInvalidBootMode,
 		},
 	}
 
@@ -421,7 +421,7 @@ func TestBareMetalHostWithRootDeviceModel(t *testing.T) {
 		{
 			testBmHost:      buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
 			rootDeviceModel: "123",
-			expectedError:   "not acceptable 'bootMode' value",
+			expectedError:   errInvalidBootMode,
 		},
 	}
 
@@ -454,7 +454,7 @@ func TestBareMetalHostWithRootDeviceVendor(t *testing.T) {
 		{
 			testBmHost:       buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
 			rootDeviceVendor: "123",
-			expectedError:    "not acceptable 'bootMode' value",
+			expectedError:    errInvalidBootMode,
 		},
 	}
 
@@ -487,7 +487,7 @@ func TestBareMetalHostWithRootDeviceSerialNumber(t *testing.T) {
 		{
 			testBmHost:             buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
 			rootDeviceSerialNumber: "123",
-			expectedError:          "not acceptable 'bootMode' value",
+			expectedError:          errInvalidBootMode,
 		},
 	}
 
@@ -521,7 +521,7 @@ func TestBareMetalHostWithRootDeviceMinSizeGigabytes(t *testing.T) {
 		{
 			testBmHost:                 buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
 			rootDeviceMinSizeGigabytes: 123,
-			expectedError:              "not acceptable 'bootMode' value",
+			expectedError:              errInvalidBootMode,
 		},
 	}
 
@@ -555,7 +555,7 @@ func TestBareMetalHostWithRootDeviceWWN(t *testing.T) {
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
 			rootDeviceWwn: "test",
-			expectedError: "not acceptable 'bootMode' value",
+			expectedError: errInvalidBootMode,
 		},
 	}
 
@@ -589,7 +589,7 @@ func TestBareMetalHostWithRootDeviceWWNWithExtension(t *testing.T) {
 		{
 			testBmHost:                 buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
 			rootDeviceWWNWithExtension: "test",
-			expectedError:              "not acceptable 'bootMode' value",
+			expectedError:              errInvalidBootMode,
 		},
 	}
 
@@ -623,7 +623,7 @@ func TestBareMetalHostWithRootDeviceWWNVendorExtension(t *testing.T) {
 		{
 			testBmHost:                   buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
 			rootDeviceWWNVendorExtension: "test",
-			expectedError:                "not acceptable 'bootMode' value",
+			expectedError:                errInvalidBootMode,
 		},
 	}
 
@@ -656,7 +656,7 @@ func TestBareMetalHostWithRootDeviceRotationalDisk(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: "not acceptable 'bootMode' value",
+			expectedError: errInvalidBootMode,
 			rotational:    false,
 		},
 	}
@@ -752,7 +752,7 @@ func TestBareMetalHostCreateAndWaitUntilProvisioned(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 
@@ -787,7 +787,7 @@ func TestBareMetalHostWaitUntilProvisioned(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 
@@ -820,7 +820,7 @@ func TestBareMetalHostWaitUntilProvisioning(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 
@@ -853,7 +853,7 @@ func TestBareMetalHostWaitUntilReady(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 
@@ -886,7 +886,7 @@ func TestBareMetalHostWaitUntilAvailable(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 
@@ -923,7 +923,7 @@ func TestBareMetalHostWaitUntilInStatus(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 
@@ -952,7 +952,7 @@ func TestBareMetalHostDeleteAndWaitUntilDeleted(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 
@@ -1002,7 +1002,7 @@ func TestBareMetalHostWaitUntilAnnotationExists(t *testing.T) {
 			exists:        true,
 			valid:         false,
 			annotated:     true,
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 		{
 			annotation:    defaultBmHostAnnotation,
@@ -1062,7 +1062,7 @@ func TestBareMetalHostWaitUntilDeleted(t *testing.T) {
 		},
 		{
 			testBmHost:    buildInValidBmHostBuilder(buildBareMetalHostTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("not acceptable 'bootMode' value"),
+			expectedError: fmt.Errorf(errInvalidBootMode),
 		},
 	}
 

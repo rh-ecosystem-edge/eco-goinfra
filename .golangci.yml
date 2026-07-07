@@ -20,7 +20,7 @@ linters:
     - godot
     - godox
     - goheader
-    - gomodguard
+    - gomodguard_v2
     - goprintffuncname
     - importas
     - ireturn
@@ -93,7 +93,6 @@ linters:
             - gopkg.in/yaml.v2
             - gopkg.in/yaml.v3
             - golang.org/x/crypto/ssh
-            - golang.org/x/exp/slices
             - gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types
             - golang.org/x/net/context
             - github.com/rh-ecosystem-edge/eco-goinfra
@@ -168,6 +167,10 @@ linters:
           - revive
         path: pkg/oran/api
         text: "var-naming: avoid meaningless package names"
+      - linters:
+          - goconst
+        path: '.*_test\.go$'
+        text: "make it a constant"
     paths:
       - pkg/schemes
       - third_party$

@@ -13,6 +13,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyNamespace = "backup namespace cannot be an empty string"
+)
+
 // BackupBuilder provides a struct for backup object from the cluster and a backup definition.
 type BackupBuilder struct {
 	// Backup definition, used to create the backup object.
@@ -65,7 +69,7 @@ func NewBackupBuilder(apiClient *clients.Settings, name, nsname string) *BackupB
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the backup is empty")
 
-		builder.errorMsg = "backup namespace cannot be an empty string"
+		builder.errorMsg = errEmptyNamespace
 
 		return builder
 	}

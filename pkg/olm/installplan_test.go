@@ -19,7 +19,7 @@ func TestNewInstallPlanBuilder(t *testing.T) {
 		client        bool
 	}{
 		{
-			name:          "installplan",
+			name:          resourceInstallPlan,
 			namespace:     "test-namespace",
 			client:        true,
 			expectedError: "",
@@ -31,13 +31,13 @@ func TestNewInstallPlanBuilder(t *testing.T) {
 			expectedError: "installplan 'name' cannot be empty",
 		},
 		{
-			name:          "installplan",
+			name:          resourceInstallPlan,
 			namespace:     "",
 			client:        true,
-			expectedError: "installplan 'nsname' cannot be empty",
+			expectedError: errEmptyInstallPlanNsname,
 		},
 		{
-			name:          "installplan",
+			name:          resourceInstallPlan,
 			namespace:     "test-namespace",
 			client:        false,
 			expectedError: "",
@@ -88,7 +88,7 @@ func TestPullInstallPlan(t *testing.T) {
 		client              bool
 	}{
 		{
-			name:                "installplan",
+			name:                resourceInstallPlan,
 			namespace:           "test-namespace",
 			addToRuntimeObjects: true,
 			expectedError:       nil,
@@ -102,14 +102,14 @@ func TestPullInstallPlan(t *testing.T) {
 			client:              true,
 		},
 		{
-			name:                "installplan",
+			name:                resourceInstallPlan,
 			namespace:           "",
 			addToRuntimeObjects: true,
 			expectedError:       fmt.Errorf("installPlan 'nsName' cannot be empty"),
 			client:              true,
 		},
 		{
-			name:                "installplan",
+			name:                resourceInstallPlan,
 			namespace:           "test-namespace",
 			addToRuntimeObjects: false,
 			expectedError: fmt.Errorf(
@@ -117,7 +117,7 @@ func TestPullInstallPlan(t *testing.T) {
 			client: true,
 		},
 		{
-			name:                "installplan",
+			name:                resourceInstallPlan,
 			namespace:           "test-namespace",
 			addToRuntimeObjects: true,
 			expectedError:       fmt.Errorf("installPlan 'apiClient' cannot be empty"),
@@ -163,7 +163,7 @@ func TestInstallPlanGet(t *testing.T) {
 		},
 		{
 			installPlan:   buildInValidInstallPlanBuilder(buildInstallPlanTestClientWithDummyObject()),
-			expectedError: "installplan 'nsname' cannot be empty",
+			expectedError: errEmptyInstallPlanNsname,
 		},
 		{
 			installPlan: buildValidInstallPlanBuilder(
@@ -221,7 +221,7 @@ func TestInstallPlanCreate(t *testing.T) {
 		},
 		{
 			installPlan:   buildInValidInstallPlanBuilder(buildInstallPlanTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("installplan 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyInstallPlanNsname),
 		},
 		{
 			installPlan: buildValidInstallPlanBuilder(
@@ -251,7 +251,7 @@ func TestInstallPlanDelete(t *testing.T) {
 		},
 		{
 			installPlan:   buildInValidInstallPlanBuilder(buildInstallPlanTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("installplan 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyInstallPlanNsname),
 		},
 		{
 			installPlan: buildValidInstallPlanBuilder(
@@ -283,7 +283,7 @@ func TestInstallPlanUpdate(t *testing.T) {
 		},
 		{
 			installPlan:            buildInValidInstallPlanBuilder(buildInstallPlanTestClientWithDummyObject()),
-			expectedError:          fmt.Errorf("installplan 'nsname' cannot be empty"),
+			expectedError:          fmt.Errorf(errEmptyInstallPlanNsname),
 			catalogSourceNamespace: "",
 		},
 		{
@@ -310,11 +310,11 @@ func TestInstallPlanUpdate(t *testing.T) {
 }
 
 func buildInValidInstallPlanBuilder(apiClient *clients.Settings) *InstallPlanBuilder {
-	return NewInstallPlanBuilder(apiClient, "installplan", "")
+	return NewInstallPlanBuilder(apiClient, resourceInstallPlan, "")
 }
 
 func buildValidInstallPlanBuilder(apiClient *clients.Settings) *InstallPlanBuilder {
-	return NewInstallPlanBuilder(apiClient, "installplan", "test-namespace")
+	return NewInstallPlanBuilder(apiClient, resourceInstallPlan, "test-namespace")
 }
 
 func buildInstallPlanTestClientWithDummyObject() *clients.Settings {
@@ -327,7 +327,7 @@ func buildInstallPlanTestClientWithDummyObject() *clients.Settings {
 func buildDummyInstallPlan() []runtime.Object {
 	return append([]runtime.Object{}, &oplmV1alpha1.InstallPlan{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "installplan",
+			Name:      resourceInstallPlan,
 			Namespace: "test-namespace",
 		},
 		Spec: oplmV1alpha1.InstallPlanSpec{

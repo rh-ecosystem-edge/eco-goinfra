@@ -15,6 +15,12 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyName                  = "Service 'name' cannot be empty"
+	errEmptyAnnotation            = "annotation can not be empty map"
+	failedToSetEmptyIpstackpolicy = "failed to set empty ipStackPolicy"
+)
+
 // Builder provides struct for service object containing connection to the cluster and the service definitions.
 type Builder struct {
 	// Service definition. Used to create a service object
@@ -59,7 +65,7 @@ func NewBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the service is empty")
 
-		builder.errorMsg = "Service 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return &builder
 	}
@@ -336,7 +342,7 @@ func (builder *Builder) WithAnnotation(annotation map[string]string) *Builder {
 				"Service Annotation can not be empty",
 			builder.Definition.Name, builder.Definition.Namespace)
 
-		builder.errorMsg = "annotation can not be empty map"
+		builder.errorMsg = errEmptyAnnotation
 
 		return builder
 	}
@@ -379,7 +385,7 @@ func (builder *Builder) WithIPFamily(ipFamily []corev1.IPFamily, ipStackPolicy c
 		klog.V(100).Infof("Failed to set empty ipStackPolicy on service %s in namespace %s",
 			builder.Definition.Name, builder.Definition.Namespace)
 
-		builder.errorMsg = "failed to set empty ipStackPolicy"
+		builder.errorMsg = failedToSetEmptyIpstackpolicy
 
 		return builder
 	}

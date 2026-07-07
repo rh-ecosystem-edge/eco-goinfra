@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	ipConfigName = "ipconfig"
+	ipConfigName                 = "ipconfig"
+	conditionTypeConfigCompleted = "ConfigCompleted"
 )
 
 // IPConfigBuilder provides struct for the ipconfig object containing connection to
@@ -213,8 +214,8 @@ func (builder *IPConfigBuilder) WaitUntilComplete(timeout time.Duration) (*IPCon
 			}
 
 			for _, condition := range builder.Object.Status.Conditions {
-				if condition.Type == "ConfigCompleted" && condition.Status == isTrue &&
-					condition.Reason == "Completed" {
+				if condition.Type == conditionTypeConfigCompleted && condition.Status == isTrue &&
+					condition.Reason == isComplete {
 					return true, nil
 				}
 			}
@@ -254,7 +255,7 @@ func (builder *IPConfigBuilder) WaitUntilFailed(timeout time.Duration) (*IPConfi
 			}
 
 			for _, condition := range builder.Object.Status.Conditions {
-				if condition.Type == "ConfigCompleted" && condition.Status == isFalse &&
+				if condition.Type == conditionTypeConfigCompleted && condition.Status == isFalse &&
 					condition.Reason == "Failed" {
 					return true, nil
 				}
@@ -295,8 +296,8 @@ func (builder *IPConfigBuilder) WaitUntilIdle(timeout time.Duration) (*IPConfigB
 			}
 
 			for _, condition := range builder.Object.Status.Conditions {
-				if condition.Type == "Idle" && condition.Status == isTrue &&
-					condition.Reason == "Idle" {
+				if condition.Type == idle && condition.Status == isTrue &&
+					condition.Reason == idle {
 					return true, nil
 				}
 			}

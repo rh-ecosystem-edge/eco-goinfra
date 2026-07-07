@@ -16,6 +16,10 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyNsname = "ptpConfig 'nsname' cannot be empty"
+)
+
 // PtpConfigBuilder provides a struct for the PtpConfig resource containing a connection to the cluster and the
 // PtpConfig definition.
 type PtpConfigBuilder struct {
@@ -65,7 +69,7 @@ func NewPtpConfigBuilder(apiClient *clients.Settings, name, nsname string) *PtpC
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the PtpConfig is empty")
 
-		builder.errorMsg = "ptpConfig 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyNsname
 
 		return builder
 	}
@@ -292,7 +296,7 @@ func PullPtpConfig(apiClient *clients.Settings, name, nsname string) (*PtpConfig
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the PtpConfig is empty")
 
-		return nil, fmt.Errorf("ptpConfig 'nsname' cannot be empty")
+		return nil, fmt.Errorf(errEmptyNsname)
 	}
 
 	if !builder.Exists() {

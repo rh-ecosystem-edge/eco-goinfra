@@ -18,6 +18,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyMemberRollName = "serviceMeshMemberRoll 'name' cannot be empty"
+)
+
 // MemberRollBuilder provides a struct for serviceMeshMemberRoll object from the cluster and
 // a serviceMeshMemberRoll definition.
 type MemberRollBuilder struct {
@@ -63,7 +67,7 @@ func NewMemberRollBuilder(apiClient *clients.Settings, name, nsname string) *Mem
 	if name == "" {
 		klog.V(100).Info("The name of the serviceMeshMemberRoll is empty")
 
-		builder.errorMsg = "serviceMeshMemberRoll 'name' cannot be empty"
+		builder.errorMsg = errEmptyMemberRollName
 
 		return builder
 	}
@@ -110,7 +114,7 @@ func PullMemberRoll(apiClient *clients.Settings, name, nsname string) (*MemberRo
 	if name == "" {
 		klog.V(100).Info("The name of the serviceMeshMemberRoll is empty")
 
-		return nil, fmt.Errorf("serviceMeshMemberRoll 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyMemberRollName)
 	}
 
 	if nsname == "" {

@@ -13,6 +13,10 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyMachineConfigName = "machineconfig 'name' cannot be empty"
+)
+
 // MCBuilder provides struct for MachineConfig Object which contains connection to cluster
 // and MachineConfig definitions.
 type MCBuilder struct {
@@ -59,7 +63,7 @@ func NewMCBuilder(apiClient *clients.Settings, name string) *MCBuilder {
 	if name == "" {
 		klog.V(100).Info("The name of the MachineConfig is empty")
 
-		builder.errorMsg = "machineconfig 'name' cannot be empty"
+		builder.errorMsg = errEmptyMachineConfigName
 
 		return builder
 	}
@@ -96,7 +100,7 @@ func PullMachineConfig(apiClient *clients.Settings, name string) (*MCBuilder, er
 	if name == "" {
 		klog.V(100).Info("The name of the machineconfig is empty")
 
-		return nil, fmt.Errorf("machineconfig 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyMachineConfigName)
 	}
 
 	if !builder.Exists() {
@@ -215,7 +219,7 @@ func (builder *MCBuilder) WithLabel(key, value string) *MCBuilder {
 	if key == "" {
 		klog.V(100).Info("The key cannot be empty")
 
-		builder.errorMsg = "'key' cannot be empty"
+		builder.errorMsg = errEmptyKey
 
 		return builder
 	}

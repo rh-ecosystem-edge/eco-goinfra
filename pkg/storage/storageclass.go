@@ -16,6 +16,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyStorageClassName = "storageclass 'name' cannot be empty"
+	errEmptyProvisioner      = "storageclass 'provisioner' cannot be empty"
+)
+
 // ClassBuilder provides struct for storageclass object containing
 // connection to the cluster and the storageclass definitions.
 type ClassBuilder struct {
@@ -57,7 +62,7 @@ func NewClassBuilder(apiClient *clients.Settings, name, provisioner string) *Cla
 	if name == "" {
 		klog.V(100).Info("The name of the storageclass is empty")
 
-		builder.errorMsg = "storageclass 'name' cannot be empty"
+		builder.errorMsg = errEmptyStorageClassName
 
 		return builder
 	}
@@ -65,7 +70,7 @@ func NewClassBuilder(apiClient *clients.Settings, name, provisioner string) *Cla
 	if provisioner == "" {
 		klog.V(100).Info("The provisioner of the storageclass is empty")
 
-		builder.errorMsg = "storageclass 'provisioner' cannot be empty"
+		builder.errorMsg = errEmptyProvisioner
 
 		return builder
 	}
@@ -190,7 +195,7 @@ func PullClass(apiClient *clients.Settings, name string) (*ClassBuilder, error) 
 	if name == "" {
 		klog.V(100).Info("The name of the storageclass is empty")
 
-		return nil, fmt.Errorf("storageclass 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyStorageClassName)
 	}
 
 	if !builder.Exists() {

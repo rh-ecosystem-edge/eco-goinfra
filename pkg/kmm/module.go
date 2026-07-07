@@ -14,6 +14,12 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyModuleNamespace       = "module 'namespace' cannot be empty"
+	errNilContainer               = "invalid 'container' argument can not be nil"
+	canNotRedefineModuleWithEmpty = "can not redefine module with empty ServiceAccount"
+)
+
 // ModuleBuilder provides struct for the module object containing connection to
 // the cluster and the module definitions.
 type ModuleBuilder struct {
@@ -70,7 +76,7 @@ func NewModuleBuilder(
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the module is empty")
 
-		builder.errorMsg = "module 'namespace' cannot be empty"
+		builder.errorMsg = errEmptyModuleNamespace
 
 		return builder
 	}
@@ -249,7 +255,7 @@ func (builder *ModuleBuilder) WithModuleLoaderContainer(
 	}
 
 	if container == nil {
-		builder.errorMsg = "invalid 'container' argument can not be nil"
+		builder.errorMsg = errNilContainer
 
 		return builder
 	}
@@ -271,7 +277,7 @@ func (builder *ModuleBuilder) WithDevicePluginContainer(
 	}
 
 	if container == nil {
-		builder.errorMsg = "invalid 'container' argument can not be nil"
+		builder.errorMsg = errNilContainer
 
 		return builder
 	}
@@ -374,7 +380,7 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*ModuleBuilder, err
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the module is empty")
 
-		return nil, fmt.Errorf("module 'namespace' cannot be empty")
+		return nil, fmt.Errorf(errEmptyModuleNamespace)
 	}
 
 	if !builder.Exists() {
@@ -496,7 +502,7 @@ func (builder *ModuleBuilder) withServiceAccount(srvAccountName string, accountT
 	}
 
 	if srvAccountName == "" {
-		builder.errorMsg = "can not redefine module with empty ServiceAccount"
+		builder.errorMsg = canNotRedefineModuleWithEmpty
 
 		return builder
 	}

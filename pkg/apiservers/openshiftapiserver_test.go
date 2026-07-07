@@ -128,8 +128,8 @@ func TestOpenshiftAPIServerGetCondition(t *testing.T) {
 		expectedError                 error
 	}{
 		{
-			condition:                     "APIServerDeploymentProgressing",
-			conditionStatus:               "True",
+			condition:                     conditionTypeAPIServerDeploymentProgressing,
+			conditionStatus:               operatorv1.ConditionTrue,
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(buildOpenshiftAPIServerBuilderWithDummyObject()),
 			expectedError:                 nil,
 		},
@@ -146,8 +146,8 @@ func TestOpenshiftAPIServerGetCondition(t *testing.T) {
 			expectedError:                 fmt.Errorf("openshiftAPIServer 'conditionType' cannot be empty"),
 		},
 		{
-			condition:       "APIServerDeploymentProgressing",
-			conditionStatus: "True",
+			condition:       conditionTypeAPIServerDeploymentProgressing,
+			conditionStatus: operatorv1.ConditionTrue,
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
 				clients.GetTestClients(clients.TestClientParams{})),
 			expectedError: fmt.Errorf("cluster openshiftAPIServer not found"),
@@ -174,7 +174,7 @@ func TestOpenshiftAPIServerWaitUntilConditionTrue(t *testing.T) {
 		expectedError                 error
 	}{
 		{
-			condition: "APIServerDeploymentProgressing",
+			condition: conditionTypeAPIServerDeploymentProgressing,
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
 				buildOpenshiftAPIServerBuilderWithDummyObject()),
 			expectedError: nil,
@@ -192,7 +192,7 @@ func TestOpenshiftAPIServerWaitUntilConditionTrue(t *testing.T) {
 			expectedError: fmt.Errorf("openshiftAPIServer 'conditionType' cannot be empty"),
 		},
 		{
-			condition: "APIServerDeploymentProgressing",
+			condition: conditionTypeAPIServerDeploymentProgressing,
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
 				clients.GetTestClients(clients.TestClientParams{})),
 			expectedError: fmt.Errorf("cluster openshiftAPIServer not found"),
@@ -215,8 +215,8 @@ func TestOpenshiftAPIServerWaitAllPodsAtTheLatestGeneration(t *testing.T) {
 		expectedError                 error
 	}{
 		{
-			condition:                     "APIServerDeploymentProgressing",
-			conditionStatus:               "True",
+			condition:                     conditionTypeAPIServerDeploymentProgressing,
+			conditionStatus:               operatorv1.ConditionTrue,
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(buildOpenshiftAPIServerBuilderWithDummyObject()),
 			expectedError:                 nil,
 		},
@@ -234,8 +234,8 @@ func TestOpenshiftAPIServerWaitAllPodsAtTheLatestGeneration(t *testing.T) {
 			expectedError: fmt.Errorf("openshiftAPIServer 'conditionType' cannot be empty"),
 		},
 		{
-			condition:       "NodeInstallerProgressing",
-			conditionStatus: "True",
+			condition:       conditionTypeNodeInstallerProgressing,
+			conditionStatus: operatorv1.ConditionTrue,
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
 				clients.GetTestClients(clients.TestClientParams{})),
 			expectedError: fmt.Errorf("cluster openshiftAPIServer not found"),
@@ -261,7 +261,7 @@ func buildValidOpenshiftAPIServerBuilder(apiClient *clients.Settings) *Openshift
 			Status: operatorv1.OpenShiftAPIServerStatus{
 				OperatorStatus: operatorv1.OperatorStatus{
 					Conditions: []operatorv1.OperatorCondition{
-						{Type: "APIServerDeploymentProgressing", Status: "True", Reason: "AsExpected"}},
+						{Type: conditionTypeAPIServerDeploymentProgressing, Status: operatorv1.ConditionTrue, Reason: conditionReasonAsExpected}},
 				},
 			},
 		},
@@ -282,7 +282,7 @@ func buildDummyOpenshiftAPIServerBuilderObject() []runtime.Object {
 		Status: operatorv1.OpenShiftAPIServerStatus{
 			OperatorStatus: operatorv1.OperatorStatus{
 				Conditions: []operatorv1.OperatorCondition{
-					{Type: "APIServerDeploymentProgressing", Status: "True", Reason: "AsExpected"}},
+					{Type: conditionTypeAPIServerDeploymentProgressing, Status: operatorv1.ConditionTrue, Reason: conditionReasonAsExpected}},
 			},
 		},
 	})

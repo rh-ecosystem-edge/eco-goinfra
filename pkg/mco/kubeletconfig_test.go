@@ -35,7 +35,7 @@ func TestNewKubeletConfigBuilder(t *testing.T) {
 		{
 			name:              "",
 			client:            true,
-			expectedErrorText: "kubeletconfig 'name' cannot be empty",
+			expectedErrorText: errEmptyKubeletConfigName,
 		},
 		{
 			name:              defaultKubeletConfigName,
@@ -82,7 +82,7 @@ func TestPullKubeletConfig(t *testing.T) {
 			name:                "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("kubeletconfig 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyKubeletConfigName),
 		},
 		{
 			name:                defaultKubeletConfigName,
@@ -137,7 +137,7 @@ func TestKubeletConfigGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidKubeletConfigBuilder(buildTestClientWithDummyKubeletConfig()),
-			expectedError: "kubeletconfig 'name' cannot be empty",
+			expectedError: errEmptyKubeletConfigName,
 		},
 		{
 			testBuilder:   buildValidKubeletConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -168,7 +168,7 @@ func TestKubeletConfigCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidKubeletConfigBuilder(buildTestClientWithDummyKubeletConfig()),
-			expectedError: fmt.Errorf("kubeletconfig 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyKubeletConfigName),
 		},
 		{
 			testBuilder:   buildValidKubeletConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -197,7 +197,7 @@ func TestKubeletConfigDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidKubeletConfigBuilder(buildTestClientWithDummyKubeletConfig()),
-			expectedError: fmt.Errorf("kubeletconfig 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyKubeletConfigName),
 		},
 		{
 			testBuilder:   buildValidKubeletConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -254,12 +254,12 @@ func TestKubeletConfigWithMCPoolSelector(t *testing.T) {
 		{
 			testBuilder:   buildValidKubeletConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			key:           "",
-			expectedError: "'key' cannot be empty",
+			expectedError: errEmptyKey,
 		},
 		{
 			testBuilder:   buildInvalidKubeletConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			key:           defaultMCPoolSelectorKey,
-			expectedError: "kubeletconfig 'name' cannot be empty",
+			expectedError: errEmptyKubeletConfigName,
 		},
 	}
 
@@ -291,7 +291,7 @@ func TestKubeletConfigWithSystemReserved(t *testing.T) {
 			testBuilder:   buildInvalidKubeletConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			cpu:           defaultSystemReservedCPU,
 			memory:        defaultSystemReservedMemory,
-			expectedError: "kubeletconfig 'name' cannot be empty",
+			expectedError: errEmptyKubeletConfigName,
 		},
 		{
 			testBuilder:   buildValidKubeletConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -341,7 +341,7 @@ func TestKubeletConfigWithOptions(t *testing.T) {
 			options: func(builder *KubeletConfigBuilder) (*KubeletConfigBuilder, error) {
 				return builder, nil
 			},
-			expectedError: "kubeletconfig 'name' cannot be empty",
+			expectedError: errEmptyKubeletConfigName,
 		},
 		{
 			testBuilder: buildValidKubeletConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),

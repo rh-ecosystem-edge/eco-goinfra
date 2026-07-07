@@ -12,6 +12,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
+const (
+	testNameInvalidBuilder = "invalid builder returns error"
+)
+
 // Creator is an interface for builders that have a Create method.
 type Creator[O, B any, SO common.ObjectPointer[O], SB common.BuilderPointer[B, O, SO]] interface {
 	common.BuilderPointer[B, O, SO]
@@ -93,7 +97,7 @@ func (config CreateTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 			expectObjectSet: true,
 		},
 		{
-			name:            "invalid builder returns error",
+			name:            testNameInvalidBuilder,
 			objectExists:    false,
 			builderError:    errInvalidBuilder,
 			assertError:     isInvalidBuilder,

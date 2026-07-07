@@ -2,6 +2,7 @@ package bmh
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -15,9 +16,13 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	"golang.org/x/exp/slices"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	bootModeUEFISecureBoot = "UEFISecureBoot"
+	errInvalidBootMode     = "not acceptable 'bootMode' value"
 )
 
 // BmhBuilder provides struct for the bmh object containing connection to
@@ -102,9 +107,9 @@ func NewBuilder(
 		return builder
 	}
 
-	bootModeAcceptable := []string{"UEFI", "UEFISecureBoot", "legacy"}
+	bootModeAcceptable := []string{"UEFI", bootModeUEFISecureBoot, "legacy"}
 	if !slices.Contains(bootModeAcceptable, bootMode) {
-		builder.errorMsg = "not acceptable 'bootMode' value"
+		builder.errorMsg = errInvalidBootMode
 
 		return builder
 	}

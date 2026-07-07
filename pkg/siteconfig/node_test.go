@@ -114,11 +114,11 @@ func TestClusterInstanceNodeWithAutomatedCleaningMode(t *testing.T) {
 		},
 		{
 			cleaningMode:      "off",
-			expectedErrorText: "siteconfig node automatedCleaningMode must be one of: disabled, metadata",
+			expectedErrorText: siteconfigNodeAutomatedcleaningmodeMustBeOne,
 		},
 		{
 			cleaningMode:      "",
-			expectedErrorText: "siteconfig node automatedCleaningMode must be one of: disabled, metadata",
+			expectedErrorText: siteconfigNodeAutomatedcleaningmodeMustBeOne,
 		},
 	}
 

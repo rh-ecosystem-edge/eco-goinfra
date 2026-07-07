@@ -15,6 +15,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	errEmptyNamespace = "operatorGroup 'Namespace' cannot be empty"
+)
+
 // OperatorGroupBuilder provides a struct for OperatorGroup object containing connection to the
 // cluster and the OperatorGroup definition.
 type OperatorGroupBuilder struct {
@@ -71,7 +75,7 @@ func NewOperatorGroupBuilder(apiClient *clients.Settings, groupName, nsName stri
 	if nsName == "" {
 		klog.V(100).Info("The Namespace of the OperatorGroup is empty")
 
-		builder.errorMsg = "operatorGroup 'Namespace' cannot be empty"
+		builder.errorMsg = errEmptyNamespace
 
 		return builder
 	}
@@ -230,7 +234,7 @@ func PullOperatorGroup(apiClient *clients.Settings, groupName, nsName string) (*
 	if nsName == "" {
 		klog.V(100).Info("The namespace of the OperatorGroup is empty")
 
-		return nil, fmt.Errorf("operatorGroup 'Namespace' cannot be empty")
+		return nil, fmt.Errorf(errEmptyNamespace)
 	}
 
 	if !builder.Exists() {

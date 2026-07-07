@@ -13,6 +13,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyStorageClusterName = "storageCluster 'name' cannot be empty"
+)
+
 // StorageClusterBuilder provides struct for StorageCluster object containing connection
 // to the cluster and the storageCluster definitions.
 type StorageClusterBuilder struct {
@@ -58,7 +62,7 @@ func NewStorageClusterBuilder(apiClient *clients.Settings, name, nsname string) 
 	if name == "" {
 		klog.V(100).Info("The name of the storageCluster is empty")
 
-		builder.errorMsg = "storageCluster 'name' cannot be empty"
+		builder.errorMsg = errEmptyStorageClusterName
 
 		return builder
 	}
@@ -105,7 +109,7 @@ func PullStorageCluster(apiClient *clients.Settings, name, namespace string) (*S
 	if name == "" {
 		klog.V(100).Info("The name of the storageCluster is empty")
 
-		return nil, fmt.Errorf("storageCluster 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyStorageClusterName)
 	}
 
 	if namespace == "" {

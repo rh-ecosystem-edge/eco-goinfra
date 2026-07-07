@@ -13,6 +13,14 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	appsOpenClusterManagementIo   = "apps.open-cluster-management.io"
+	kindPlacementRule             = "PlacementRule"
+	policyOpenClusterManagementIo = "policy.open-cluster-management.io"
+	kindPolicySet                 = "PolicySet"
+	errEmptySubjectName           = "placementBinding's 'Subject.Name' cannot be empty"
+)
+
 // PlacementBindingBuilder type definition.
 type PlacementBindingBuilder struct {
 	// placementBinding Definition, used to create the placementBinding object.
@@ -292,14 +300,14 @@ func (builder *PlacementBindingBuilder) WithAdditionalSubject(subject policiesv1
 // The errorMsg will be empty for valid Subjects.
 func validatePlacementRef(placementRef policiesv1.PlacementSubject) string {
 	apiGroup := placementRef.APIGroup
-	if apiGroup != "apps.open-cluster-management.io" && apiGroup != "cluster.open-cluster-management.io" {
+	if apiGroup != appsOpenClusterManagementIo && apiGroup != "cluster.open-cluster-management.io" {
 		klog.V(100).Info("The APIGroup of the PlacementRef of the PlacementBinding is invalid")
 
 		return "placementBinding's 'PlacementRef.APIGroup' must be a valid option"
 	}
 
 	kind := placementRef.Kind
-	if kind != "PlacementRule" && kind != "Placement" {
+	if kind != kindPlacementRule && kind != "Placement" {
 		klog.V(100).Info("The Kind of the PlacementRef of the PlacementBinding is invalid")
 
 		return "placementBinding's 'PlacementRef.Kind' must be a valid option"
@@ -317,13 +325,13 @@ func validatePlacementRef(placementRef policiesv1.PlacementSubject) string {
 // validateSubject validates the fields of the Subject and returns an errorMsg based on the validation. The errorMsg
 // will be empty for valid Subjects.
 func validateSubject(subject policiesv1.Subject) string {
-	if subject.APIGroup != "policy.open-cluster-management.io" {
+	if subject.APIGroup != policyOpenClusterManagementIo {
 		klog.V(100).Info("The APIGroup of the PlacementBinding subject is invalid")
 
 		return "placementBinding's 'Subject.APIGroup' must be 'policy.open-cluster-management.io'"
 	}
 
-	if subject.Kind != "Policy" && subject.Kind != "PolicySet" {
+	if subject.Kind != "Policy" && subject.Kind != kindPolicySet {
 		klog.V(100).Info("The Kind of the subject of the PlacementBinding is invalid")
 
 		return "placementBinding's 'Subject.Kind' must be a valid option"
@@ -332,7 +340,7 @@ func validateSubject(subject policiesv1.Subject) string {
 	if subject.Name == "" {
 		klog.V(100).Info("The Name of the subject of the PlacementBinding is empty")
 
-		return "placementBinding's 'Subject.Name' cannot be empty"
+		return errEmptySubjectName
 	}
 
 	return ""

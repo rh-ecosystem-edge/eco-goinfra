@@ -37,7 +37,7 @@ func TestIngressWithProtocol(t *testing.T) {
 		{protocol: corev1.ProtocolTCP, expectedError: ""},
 		{protocol: corev1.ProtocolUDP, expectedError: ""},
 		{protocol: corev1.ProtocolSCTP, expectedError: ""},
-		{protocol: "dummy", expectedError: "invalid protocol argument. Allowed protocols: TCP, UDP & SCTP"},
+		{protocol: "dummy", expectedError: errInvalidProtocol},
 	}
 	for _, testCase := range testCases {
 		builder := NewIngressRuleBuilder().WithProtocol(testCase.protocol)
@@ -60,7 +60,7 @@ func TestIngressWithPort(t *testing.T) {
 		},
 		{
 			port:          0,
-			expectedError: "port number cannot be 0",
+			expectedError: portNumberCannotBe0,
 		},
 	}
 	for _, testCase := range testCases {

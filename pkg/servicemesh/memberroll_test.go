@@ -67,7 +67,7 @@ func TestPullMemberRoll(t *testing.T) {
 			name:                "",
 			namespace:           "istio-system",
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("serviceMeshMemberRoll 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyMemberRollName),
 			client:              true,
 		},
 		{
@@ -138,7 +138,7 @@ func TestNewMemberRollBuilder(t *testing.T) {
 		{
 			name:          "",
 			namespace:     defaultServiceMeshNamespace,
-			expectedError: "serviceMeshMemberRoll 'name' cannot be empty",
+			expectedError: errEmptyMemberRollName,
 		},
 		{
 			name:          defaultMemberRollName,
@@ -196,7 +196,7 @@ func TestMemberRollGet(t *testing.T) {
 		},
 		{
 			testMemberRoll: buildInValidMemberRollBuilder(buildMemberRollClientWithDummyObject()),
-			expectedError:  fmt.Errorf("serviceMeshMemberRoll 'name' cannot be empty"),
+			expectedError:  fmt.Errorf(errEmptyMemberRollName),
 		},
 		{
 			testMemberRoll: buildValidMemberRollBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -226,7 +226,7 @@ func TestMemberRollCreate(t *testing.T) {
 		},
 		{
 			testMemberRoll: buildInValidMemberRollBuilder(buildMemberRollClientWithDummyObject()),
-			expectedError:  "serviceMeshMemberRoll 'name' cannot be empty",
+			expectedError:  errEmptyMemberRollName,
 		},
 		{
 			testMemberRoll: buildValidMemberRollBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -256,7 +256,7 @@ func TestMemberRollDelete(t *testing.T) {
 		},
 		{
 			testMemberRoll: buildInValidMemberRollBuilder(buildMemberRollClientWithDummyObject()),
-			expectedError:  fmt.Errorf("serviceMeshMemberRoll 'name' cannot be empty"),
+			expectedError:  fmt.Errorf(errEmptyMemberRollName),
 		},
 		{
 			testMemberRoll: buildValidMemberRollBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -288,7 +288,7 @@ func TestMemberRollUpdate(t *testing.T) {
 		},
 		{
 			testMemberRoll: buildInValidMemberRollBuilder(buildMemberRollClientWithDummyObject()),
-			expectedError:  "serviceMeshMemberRoll 'name' cannot be empty",
+			expectedError:  errEmptyMemberRollName,
 			members:        newMembersList,
 		},
 	}

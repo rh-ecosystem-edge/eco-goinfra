@@ -14,6 +14,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyTriggerAuthName = "triggerAuthentication 'name' cannot be empty"
+)
+
 // TriggerAuthenticationBuilder provides a struct for TriggerAuthentication object from the cluster
 // and a TriggerAuthentication definition.
 type TriggerAuthenticationBuilder struct {
@@ -60,7 +64,7 @@ func NewTriggerAuthenticationBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the triggerAuthentication is empty")
 
-		builder.errorMsg = "triggerAuthentication 'name' cannot be empty"
+		builder.errorMsg = errEmptyTriggerAuthName
 
 		return builder
 	}
@@ -108,7 +112,7 @@ func PullTriggerAuthentication(apiClient *clients.Settings,
 	if name == "" {
 		klog.V(100).Info("The name of the triggerAuthentication is empty")
 
-		return nil, fmt.Errorf("triggerAuthentication 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyTriggerAuthName)
 	}
 
 	if nsname == "" {

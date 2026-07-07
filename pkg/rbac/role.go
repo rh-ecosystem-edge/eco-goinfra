@@ -12,6 +12,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyRoleName          = "role 'name' cannot be empty"
+	roleMustContainAtLeastOne = "role must contain at least one Verb"
+)
+
 // RoleBuilder provides a struct for role object containing connection to the cluster and the role definitions.
 type RoleBuilder struct {
 	// Role definition. Used to create a role object
@@ -53,7 +58,7 @@ func NewRoleBuilder(apiClient *clients.Settings, name, nsname string, rule rbacv
 	if name == "" {
 		klog.V(100).Info("The name of the role is empty")
 
-		builder.errorMsg = "role 'name' cannot be empty"
+		builder.errorMsg = errEmptyRoleName
 
 		return builder
 	}
@@ -92,7 +97,7 @@ func (builder *RoleBuilder) WithRules(rules []rbacv1.PolicyRule) *RoleBuilder {
 		if len(rule.Verbs) == 0 {
 			klog.V(100).Info("The role has no verbs")
 
-			builder.errorMsg = "role must contain at least one Verb"
+			builder.errorMsg = roleMustContainAtLeastOne
 
 			return builder
 		}
@@ -167,7 +172,7 @@ func PullRole(apiClient *clients.Settings, name, nsname string) (*RoleBuilder, e
 	if name == "" {
 		klog.V(100).Info("The name of the role is empty")
 
-		return nil, fmt.Errorf("role 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyRoleName)
 	}
 
 	if nsname == "" {

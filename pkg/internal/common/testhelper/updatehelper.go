@@ -126,7 +126,7 @@ func (config UpdateTestConfig[O, B, SO, SB]) executeNonForceTests(t *testing.T) 
 			assertError:  isErrorNil,
 		},
 		{
-			name:         "invalid builder returns error",
+			name:         testNameInvalidBuilder,
 			objectExists: true,
 			builderError: errInvalidBuilder,
 			assertError:  isInvalidBuilder,

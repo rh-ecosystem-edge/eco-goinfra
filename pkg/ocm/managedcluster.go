@@ -17,6 +17,10 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyManagedClusterName = "managedCluster 'name' cannot be empty"
+)
+
 // ManagedClusterBuilder provides a struct for the ManagedCluster object containing connection to the cluster and the
 // ManagedCluster definitions.
 type ManagedClusterBuilder struct {
@@ -59,7 +63,7 @@ func NewManagedClusterBuilder(apiClient *clients.Settings, name string) *Managed
 	if name == "" {
 		klog.V(100).Info("The name of the ManagedCluster is empty")
 
-		builder.errorMsg = "managedCluster 'name' cannot be empty"
+		builder.errorMsg = errEmptyManagedClusterName
 
 		return builder
 	}
@@ -133,7 +137,7 @@ func PullManagedCluster(apiClient *clients.Settings, name string) (*ManagedClust
 	if name == "" {
 		klog.V(100).Info("The name of the ManagedCluster is empty")
 
-		return nil, fmt.Errorf("managedCluster 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyManagedClusterName)
 	}
 
 	if !builder.Exists() {

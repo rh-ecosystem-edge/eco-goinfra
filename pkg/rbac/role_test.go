@@ -47,7 +47,7 @@ func TestNewRoleBuilder(t *testing.T) {
 			rule: rbacv1.PolicyRule{
 				Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
 			client:            true,
-			expectedErrorText: "role 'name' cannot be empty",
+			expectedErrorText: errEmptyRoleName,
 		},
 		{
 			name:   "test",
@@ -63,7 +63,7 @@ func TestNewRoleBuilder(t *testing.T) {
 			rule: rbacv1.PolicyRule{
 				Resources: []string{"pods"}, APIGroups: []string{"v1"}},
 			client:            true,
-			expectedErrorText: "role must contain at least one Verb",
+			expectedErrorText: roleMustContainAtLeastOne,
 		},
 	}
 	for _, testCase := range testCases {
@@ -118,7 +118,7 @@ func TestPullRole(t *testing.T) {
 			nsName:              "test",
 			expectedError:       true,
 			addToRuntimeObjects: true,
-			expectedErrorText:   "role 'name' cannot be empty",
+			expectedErrorText:   errEmptyRoleName,
 			client:              true,
 		},
 		{
@@ -192,7 +192,7 @@ func TestRoleCreate(t *testing.T) {
 		},
 		{
 			testRole:      buildInvalidRoleTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("role must contain at least one Verb"),
+			expectedError: fmt.Errorf(roleMustContainAtLeastOne),
 		},
 		{
 			testRole:      buildValidRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -246,7 +246,7 @@ func TestRoleDelete(t *testing.T) {
 		},
 		{
 			testRole:      buildInvalidRoleTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("role must contain at least one Verb"),
+			expectedError: fmt.Errorf(roleMustContainAtLeastOne),
 		},
 		{
 			testRole:      buildValidRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -279,7 +279,7 @@ func TestRoleUpdate(t *testing.T) {
 		},
 		{
 			testRole:      buildInvalidRoleTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("role must contain at least one Verb"),
+			expectedError: fmt.Errorf(roleMustContainAtLeastOne),
 		},
 		{
 			testRole:      buildValidRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -325,7 +325,7 @@ func TestRoleWithRules(t *testing.T) {
 			rule: []rbacv1.PolicyRule{{Resources: []string{"pods"},
 				APIGroups: []string{"v1"}}},
 			expectedError:     true,
-			expectedErrorText: "role must contain at least one Verb",
+			expectedErrorText: roleMustContainAtLeastOne,
 		},
 	}
 

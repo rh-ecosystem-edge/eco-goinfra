@@ -58,7 +58,7 @@ func TestNewPRBuilder(t *testing.T) {
 			templateName:    "",
 			templateVersion: defaultPRTemplateVersion,
 			client:          true,
-			expectedError:   "provisioningRequest 'templateName' cannot be empty",
+			expectedError:   errEmptyTemplateName,
 		},
 		{
 			name:            defaultPRName,
@@ -135,7 +135,7 @@ func TestPRGetTemplateParameters(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("provisioningRequest 'templateName' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyTemplateName),
 		},
 	}
 
@@ -160,7 +160,7 @@ func TestPRWithTemplateParameters(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "provisioningRequest 'templateName' cannot be empty",
+			expectedError: errEmptyTemplateName,
 		},
 	}
 
@@ -244,7 +244,7 @@ func TestPRGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: "provisioningRequest 'templateName' cannot be empty",
+			expectedError: errEmptyTemplateName,
 		},
 		{
 			testBuilder:   buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -304,7 +304,7 @@ func TestPRCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: fmt.Errorf("provisioningRequest 'templateName' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyTemplateName),
 		},
 	}
 
@@ -333,7 +333,7 @@ func TestPRUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: fmt.Errorf("provisioningRequest 'templateName' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyTemplateName),
 		},
 	}
 
@@ -367,7 +367,7 @@ func TestPRDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: fmt.Errorf("provisioningRequest 'templateName' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyTemplateName),
 		},
 	}
 
@@ -396,7 +396,7 @@ func TestPRDeleteAndWait(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: fmt.Errorf("provisioningRequest 'templateName' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyTemplateName),
 		},
 	}
 
@@ -439,7 +439,7 @@ func TestPRWaitForCondition(t *testing.T) {
 			conditionMet:  true,
 			exists:        true,
 			valid:         false,
-			expectedError: fmt.Errorf("provisioningRequest 'templateName' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyTemplateName),
 		},
 	}
 
@@ -504,7 +504,7 @@ func TestPRWaitUntilFulfilled(t *testing.T) {
 			fulfilled:     true,
 			exists:        true,
 			valid:         false,
-			expectedError: fmt.Errorf("provisioningRequest 'templateName' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyTemplateName),
 		},
 	}
 

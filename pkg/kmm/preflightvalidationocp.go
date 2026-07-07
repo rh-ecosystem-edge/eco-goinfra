@@ -13,6 +13,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyPreflightOCPNsname = "PreflightValidationOCP 'nsname' cannot be empty"
+)
+
 // PreflightValidationOCPBuilder provides struct for the preflightvalidationocp object
 // containing connection to the cluster and the preflightvalidationocp definitions.
 type PreflightValidationOCPBuilder struct {
@@ -70,7 +74,7 @@ func NewPreflightValidationOCPBuilder(
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the PreflightValidationOCP is empty")
 
-		builder.errorMsg = "PreflightValidationOCP 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyPreflightOCPNsname
 
 		return builder
 	}
@@ -85,7 +89,7 @@ func (builder *PreflightValidationOCPBuilder) WithKernelVersion(kernelVersion st
 	}
 
 	if kernelVersion == "" {
-		builder.errorMsg = "invalid 'kernelVersion' argument can not be nil"
+		builder.errorMsg = errNilKernelVersion
 
 		return builder
 	}

@@ -33,7 +33,7 @@ func TestNewBuilder(t *testing.T) {
 			name:        "",
 			namespace:   "test-ns",
 			expectedSA:  nil,
-			expectedErr: "serviceaccount 'name' cannot be empty",
+			expectedErr: errEmptyName,
 		},
 		{
 			name:        "test-sa",
@@ -90,7 +90,7 @@ func TestServiceAccountPull(t *testing.T) {
 		{
 			saName:              "",
 			saNamespace:         "test-ns",
-			expectedErrorStr:    "serviceaccount 'name' cannot be empty",
+			expectedErrorStr:    errEmptyName,
 			addToRuntimeObjects: false,
 		},
 		{

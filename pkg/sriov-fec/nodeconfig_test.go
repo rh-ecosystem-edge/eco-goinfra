@@ -43,7 +43,7 @@ func TestFecNewNodeConfigBuilder(t *testing.T) {
 			name:          defaultNodeConfigName,
 			nsname:        "",
 			client:        true,
-			expectedError: "sriovFecNodeConfig 'nsname' cannot be empty",
+			expectedError: errEmptyFecNodeConfigNsname,
 		},
 		{
 			name:          defaultNodeConfigName,
@@ -102,7 +102,7 @@ func TestFecPullNodeConfig(t *testing.T) {
 			nsname:              "",
 			addToRuntimeObjects: true,
 			client:              true,
-			expectedError:       fmt.Errorf("sriovFecNodeConfig 'nsname' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyFecNodeConfigNsname),
 		},
 		{
 			name:                defaultNodeConfigName,
@@ -161,7 +161,7 @@ func TestFecNodeConfigGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidNodeConfigBuilder(buildTestClientWithDummyNodeConfig()),
-			expectedError: "sriovFecNodeConfig 'nsname' cannot be empty",
+			expectedError: errEmptyFecNodeConfigNsname,
 		},
 		{
 			testBuilder:   buildValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -217,7 +217,7 @@ func TestFecNodeConfigCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidNodeConfigBuilder(buildTestClientWithDummyNodeConfig()),
-			expectedError: fmt.Errorf("sriovFecNodeConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyFecNodeConfigNsname),
 		},
 		{
 			testBuilder:   buildValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -246,7 +246,7 @@ func TestFecNodeConfigDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidNodeConfigBuilder(buildTestClientWithDummyNodeConfig()),
-			expectedError: fmt.Errorf("sriovFecNodeConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyFecNodeConfigNsname),
 		},
 		{
 			testBuilder:   buildValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -275,7 +275,7 @@ func TestFecNodeConfigUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidNodeConfigBuilder(buildTestClientWithDummyNodeConfig()),
-			expectedError: fmt.Errorf("sriovFecNodeConfig 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyFecNodeConfigNsname),
 		},
 		{
 			testBuilder:   buildValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -318,7 +318,7 @@ func TestFecNodeConfigWithOptions(t *testing.T) {
 			options: func(builder *NodeConfigBuilder) (*NodeConfigBuilder, error) {
 				return builder, nil
 			},
-			expectedError: "sriovFecNodeConfig 'nsname' cannot be empty",
+			expectedError: errEmptyFecNodeConfigNsname,
 		},
 		{
 			testBuilder: buildValidNodeConfigBuilder(buildTestClientWithDummyNodeConfig()),

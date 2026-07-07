@@ -17,6 +17,11 @@ import (
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyFRRName                            = "frrConfiguration 'name' cannot be empty"
+	frrconfigurationConnecttimeValueIsNotValid = "frrConfiguration 'connectTime' value is not valid"
+)
+
 // FrrConfigurationBuilder provides struct for the FrrConfiguration object containing connection to
 // the cluster and the FrrConfiguration definitions.
 type FrrConfigurationBuilder struct {
@@ -59,7 +64,7 @@ func NewFrrConfigurationBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the frrConfiguration is empty")
 
-		builder.errorMsg = "frrConfiguration 'name' cannot be empty"
+		builder.errorMsg = errEmptyFRRName
 
 		return builder
 	}
@@ -574,7 +579,7 @@ func (builder *FrrConfigurationBuilder) WithConnectTime(connectTime metav1.Durat
 	if duration < time.Second || duration > 65535*time.Second {
 		klog.V(100).Info("A valid connect time is between 1-65535")
 
-		builder.errorMsg = "frrConfiguration 'connectTime' value is not valid"
+		builder.errorMsg = frrconfigurationConnecttimeValueIsNotValid
 
 		return builder
 	}

@@ -17,6 +17,11 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	conditionTypeNodeInstallerProgressing   = "NodeInstallerProgressing"
+	conditionReasonAllNodesAtLatestRevision = "AllNodesAtLatestRevision"
+)
+
 // KubeAPIServerBuilder provides struct for kubeAPIServer object.
 type KubeAPIServerBuilder struct {
 	// KubeApiServer definition. Used to create an kubeAPIServer object.
@@ -153,7 +158,7 @@ func (builder *KubeAPIServerBuilder) WaitUntilConditionTrue(
 
 			for _, condition := range builder.Object.Status.Conditions {
 				if condition.Type == conditionType {
-					if condition.Status == "True" {
+					if condition.Status == operatorV1.ConditionTrue {
 						return true, nil
 					}
 
@@ -177,8 +182,8 @@ func (builder *KubeAPIServerBuilder) WaitUntilConditionTrue(
 // WaitAllNodesAtTheLatestRevision waits for timeout duration or until all nodes
 // will be at the latest revision.
 func (builder *KubeAPIServerBuilder) WaitAllNodesAtTheLatestRevision(timeout time.Duration) error {
-	conditionType := "NodeInstallerProgressing"
-	verificationStr := "AllNodesAtLatestRevision"
+	conditionType := conditionTypeNodeInstallerProgressing
+	verificationStr := conditionReasonAllNodesAtLatestRevision
 
 	err := builder.WaitUntilConditionTrue(conditionType, timeout)
 	if err != nil {

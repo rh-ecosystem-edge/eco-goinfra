@@ -92,8 +92,8 @@ func CleanAllNetworkNodePolicies(
 	}
 
 	for _, policy := range policies {
-		// The "default" SriovNetworkNodePolicy is both mandatory and the default option.
-		if policy.Object.Name != "default" {
+		// The sriovOperatorConfigName SriovNetworkNodePolicy is both mandatory and the default option.
+		if policy.Object.Name != sriovOperatorConfigName {
 			err = policy.Delete()
 			if err != nil {
 				klog.V(100).Infof("Failed to delete SriovNetworkNodePolicy: %s", policy.Object.Name)

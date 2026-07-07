@@ -46,7 +46,7 @@ func TestNewRestoreBuilder(t *testing.T) {
 			namespace:      "restore-test-namespace-4",
 			backupName:     "",
 			client:         true,
-			expectedErrMsg: "restore backupName cannot be an empty string",
+			expectedErrMsg: errEmptyBackupName,
 		},
 		{
 			name:           "restore-test-name-5",
@@ -189,7 +189,7 @@ func TestRestoreGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidRestoreTestBuilder(buildTestClientWithDummyRestore()),
-			expectedError: "restore backupName cannot be an empty string",
+			expectedError: errEmptyBackupName,
 		},
 		{
 			testBuilder:   buildValidRestoreTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -246,7 +246,7 @@ func TestRestoreCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidRestoreTestBuilder(buildTestClientWithDummyRestore()),
-			expectedError: fmt.Errorf("restore backupName cannot be an empty string"),
+			expectedError: fmt.Errorf(errEmptyBackupName),
 		},
 		{
 			testBuilder:   buildValidRestoreTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -276,7 +276,7 @@ func TestRestoreUpdate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidRestoreTestBuilder(buildTestClientWithDummyRestore()),
-			expectedError: fmt.Errorf("restore backupName cannot be an empty string"),
+			expectedError: fmt.Errorf(errEmptyBackupName),
 		},
 		{
 			testBuilder:   buildValidRestoreTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -309,7 +309,7 @@ func TestRestoreDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidRestoreTestBuilder(buildTestClientWithDummyRestore()),
-			expectedError: fmt.Errorf("restore backupName cannot be an empty string"),
+			expectedError: fmt.Errorf(errEmptyBackupName),
 		},
 		{
 			testBuilder:   buildValidRestoreTestBuilder(clients.GetTestClients(clients.TestClientParams{})),

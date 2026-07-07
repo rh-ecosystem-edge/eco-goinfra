@@ -21,7 +21,7 @@ func TestNewModLoaderContainerBuilder(t *testing.T) {
 		},
 		{
 			name:          "",
-			expectedError: "'modName' cannot be empty",
+			expectedError: errEmptyModName,
 		},
 	}
 
@@ -141,7 +141,7 @@ func TestModuleLoaderContainerWithKernelMapping(t *testing.T) {
 	}{
 		{
 			mapping:       buildRegExKernelMapping(""),
-			expectedError: "'mapping' can not be empty nil",
+			expectedError: errEmptyMapping,
 		},
 		{
 			mapping:       buildRegExKernelMapping("^.+$"),
@@ -153,7 +153,7 @@ func TestModuleLoaderContainerWithKernelMapping(t *testing.T) {
 		},
 		{
 			mapping:       buildLiteralKernelMapping(""),
-			expectedError: "'mapping' can not be empty nil",
+			expectedError: errEmptyMapping,
 		},
 	}
 
@@ -223,12 +223,12 @@ func TestModuleLoaderContainerBuildModuleLoaderContainerCfg(t *testing.T) {
 		},
 		{
 			name:          "",
-			expectedError: "'modName' cannot be empty",
+			expectedError: errEmptyModName,
 			mutate:        false,
 		},
 		{
 			name:          "kmod",
-			expectedError: "'mapping' can not be empty nil",
+			expectedError: errEmptyMapping,
 			mutate:        true,
 		},
 	}
@@ -444,25 +444,25 @@ func TestModuleLoaderContainerBuilderWithInvalidBuilder(t *testing.T) {
 	// Test that methods return early when builder has error
 	testBuilder := NewModLoaderContainerBuilder("")
 
-	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+	assert.Equal(t, errEmptyModName, testBuilder.errorMsg)
 
 	// Calling methods on invalid builder should not change error message
 	testBuilder.WithModprobeSpec("dir", "path", nil, nil, nil, nil)
-	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+	assert.Equal(t, errEmptyModName, testBuilder.errorMsg)
 
 	testBuilder.WithKernelMapping(nil)
-	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+	assert.Equal(t, errEmptyModName, testBuilder.errorMsg)
 
 	testBuilder.WithImagePullPolicy("Always")
-	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+	assert.Equal(t, errEmptyModName, testBuilder.errorMsg)
 
 	testBuilder.WithVersion("1.0")
-	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+	assert.Equal(t, errEmptyModName, testBuilder.errorMsg)
 
 	testBuilder.WithOptions(func(builder *ModuleLoaderContainerBuilder) (*ModuleLoaderContainerBuilder, error) {
 		return builder, nil
 	})
-	assert.Equal(t, "'modName' cannot be empty", testBuilder.errorMsg)
+	assert.Equal(t, errEmptyModName, testBuilder.errorMsg)
 }
 
 func TestModuleLoaderContainerWithKernelMappingMultiple(t *testing.T) {

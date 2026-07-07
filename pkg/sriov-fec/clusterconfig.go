@@ -14,6 +14,10 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyFecClusterConfigNsname = "SriovFecClusterConfig 'nsname' cannot be empty"
+)
+
 // ClusterConfigBuilder provides struct for the SriovFecClusterConfig object containing connection to
 // the cluster and the SriovFecClusterConfig definitions.
 type ClusterConfigBuilder struct {
@@ -73,7 +77,7 @@ func NewClusterConfigBuilder(
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the SriovFecClusterConfig is empty")
 
-		builder.errorMsg = "SriovFecClusterConfig 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyFecClusterConfigNsname
 
 		return builder
 	}
@@ -118,7 +122,7 @@ func PullClusterConfig(apiClient *clients.Settings, name, nsname string) (*Clust
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the SriovFecClusterConfig is empty")
 
-		return nil, fmt.Errorf("SriovFecClusterConfig 'nsname' cannot be empty")
+		return nil, fmt.Errorf(errEmptyFecClusterConfigNsname)
 	}
 
 	if !builder.Exists() {

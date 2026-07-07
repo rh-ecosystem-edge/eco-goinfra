@@ -33,7 +33,7 @@ func TestNewPoolConfigBuilder(t *testing.T) {
 		{
 			poolConfigName:      "",
 			poolConfigNamespace: defaultPoolConfigNsName,
-			expectedErrorText:   "SriovNetworkPoolConfig 'name' cannot be empty",
+			expectedErrorText:   errEmptyName,
 			client:              true,
 		},
 		{
@@ -291,7 +291,7 @@ func TestPullPoolConfig(t *testing.T) {
 		{
 			poolConfigName:      "",
 			poolConfigNamespace: defaultPoolConfigNsName,
-			expectedErrorText:   "SriovNetworkPoolConfig 'name' cannot be empty",
+			expectedErrorText:   errEmptyName,
 			expectedError:       true,
 			client:              true,
 		},

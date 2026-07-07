@@ -13,6 +13,10 @@ import (
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	annotationAlmExamples = "alm-examples"
+)
+
 // ClusterServiceVersionBuilder provides a struct for clusterserviceversion object
 // from the cluster and a clusterserviceversion definition.
 type ClusterServiceVersionBuilder struct {
@@ -182,7 +186,7 @@ func (builder *ClusterServiceVersionBuilder) GetAlmExamples() (string, error) {
 	klog.V(100).Infof("Extracting the 'alm-examples' section from clusterserviceversion %s in "+
 		"namespace %s", builder.Definition.Name, builder.Definition.Namespace)
 
-	almExamples := "alm-examples"
+	almExamples := annotationAlmExamples
 
 	if builder.Exists() {
 		annotations := builder.Object.GetAnnotations()

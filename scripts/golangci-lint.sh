@@ -4,7 +4,7 @@ set -e
 
 . "$(dirname "$0")"/common.sh
 
-GOLANGCI_LINT_VERSION="2.11.4"
+GOLANGCI_LINT_VERSION="2.12.2"
 
 # IsGoLangCiLintInstalled is used to check whether golangci-lint executable is on the $PATH.
 function IsGolangCiLintInstalled() {
@@ -46,7 +46,7 @@ function DownloadGolangCiLint() {
 	versionNumber="${1}"
 
 	echo "installing golangci-lint version ${versionNumber}"
-	if curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v${versionNumber}; then
+	if curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v${versionNumber}; then
 		return 0
 	fi
 

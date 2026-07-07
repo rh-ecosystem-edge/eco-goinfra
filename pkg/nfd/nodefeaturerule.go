@@ -16,6 +16,8 @@ import (
 const (
 	// ruleNameEmptyError is the error message when rule name is empty.
 	ruleNameEmptyError = "rule 'name' cannot be empty"
+	errEmptyName       = "nodeFeatureRule 'name' cannot be empty"
+	errEmptyNamespace  = "nodeFeatureRule 'namespace' cannot be empty"
 )
 
 // NodeFeatureRuleBuilder provides a struct for NodeFeatureRule object
@@ -67,7 +69,7 @@ func NewNodeFeatureRuleBuilder(apiClient *clients.Settings, name, namespace stri
 	if name == "" {
 		klog.V(100).Info("The name of the NodeFeatureRule is empty")
 
-		builder.errorMsg = "nodeFeatureRule 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -75,7 +77,7 @@ func NewNodeFeatureRuleBuilder(apiClient *clients.Settings, name, namespace stri
 	if namespace == "" {
 		klog.V(100).Info("The namespace of the NodeFeatureRule is empty")
 
-		builder.errorMsg = "nodeFeatureRule 'namespace' cannot be empty"
+		builder.errorMsg = errEmptyNamespace
 
 		return builder
 	}
@@ -162,13 +164,13 @@ func PullFeatureRule(apiClient *clients.Settings, name, namespace string) (*Node
 	if name == "" {
 		klog.V(100).Info("NodeFeatureRule name is empty")
 
-		return nil, fmt.Errorf("nodeFeatureRule 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyName)
 	}
 
 	if namespace == "" {
 		klog.V(100).Info("NodeFeatureRule namespace is empty")
 
-		return nil, fmt.Errorf("nodeFeatureRule 'namespace' cannot be empty")
+		return nil, fmt.Errorf(errEmptyNamespace)
 	}
 
 	if !ruleBuilder.Exists() {

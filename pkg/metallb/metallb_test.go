@@ -50,7 +50,7 @@ func TestMetalLbPull(t *testing.T) {
 			name:                "",
 			namespace:           "test-namespace",
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("metallb 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyMetallbName),
 			client:              true,
 		},
 		{
@@ -124,7 +124,7 @@ func TestMetalLbNewBuilder(t *testing.T) {
 			name:          "",
 			namespace:     "test-namespace",
 			label:         map[string]string{"test": "test"},
-			expectedError: "metallb 'name' cannot be empty",
+			expectedError: errEmptyMetallbName,
 		},
 		{
 			name:          "metallbio",
@@ -187,7 +187,7 @@ func TestMetalLbGet(t *testing.T) {
 		},
 		{
 			testMetalLb:   buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("metallb 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMetallbName),
 		},
 	}
 
@@ -212,7 +212,7 @@ func TestMetalLbCreate(t *testing.T) {
 		},
 		{
 			testMetalLb:   buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("metallb 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMetallbName),
 		},
 	}
 
@@ -237,7 +237,7 @@ func TestMetalLbDelete(t *testing.T) {
 		},
 		{
 			testMetalLb:   buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("metallb 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMetallbName),
 		},
 	}
 
@@ -264,7 +264,7 @@ func TestMetalLbUpdate(t *testing.T) {
 		},
 		{
 			testMetalLb:   buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("metallb 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyMetallbName),
 			nodeSelector:  map[string]string{"test2": "test2"},
 		},
 	}
@@ -300,7 +300,7 @@ func TestMetalLbRemoveLabel(t *testing.T) {
 		},
 		{
 			testMetalLb:   buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: "metallb 'name' cannot be empty",
+			expectedError: errEmptyMetallbName,
 			key:           "",
 		},
 	}
@@ -335,7 +335,7 @@ func TestMetalLbWithSpeakerNodeSelector(t *testing.T) {
 		},
 		{
 			testMetalLb:         buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError:       "metallb 'name' cannot be empty",
+			expectedError:       errEmptyMetallbName,
 			speakerNodeSelector: map[string]string{"node": "nodes"},
 		},
 	}

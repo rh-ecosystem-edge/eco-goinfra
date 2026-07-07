@@ -13,6 +13,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyBootModuleNamespace = "bootmoduleconfig 'namespace' cannot be empty"
+)
+
 // BootModuleConfigBuilder provides struct for the bootmoduleconfig object containing connection to
 // the cluster and the bootmoduleconfig definitions.
 type BootModuleConfigBuilder struct {
@@ -69,7 +73,7 @@ func NewBootModuleConfigBuilder(
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the bootmoduleconfig is empty")
 
-		builder.errorMsg = "bootmoduleconfig 'namespace' cannot be empty"
+		builder.errorMsg = errEmptyBootModuleNamespace
 
 		return builder
 	}
@@ -253,7 +257,7 @@ func PullBootModuleConfig(apiClient *clients.Settings, name, nsname string) (*Bo
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the bootmoduleconfig is empty")
 
-		return nil, fmt.Errorf("bootmoduleconfig 'namespace' cannot be empty")
+		return nil, fmt.Errorf(errEmptyBootModuleNamespace)
 	}
 
 	if !builder.Exists() {

@@ -43,7 +43,7 @@ func TestNewModuleBuilder(t *testing.T) {
 		{
 			name:        defaultModuleName,
 			namespace:   "",
-			expectedErr: "module 'namespace' cannot be empty",
+			expectedErr: errEmptyModuleNamespace,
 			client:      true,
 		},
 		{
@@ -102,7 +102,7 @@ func TestModulePull(t *testing.T) {
 		{
 			name:                "test",
 			namespace:           "",
-			expectedError:       fmt.Errorf("module 'namespace' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyModuleNamespace),
 			addToRuntimeObjects: true,
 			client:              true,
 		},
@@ -162,7 +162,7 @@ func TestModuleGet(t *testing.T) {
 		},
 		{
 			testModule:    buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("module 'namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyModuleNamespace),
 		},
 		{
 			testModule:    buildValidTestModule(clients.GetTestClients(clients.TestClientParams{})),
@@ -218,7 +218,7 @@ func TestModuleCreate(t *testing.T) {
 		},
 		{
 			testModule:    buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: "module 'namespace' cannot be empty",
+			expectedError: errEmptyModuleNamespace,
 		},
 		{
 			testModule:    buildValidTestModule(clients.GetTestClients(clients.TestClientParams{})),
@@ -247,7 +247,7 @@ func TestModuleDelete(t *testing.T) {
 		},
 		{
 			testModule:    buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("module 'namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyModuleNamespace),
 		},
 		{
 			testModule:    buildValidTestModule(clients.GetTestClients(clients.TestClientParams{})),
@@ -276,7 +276,7 @@ func TestModuleUpdate(t *testing.T) {
 		},
 		{
 			testModule:    buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("module 'namespace' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyModuleNamespace),
 		},
 		{
 			testModule:    buildValidTestModule(clients.GetTestClients(clients.TestClientParams{})),
@@ -340,7 +340,7 @@ func TestModuleWithLoadServiceAccount(t *testing.T) {
 		},
 		{
 			loadServiceAccount: "",
-			expectedErr:        "can not redefine module with empty ServiceAccount",
+			expectedErr:        canNotRedefineModuleWithEmpty,
 		},
 	}
 
@@ -367,7 +367,7 @@ func TestModuleWithDevicePluginServiceAccount(t *testing.T) {
 		},
 		{
 			devicePluginServiceAccount: "",
-			expectedErr:                "can not redefine module with empty ServiceAccount",
+			expectedErr:                canNotRedefineModuleWithEmpty,
 		},
 	}
 
@@ -483,7 +483,7 @@ func TestModuleWithModuleLoaderContainer(t *testing.T) {
 		},
 		{
 			containerSpec: nil,
-			expectedErr:   "invalid 'container' argument can not be nil",
+			expectedErr:   errNilContainer,
 		},
 	}
 
@@ -510,7 +510,7 @@ func TestModuleWithDevicePluginContainer(t *testing.T) {
 		},
 		{
 			containerSpec: nil,
-			expectedErr:   "invalid 'container' argument can not be nil",
+			expectedErr:   errNilContainer,
 		},
 	}
 
@@ -651,7 +651,7 @@ func TestModuleBuildModuleSpec(t *testing.T) {
 		},
 		{
 			testModule:    buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: "module 'namespace' cannot be empty",
+			expectedError: errEmptyModuleNamespace,
 		},
 	}
 	for _, testCase := range testCases {

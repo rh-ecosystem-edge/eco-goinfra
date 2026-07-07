@@ -69,7 +69,7 @@ func (builder *IngressRuleBuilder) WithProtocol(protocol corev1.Protocol) *Ingre
 	if protocol != corev1.ProtocolTCP && protocol != corev1.ProtocolUDP && protocol != corev1.ProtocolSCTP {
 		klog.V(100).Info("invalid protocol argument")
 
-		builder.errorMsg = "invalid protocol argument. Allowed protocols: TCP, UDP & SCTP"
+		builder.errorMsg = errInvalidProtocol
 
 		return builder
 	}
@@ -91,7 +91,7 @@ func (builder *IngressRuleBuilder) WithPort(port uint16) *IngressRuleBuilder {
 	if port == 0 {
 		klog.V(100).Info("Cannot set port number to 0")
 
-		builder.errorMsg = "port number cannot be 0"
+		builder.errorMsg = portNumberCannotBe0
 
 		return builder
 	}

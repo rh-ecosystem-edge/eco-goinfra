@@ -217,9 +217,9 @@ func TestClusterServiceGetAlmExamples(t *testing.T) {
 		expectedError  error
 	}{
 		{
-			almExample: map[string]string{"alm-examples": "test"},
+			almExample: map[string]string{annotationAlmExamples: "test"},
 			clusterService: buildValidClusterServiceBuilder(
-				buildTestClientWithDummyClusterServiceObjectWitAlm(map[string]string{"alm-examples": "test"})),
+				buildTestClientWithDummyClusterServiceObjectWitAlm(map[string]string{annotationAlmExamples: "test"})),
 			expectedError: nil,
 		},
 		{
@@ -229,7 +229,7 @@ func TestClusterServiceGetAlmExamples(t *testing.T) {
 			expectedError: fmt.Errorf("alm-examples not found in given clusterserviceversion named clusterservice"),
 		},
 		{
-			almExample:     map[string]string{"alm-examples": "test"},
+			almExample:     map[string]string{annotationAlmExamples: "test"},
 			clusterService: buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject()),
 			expectedError:  fmt.Errorf("alm-examples not found in given clusterserviceversion named clusterservice"),
 		},
@@ -240,7 +240,7 @@ func TestClusterServiceGetAlmExamples(t *testing.T) {
 		assert.Equal(t, testCase.expectedError, err)
 
 		if testCase.expectedError == nil {
-			assert.Equal(t, almExamples, testCase.almExample["alm-examples"])
+			assert.Equal(t, almExamples, testCase.almExample[annotationAlmExamples])
 		}
 	}
 }

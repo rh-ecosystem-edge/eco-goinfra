@@ -354,7 +354,7 @@ func TestLocalVolumeDiscoveryWithTolerations(t *testing.T) {
 		},
 		{
 			testTolerations:   []corev1.Toleration{},
-			expectedErrorText: "'tolerations' argument cannot be empty",
+			expectedErrorText: errEmptyTolerations,
 		},
 	}
 

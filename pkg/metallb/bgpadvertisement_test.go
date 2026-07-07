@@ -123,7 +123,7 @@ func TestNewBGPAdvertisementBuilder(t *testing.T) {
 		{
 			name:          "bgpadvertisement",
 			namespace:     "",
-			expectedError: "BGPAdvertisement 'nsname' cannot be empty",
+			expectedError: errEmptyBGPAdvertisementNsname,
 		},
 	}
 
@@ -173,7 +173,7 @@ func TestBGPAdvertisementGet(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf("BGPAdvertisement 'nsname' cannot be empty"),
+			expectedError:        fmt.Errorf(errEmptyBGPAdvertisementNsname),
 		},
 	}
 
@@ -198,7 +198,7 @@ func TestBGPAdvertisementCreate(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf("BGPAdvertisement 'nsname' cannot be empty"),
+			expectedError:        fmt.Errorf(errEmptyBGPAdvertisementNsname),
 		},
 	}
 	for _, testCase := range testCases {
@@ -222,7 +222,7 @@ func TestBGPAdvertisementDelete(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf("BGPAdvertisement 'nsname' cannot be empty"),
+			expectedError:        fmt.Errorf(errEmptyBGPAdvertisementNsname),
 		},
 	}
 
@@ -249,7 +249,7 @@ func TestBGPAdvertisementUpdate(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf("BGPAdvertisement 'nsname' cannot be empty"),
+			expectedError:        fmt.Errorf(errEmptyBGPAdvertisementNsname),
 			ipAddressPool:        []string{"1.1.1.1."},
 		},
 	}
@@ -286,7 +286,7 @@ func TestBGPAdvertisementWithAggregationLength4(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "BGPAdvertisement 'nsname' cannot be empty",
+			expectedError:        errEmptyBGPAdvertisementNsname,
 			aggregationLength:    64,
 		},
 	}
@@ -319,7 +319,7 @@ func TestBGPAdvertisementWithAggregationLength6(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "BGPAdvertisement 'nsname' cannot be empty",
+			expectedError:        errEmptyBGPAdvertisementNsname,
 			aggregationLength:    64,
 		},
 	}
@@ -347,7 +347,7 @@ func TestBGPAdvertisementWithLocalPref(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "BGPAdvertisement 'nsname' cannot be empty",
+			expectedError:        errEmptyBGPAdvertisementNsname,
 			localPref:            64,
 		},
 	}
@@ -380,7 +380,7 @@ func TestBGPAdvertisementWithCommunities(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "BGPAdvertisement 'nsname' cannot be empty",
+			expectedError:        errEmptyBGPAdvertisementNsname,
 			community:            []string{"5252"},
 		},
 	}
@@ -408,12 +408,12 @@ func TestBGPAdvertisementWithIPAddressPools(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "error: IPAddressPools setting is empty list, the list should contain at least one element",
+			expectedError:        errEmptyIPAddressPools,
 			addressPool:          []string{},
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "BGPAdvertisement 'nsname' cannot be empty",
+			expectedError:        errEmptyBGPAdvertisementNsname,
 			addressPool:          []string{"5252"},
 		},
 	}
@@ -447,7 +447,7 @@ func TestBGPAdvertisementWithIPAddressPoolsSelectors(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "BGPAdvertisement 'nsname' cannot be empty",
+			expectedError:        errEmptyBGPAdvertisementNsname,
 			poolSelector:         []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
 		},
 	}
@@ -475,12 +475,12 @@ func TestBGPAdvertisementWithNodeSelector(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "error: nodeSelectors setting is empty list, the list should contain at least one element",
+			expectedError:        errEmptyNodeSelectors,
 			nodeSelector:         []metav1.LabelSelector{},
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "BGPAdvertisement 'nsname' cannot be empty",
+			expectedError:        errEmptyBGPAdvertisementNsname,
 			nodeSelector:         []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
 		},
 	}
@@ -513,7 +513,7 @@ func TestBGPAdvertisementWithPeers(t *testing.T) {
 		},
 		{
 			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "BGPAdvertisement 'nsname' cannot be empty",
+			expectedError:        errEmptyBGPAdvertisementNsname,
 			peers:                []string{"test", "test1"},
 		},
 	}

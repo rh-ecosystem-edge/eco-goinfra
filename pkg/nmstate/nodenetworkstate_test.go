@@ -202,13 +202,13 @@ func TestStateBuilderGetInterfaceType(t *testing.T) {
 		{
 			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
 			interfaceName:    sriovExistingInterface,
-			interfaceType:    "ethernet",
+			interfaceType:    interfaceTypeEthernet,
 			expectedError:    nil,
 		},
 		{
 			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
 			interfaceName:    "",
-			interfaceType:    "ethernet",
+			interfaceType:    interfaceTypeEthernet,
 			expectedError:    fmt.Errorf("the interfaceName is empty sting"),
 		},
 		{
@@ -220,7 +220,7 @@ func TestStateBuilderGetInterfaceType(t *testing.T) {
 		{
 			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
 			interfaceName:    "test",
-			interfaceType:    "ethernet",
+			interfaceType:    interfaceTypeEthernet,
 			expectedError:    fmt.Errorf("failed to find interface test or it is not a ethernet type"),
 		},
 	}
@@ -253,7 +253,7 @@ func TestStateBuilderGetInterfaceMACAddress(t *testing.T) {
 		},
 		{
 			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
-			interfaceName:    "unknown",
+			interfaceName:    unknown,
 			expectedMAC:      "",
 			expectedError:    fmt.Errorf("failed to find interface unknown"),
 			mutateBuilder:    nil,
@@ -307,7 +307,7 @@ func TestStateBuilderGetInterfacePCIAddress(t *testing.T) {
 		},
 		{
 			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
-			interfaceName:    "unknown",
+			interfaceName:    unknown,
 			expectedPCI:      "",
 			expectedError:    fmt.Errorf("failed to find interface unknown"),
 			mutateBuilder:    nil,
@@ -359,7 +359,7 @@ func TestStateBuilderGetInterfaceAltnames(t *testing.T) {
 		},
 		{
 			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
-			interfaceName:    "unknown",
+			interfaceName:    unknown,
 			expectedAltnames: nil,
 			expectedError:    fmt.Errorf("failed to find interface unknown"),
 		},
@@ -439,7 +439,7 @@ func newNodeNetworkStateBuilder(apiClient *clients.Settings, name string) *State
 		Interfaces: []NetworkInterface{
 			{
 				Name:       sriovExistingInterface,
-				Type:       "ethernet",
+				Type:       interfaceTypeEthernet,
 				State:      "up",
 				MacAddress: sriovTestMACAddress,
 				PciAddress: sriovTestPCIAddress,

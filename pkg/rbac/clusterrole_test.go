@@ -38,14 +38,14 @@ func TestNewClusterRoleBuilder(t *testing.T) {
 			rule: rbacv1.PolicyRule{
 				Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
 			client:            true,
-			expectedErrorText: "clusterrole 'name' cannot be empty",
+			expectedErrorText: errEmptyClusterRoleName,
 		},
 		{
 			name: "test",
 			rule: rbacv1.PolicyRule{
 				Resources: []string{"pods"}, APIGroups: []string{"v1"}},
 			client:            true,
-			expectedErrorText: "clusterrole rule must contain at least one Verb entry",
+			expectedErrorText: clusterroleRuleMustContainAtLeast,
 		},
 	}
 	for _, testCase := range testCases {
@@ -96,7 +96,7 @@ func TestPullClusterRole(t *testing.T) {
 			name:                "",
 			expectedError:       true,
 			addToRuntimeObjects: true,
-			expectedErrorText:   "clusterrole 'name' cannot be empty",
+			expectedErrorText:   errEmptyClusterRoleName,
 			client:              true,
 		},
 		{
@@ -160,7 +160,7 @@ func TestClusterRoleCreate(t *testing.T) {
 		},
 		{
 			testClusterRole: buildInvalidClusterRoleTestBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedError:   fmt.Errorf("clusterrole rule must contain at least one Verb entry"),
+			expectedError:   fmt.Errorf(clusterroleRuleMustContainAtLeast),
 		},
 		{
 			testClusterRole: buildValidClusterRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -214,7 +214,7 @@ func TestClusterRoleDelete(t *testing.T) {
 		},
 		{
 			testClusterRole: buildInvalidClusterRoleTestBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedError:   fmt.Errorf("clusterrole rule must contain at least one Verb entry"),
+			expectedError:   fmt.Errorf(clusterroleRuleMustContainAtLeast),
 		},
 		{
 			testClusterRole: buildValidClusterRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -247,7 +247,7 @@ func TestClusterRoleUpdate(t *testing.T) {
 		},
 		{
 			testClusterRole: buildInvalidClusterRoleTestBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedError:   fmt.Errorf("clusterrole rule must contain at least one Verb entry"),
+			expectedError:   fmt.Errorf(clusterroleRuleMustContainAtLeast),
 		},
 		{
 			testClusterRole: buildValidClusterRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -295,7 +295,7 @@ func TestClusterRoleWithRules(t *testing.T) {
 			rule: []rbacv1.PolicyRule{{Resources: []string{"pods"},
 				APIGroups: []string{"v1"}}},
 			expectedError:     true,
-			expectedErrorText: "clusterrole rule must contain at least one Verb entry",
+			expectedErrorText: clusterroleRuleMustContainAtLeast,
 		},
 	}
 

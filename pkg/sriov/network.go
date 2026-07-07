@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
@@ -16,9 +17,14 @@ import (
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"golang.org/x/exp/slices"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	errEmptyTargetNsname = "SrIovNetwork 'targetNsname' cannot be empty"
+	spoofChkOff          = "off"
+	errInvalidLinkState  = "invalid 'linkState' parameters"
 )
 
 // NetworkBuilder provides struct for srIovNetwork object which contains connection to cluster and
@@ -99,9 +105,9 @@ func (builder *NetworkBuilder) WithTargetNamespace(targetNsname string) *Network
 		targetNsname, builder.Definition.Name, builder.Definition.Namespace)
 
 	if targetNsname == "" {
-		klog.V(100).Infof("SrIovNetwork 'targetNsname' cannot be empty")
+		klog.V(100).Infof(errEmptyTargetNsname)
 
-		builder.errorMsg = "SrIovNetwork 'targetNsname' cannot be empty"
+		builder.errorMsg = errEmptyTargetNsname
 
 		return builder
 	}
@@ -155,7 +161,7 @@ func (builder *NetworkBuilder) WithSpoof(enabled bool) *NetworkBuilder {
 	if enabled {
 		builder.Definition.Spec.SpoofChk = "on"
 	} else {
-		builder.Definition.Spec.SpoofChk = "off"
+		builder.Definition.Spec.SpoofChk = spoofChkOff
 	}
 
 	return builder
@@ -192,7 +198,7 @@ func (builder *NetworkBuilder) WithLinkState(linkState string) *NetworkBuilder {
 	allowedLinkStates := []string{"enable", "disable", "auto"}
 
 	if !slices.Contains(allowedLinkStates, linkState) {
-		builder.errorMsg = "invalid 'linkState' parameters"
+		builder.errorMsg = errInvalidLinkState
 
 		return builder
 	}
@@ -236,7 +242,7 @@ func (builder *NetworkBuilder) WithTrustFlag(enabled bool) *NetworkBuilder {
 	if enabled {
 		builder.Definition.Spec.Trust = "on"
 	} else {
-		builder.Definition.Spec.Trust = "off"
+		builder.Definition.Spec.Trust = spoofChkOff
 	}
 
 	return builder

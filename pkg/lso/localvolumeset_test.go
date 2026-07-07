@@ -49,7 +49,7 @@ func TestPullLocalVolumeSet(t *testing.T) {
 			name:                "",
 			namespace:           defaultLocalVolumeSetNamespace,
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("localVolumeSet 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyName),
 			client:              true,
 		},
 		{
@@ -124,7 +124,7 @@ func TestNewLocalVolumeSetBuilder(t *testing.T) {
 		{
 			name:          "",
 			namespace:     defaultLocalVolumeSetNamespace,
-			expectedError: "localVolumeSet 'name' cannot be empty",
+			expectedError: errEmptyName,
 			client:        true,
 		},
 		{
@@ -199,7 +199,7 @@ func TestLocalVolumeSetGet(t *testing.T) {
 		},
 		{
 			testLocalVolumeSet: buildInValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			expectedError:      fmt.Errorf("localVolumeSet 'name' cannot be empty"),
+			expectedError:      fmt.Errorf(errEmptyName),
 		},
 		{
 			testLocalVolumeSet: buildValidLocalVolumeSetObjectBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -231,7 +231,7 @@ func TestLocalVolumeSetCreate(t *testing.T) {
 		},
 		{
 			testLocalVolumeSet: buildInValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			expectedError:      "localVolumeSet 'name' cannot be empty",
+			expectedError:      errEmptyName,
 		},
 		{
 			testLocalVolumeSet: buildValidLocalVolumeSetObjectBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -293,7 +293,7 @@ func TestLocalVolumeSetUpdate(t *testing.T) {
 		{
 			testLocalVolumeSet:   buildInValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
 			testStorageClassName: "",
-			expectedError:        "localVolumeSet 'name' cannot be empty",
+			expectedError:        errEmptyName,
 		},
 	}
 
@@ -327,7 +327,7 @@ func TestLocalVolumeSetWithTolerations(t *testing.T) {
 		},
 		{
 			testTolerations:   []corev1.Toleration{},
-			expectedErrorText: "'tolerations' argument cannot be empty",
+			expectedErrorText: errEmptyTolerations,
 		},
 	}
 

@@ -2,10 +2,10 @@ package nmstate
 
 import (
 	"fmt"
+	"slices"
 
 	"gopkg.in/yaml.v2"
 
-	"golang.org/x/exp/slices"
 	"k8s.io/klog/v2"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
@@ -18,10 +18,16 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	interfaceTypeBond = "bond"
+	interfaceTypeVlan = "vlan"
+	unknown           = "unknown"
+)
+
 var (
 	// allowedInterfaceTypes represents all allowed types for interface.
-	allowedInterfaceTypes = []string{"ethernet", "bond", "ovs-bridge", "unknown",
-		"vlan", "vxlan", "linux-bridge", "team", "veth"}
+	allowedInterfaceTypes = []string{interfaceTypeEthernet, interfaceTypeBond, "ovs-bridge", unknown,
+		interfaceTypeVlan, "vxlan", "linux-bridge", "team", "veth"}
 )
 
 // StateBuilder provides struct for the NodeNetworkState object containing connection to the cluster.

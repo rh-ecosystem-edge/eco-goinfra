@@ -56,7 +56,7 @@ func TestPullReplicaSet(t *testing.T) {
 			name:                "",
 			namespace:           defaultReplicaSetNamespace,
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("replicaset 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyName),
 			apiClient:           true,
 		},
 		{
@@ -134,7 +134,7 @@ func TestNewReplicaSetBuilder(t *testing.T) {
 			namespace:     defaultReplicaSetNamespace,
 			labels:        defaultReplicaSetLabel,
 			container:     defaultReplicaSetContainer,
-			expectedError: "replicaset 'name' cannot be empty",
+			expectedError: errEmptyName,
 			apiClient:     true,
 		},
 		{
@@ -234,7 +234,7 @@ func TestReplicaSetCreate(t *testing.T) {
 		},
 		{
 			testReplicaSet: buildInValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			expectedError:  "replicaset 'name' cannot be empty",
+			expectedError:  errEmptyName,
 		},
 		{
 			testReplicaSet: buildValidReplicaSetBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -266,7 +266,7 @@ func TestReplicaSetDelete(t *testing.T) {
 		},
 		{
 			testReplicaSet: buildInValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			expectedError:  fmt.Errorf("replicaset 'name' cannot be empty"),
+			expectedError:  fmt.Errorf(errEmptyName),
 		},
 		{
 			testReplicaSet: buildValidReplicaSetBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -316,16 +316,16 @@ func TestReplicaSetUpdate(t *testing.T) {
 		{
 			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
 			testLabels:     map[string]string{"": "test-node-selector-value"},
-			expectedError:  "can not apply labels with an empty labelKey value",
+			expectedError:  canNotApplyLabelsWithAn,
 		},
 		{
 			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
 			testLabels:     map[string]string{},
-			expectedError:  "can not apply empty labels",
+			expectedError:  canNotApplyEmptyLabels,
 		},
 		{
 			testReplicaSet: buildInValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			expectedError:  "replicaset 'name' cannot be empty",
+			expectedError:  errEmptyName,
 		},
 	}
 
@@ -364,13 +364,13 @@ func TestReplicaSetWithLabel(t *testing.T) {
 		},
 		{
 			labels:         map[string]string{"": "test-label-value"},
-			expectedErrMsg: "can not apply labels with an empty labelKey value",
+			expectedErrMsg: canNotApplyLabelsWithAn,
 			emptyLabels:    true,
 			originalLabels: map[string]string{},
 		},
 		{
 			labels:         map[string]string{},
-			expectedErrMsg: "can not apply empty labels",
+			expectedErrMsg: canNotApplyEmptyLabels,
 			emptyLabels:    true,
 			originalLabels: map[string]string{},
 		},
@@ -526,12 +526,12 @@ func TestReplicaSetWithVolume(t *testing.T) {
 				},
 			},
 			expectedError:     true,
-			expectedErrorText: "volume name parameter is empty",
+			expectedErrorText: volumeNameParameterIsEmpty,
 		},
 		{
 			testVolume:        corev1.Volume{},
 			expectedError:     true,
-			expectedErrorText: "volume name parameter is empty",
+			expectedErrorText: volumeNameParameterIsEmpty,
 		},
 	}
 

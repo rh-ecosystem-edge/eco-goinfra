@@ -53,7 +53,7 @@ func TestPullScaledObject(t *testing.T) {
 			name:                "",
 			namespace:           defaultScaledObjectNamespace,
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("scaledObject 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyScaleObjectName),
 			client:              true,
 		},
 		{
@@ -128,7 +128,7 @@ func TestNewScaledObjectBuilder(t *testing.T) {
 		{
 			name:          "",
 			namespace:     defaultScaledObjectNamespace,
-			expectedError: "scaledObject 'name' cannot be empty",
+			expectedError: errEmptyScaleObjectName,
 			client:        true,
 		},
 		{
@@ -203,7 +203,7 @@ func TestScaledObjectGet(t *testing.T) {
 		},
 		{
 			testScaledObject: buildInValidScaledObjectBuilder(buildScaledObjectClientWithDummyObject()),
-			expectedError:    fmt.Errorf("scaledObject 'name' cannot be empty"),
+			expectedError:    fmt.Errorf(errEmptyScaleObjectName),
 		},
 		{
 			testScaledObject: buildValidScaledObjectBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -235,7 +235,7 @@ func TestScaledObjectCreate(t *testing.T) {
 		},
 		{
 			testScaledObject: buildInValidScaledObjectBuilder(buildScaledObjectClientWithDummyObject()),
-			expectedError:    "scaledObject 'name' cannot be empty",
+			expectedError:    errEmptyScaleObjectName,
 		},
 		{
 			testScaledObject: buildValidScaledObjectBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -267,7 +267,7 @@ func TestScaledObjectDelete(t *testing.T) {
 		},
 		{
 			testScaledObject: buildInValidScaledObjectBuilder(buildScaledObjectClientWithDummyObject()),
-			expectedError:    fmt.Errorf("scaledObject 'name' cannot be empty"),
+			expectedError:    fmt.Errorf(errEmptyScaleObjectName),
 		},
 		{
 			testScaledObject: buildValidScaledObjectBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -302,7 +302,7 @@ func TestScaledObjectUpdate(t *testing.T) {
 		},
 		{
 			testScaleObject:    buildInValidScaledObjectBuilder(buildScaledObjectClientWithDummyObject()),
-			expectedError:      "scaledObject 'name' cannot be empty",
+			expectedError:      errEmptyScaleObjectName,
 			testScaleTargetRef: kedav2v1alpha1.ScaleTarget{},
 		},
 	}

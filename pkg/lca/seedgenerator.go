@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	seedImageName = "seedimage"
+	seedImageName                 = "seedimage"
+	conditionTypeSeedGenCompleted = "SeedGenCompleted"
 )
 
 // SeedGeneratorBuilder provides struct for the seedgenerator object containing connection to
@@ -292,8 +293,8 @@ func (builder *SeedGeneratorBuilder) WaitUntilComplete(timeout time.Duration) (*
 			}
 
 			for _, condition := range builder.Object.Status.Conditions {
-				if condition.Status == "True" && condition.Type == "SeedGenCompleted" &&
-					condition.Reason == "Completed" {
+				if condition.Status == isTrue && condition.Type == conditionTypeSeedGenCompleted &&
+					condition.Reason == isComplete {
 					return true, nil
 				}
 			}

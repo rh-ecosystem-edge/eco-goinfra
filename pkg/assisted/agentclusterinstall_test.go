@@ -452,7 +452,7 @@ func TestAgentClusterInstallWithApiVip(t *testing.T) {
 		},
 		{
 			ip:          "notanip",
-			expectError: "agentclusterinstall apiVIP incorrectly formatted",
+			expectError: errIncorrectAPIVIPFormat,
 		},
 	}
 
@@ -481,7 +481,7 @@ func TestAgentClusterInstallWithAdditionalApiVip(t *testing.T) {
 		},
 		{
 			ip:          "notanip",
-			expectError: "agentclusterinstall apiVIP incorrectly formatted",
+			expectError: errIncorrectAPIVIPFormat,
 		},
 	}
 
@@ -511,7 +511,7 @@ func TestAgentClusterInstallWithIngressVip(t *testing.T) {
 		},
 		{
 			ip:          "notanip",
-			expectError: "agentclusterinstall ingressVIP incorrectly formatted",
+			expectError: errIncorrectIngressVIPFormat,
 		},
 	}
 
@@ -540,7 +540,7 @@ func TestAgentClusterInstallWithAdditionalIngressVip(t *testing.T) {
 		},
 		{
 			ip:          "notanip",
-			expectError: "agentclusterinstall ingressVIP incorrectly formatted",
+			expectError: errIncorrectIngressVIPFormat,
 		},
 	}
 
@@ -613,11 +613,11 @@ func TestAgentClusterInstallWithControlPlaneAgents(t *testing.T) {
 		},
 		{
 			count:         0,
-			expectedError: "agentclusterinstall controlplane agents must be greater than 0",
+			expectedError: errInvalidControlplaneAgentCount,
 		},
 		{
 			count:         -1,
-			expectedError: "agentclusterinstall controlplane agents must be greater than 0",
+			expectedError: errInvalidControlplaneAgentCount,
 		},
 	}
 
@@ -740,12 +740,12 @@ func TestAgentClusterInstallWithAdditionalClusterNetwork(t *testing.T) {
 		{
 			cidr:          "10.128.0.0/14",
 			prefix:        0,
-			expectedError: "agentclusterinstall contains invalid clusterNetwork prefix",
+			expectedError: errInvalidClusterNetworkPrefix,
 		},
 		{
 			cidr:          "10.128.0.0/14",
 			prefix:        -1,
-			expectedError: "agentclusterinstall contains invalid clusterNetwork prefix",
+			expectedError: errInvalidClusterNetworkPrefix,
 		},
 	}
 
@@ -772,11 +772,11 @@ func TestAgentClusterInstallWithAdditionalServiceNetwork(t *testing.T) {
 		},
 		{
 			cidr:          "",
-			expectedError: "agentclusterinstall contains invalid serviceNetwork cidr",
+			expectedError: errInvalidServiceNetworkCIDR,
 		},
 		{
 			cidr:          "172.30.0.0/162",
-			expectedError: "agentclusterinstall contains invalid serviceNetwork cidr",
+			expectedError: errInvalidServiceNetworkCIDR,
 		},
 	}
 

@@ -14,6 +14,11 @@ import (
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyName                                        = "pfStatusConfiguration 'name' cannot be empty"
+	pfstatusconfigurationPollingintervalValueIsNotValid = "pfStatusConfiguration 'pollingInterval' value is not valid"
+)
+
 // PfStatusConfigurationBuilder provides struct for the PfStatusConfiguration object containing connection to
 // the cluster and the PFLACPMonitor definitions.
 type PfStatusConfigurationBuilder struct {
@@ -56,7 +61,7 @@ func NewPfStatusConfigurationBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the pfStatusConfiguration is empty")
 
-		builder.errorMsg = "pfStatusConfiguration 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -203,7 +208,7 @@ func PullPfStatusConfiguration(
 	if name == "" {
 		klog.V(100).Info("The name of the pfStatusConfiguration is empty")
 
-		return nil, fmt.Errorf("pfStatusConfiguration 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyName)
 	}
 
 	if nsname == "" {
@@ -312,7 +317,7 @@ func (builder *PfStatusConfigurationBuilder) WithPollingInterval(pollingInterval
 	if pollingInterval < 100 || pollingInterval > 65535 {
 		klog.V(100).Info("A valid polling interval is between 100-65535")
 
-		builder.errorMsg = "pfStatusConfiguration 'pollingInterval' value is not valid"
+		builder.errorMsg = pfstatusconfigurationPollingintervalValueIsNotValid
 
 		return builder
 	}

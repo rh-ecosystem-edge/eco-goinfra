@@ -13,6 +13,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyOperatorName = "NUMAResourcesOperator 'name' cannot be empty"
+)
+
 // Builder provides a struct for NUMAResourcesOperator object from the cluster and a NUMAResourcesOperator definition.
 type Builder struct {
 	// NUMAResourcesOperator definition, used to create the NUMAResourcesOperator object.
@@ -56,7 +60,7 @@ func NewBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the NUMAResourcesOperator is empty")
 
-		builder.errorMsg = "NUMAResourcesOperator 'name' cannot be empty"
+		builder.errorMsg = errEmptyOperatorName
 
 		return builder
 	}
@@ -93,7 +97,7 @@ func Pull(apiClient *clients.Settings, name string) (*Builder, error) {
 	if name == "" {
 		klog.V(100).Info("The name of the NUMAResourcesOperator is empty")
 
-		return nil, fmt.Errorf("NUMAResourcesOperator 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyOperatorName)
 	}
 
 	if !builder.Exists() {

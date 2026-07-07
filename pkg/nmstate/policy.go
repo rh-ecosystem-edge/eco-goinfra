@@ -30,11 +30,16 @@ import (
 const (
 	nodeNetConfPolIntError      = "nodenetworkconfigurationpolicy 'interfaceName' cannot be empty"
 	nodeNetConfPolAltnamesEmpty = "altnames cannot be empty array"
+	bondModeActiveBackup        = "active-backup"
+	interfaceTypeEthernet       = "ethernet"
+	errEmptyBaseInterface       = "nodenetworkconfigurationpolicy 'baseInterface' cannot be empty"
+	errInvalidVLANID            = "invalid vlanID, allowed vlanID values are between 0-4094"
+	interfaceStateAbsent        = "absent"
 )
 
 var (
 	// allowedBondModes represents all allowed modes for Bond interface.
-	allowedBondModes = []string{"balance-rr", "active-backup", "balance-xor", "broadcast", "802.3ad"}
+	allowedBondModes = []string{"balance-rr", bondModeActiveBackup, "balance-xor", "broadcast", "802.3ad"}
 	pciAddressRegexp = regexp.MustCompile(`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$`)
 )
 
@@ -247,7 +252,7 @@ func (builder *PolicyBuilder) WithInterfaceAndVFs(sriovInterface string, numberO
 	intNumberOfVF := int(numberOfVF)
 	newInterface := NetworkInterface{
 		Name:  sriovInterface,
-		Type:  "ethernet",
+		Type:  interfaceTypeEthernet,
 		State: "up",
 		Ethernet: Ethernet{
 			Sriov: Sriov{TotalVfs: &intNumberOfVF},
@@ -287,7 +292,7 @@ func (builder *PolicyBuilder) WithBondInterface(slavePorts []string, bondName, m
 
 	newInterface := NetworkInterface{
 		Name:  bondName,
-		Type:  "bond",
+		Type:  interfaceTypeBond,
 		State: "up",
 		LinkAggregation: LinkAggregation{
 			Mode: mode,
@@ -314,20 +319,20 @@ func (builder *PolicyBuilder) WithVlanInterface(baseInterface string, vlanID uin
 	if baseInterface == "" {
 		klog.V(100).Info("The baseInterface can not be empty string")
 
-		builder.errorMsg = "nodenetworkconfigurationpolicy 'baseInterface' cannot be empty"
+		builder.errorMsg = errEmptyBaseInterface
 
 		return builder
 	}
 
 	if vlanID > 4094 {
-		builder.errorMsg = "invalid vlanID, allowed vlanID values are between 0-4094"
+		builder.errorMsg = errInvalidVLANID
 
 		return builder
 	}
 
 	newInterface := NetworkInterface{
 		Name:  fmt.Sprintf("%s.%d", baseInterface, vlanID),
-		Type:  "vlan",
+		Type:  interfaceTypeVlan,
 		State: "up",
 		Vlan: Vlan{
 			BaseIface: baseInterface,
@@ -351,7 +356,7 @@ func (builder *PolicyBuilder) WithVlanInterfaceIP(baseInterface, ipv4Addresses, 
 	if baseInterface == "" {
 		klog.V(100).Info("The baseInterface can not be empty string")
 
-		builder.errorMsg = "nodenetworkconfigurationpolicy 'baseInterface' cannot be empty"
+		builder.errorMsg = errEmptyBaseInterface
 
 		return builder
 	}
@@ -359,7 +364,7 @@ func (builder *PolicyBuilder) WithVlanInterfaceIP(baseInterface, ipv4Addresses, 
 	if vlanID > 4094 {
 		klog.V(100).Info("the vlanID is out of range, allowed vlanID values are between 0-4094")
 
-		builder.errorMsg = "invalid vlanID, allowed vlanID values are between 0-4094"
+		builder.errorMsg = errInvalidVLANID
 
 		return builder
 	}
@@ -382,7 +387,7 @@ func (builder *PolicyBuilder) WithVlanInterfaceIP(baseInterface, ipv4Addresses, 
 
 	newInterface := NetworkInterface{
 		Name:  fmt.Sprintf("%s.%d", baseInterface, vlanID),
-		Type:  "vlan",
+		Type:  interfaceTypeVlan,
 		State: "up",
 		Vlan: Vlan{
 			BaseIface: baseInterface,
@@ -444,7 +449,7 @@ func (builder *PolicyBuilder) WithInterfaceAltnames(interfaceName string, altnam
 
 	newInterface := NetworkInterface{
 		Name:     interfaceName,
-		Type:     "ethernet",
+		Type:     interfaceTypeEthernet,
 		State:    "up",
 		AltNames: altnamesList,
 	}
@@ -502,7 +507,7 @@ func (builder *PolicyBuilder) WithMACAddressAltnames(interfaceName string, macad
 
 	newInterface := NetworkInterface{
 		Name:       interfaceName,
-		Type:       "ethernet",
+		Type:       interfaceTypeEthernet,
 		State:      "up",
 		MacAddress: macaddress,
 		Identifier: "mac-address",
@@ -562,7 +567,7 @@ func (builder *PolicyBuilder) WithPCIAddressAltnames(interfaceName string, pciAd
 
 	newInterface := NetworkInterface{
 		Name:       interfaceName,
-		Type:       "ethernet",
+		Type:       interfaceTypeEthernet,
 		State:      "up",
 		PciAddress: pciAddress,
 		Identifier: "pci-address",
@@ -607,7 +612,7 @@ func (builder *PolicyBuilder) WithEthernetInterface(interfaceName, ipv4Address, 
 
 	newInterface := NetworkInterface{
 		Name:  interfaceName,
-		Type:  "ethernet",
+		Type:  interfaceTypeEthernet,
 		State: "up",
 		Ipv4: InterfaceIpv4{
 			Enabled: true,
@@ -651,7 +656,7 @@ func (builder *PolicyBuilder) WithEthernetIPv6LinkLocalInterface(interfaceName s
 
 	newInterface := NetworkInterface{
 		Name:  interfaceName,
-		Type:  "ethernet",
+		Type:  interfaceTypeEthernet,
 		State: "up",
 		Ipv4: InterfaceIpv4{
 			Enabled: false,
@@ -684,7 +689,7 @@ func (builder *PolicyBuilder) WithInterfaceUp(interfaceName string) *PolicyBuild
 	newInterface := NetworkInterface{
 		Name:  interfaceName,
 		State: "up",
-		Type:  "ethernet",
+		Type:  interfaceTypeEthernet,
 	}
 
 	return builder.withInterface(newInterface)
@@ -709,7 +714,7 @@ func (builder *PolicyBuilder) WithAbsentInterface(interfaceName string) *PolicyB
 
 	newInterface := NetworkInterface{
 		Name:  interfaceName,
-		State: "absent",
+		State: interfaceStateAbsent,
 	}
 
 	return builder.withInterface(newInterface)
@@ -817,12 +822,12 @@ func (builder *PolicyBuilder) RemoveInterfaceAltname(interfaceName string, altna
 
 	altnamesList := []InterfaceAltName{}
 	for _, altname := range altnames {
-		altnamesList = append(altnamesList, InterfaceAltName{Name: altname, State: "absent"})
+		altnamesList = append(altnamesList, InterfaceAltName{Name: altname, State: interfaceStateAbsent})
 	}
 
 	newInterface := NetworkInterface{
 		Name:     interfaceName,
-		Type:     "ethernet",
+		Type:     interfaceTypeEthernet,
 		State:    "up",
 		AltNames: altnamesList,
 	}

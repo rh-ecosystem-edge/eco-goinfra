@@ -123,7 +123,7 @@ func TestNewL2AdvertisementBuilder(t *testing.T) {
 		{
 			name:          "l2Advertisement",
 			namespace:     "",
-			expectedError: "L2Advertisement 'nsname' cannot be empty",
+			expectedError: errEmptyL2AdvertisementNsname,
 		},
 	}
 
@@ -173,7 +173,7 @@ func TestL2AdvertisementGet(t *testing.T) {
 		},
 		{
 			testL2Advertisement: buildInValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
-			expectedError:       fmt.Errorf("L2Advertisement 'nsname' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyL2AdvertisementNsname),
 		},
 	}
 
@@ -198,7 +198,7 @@ func TestL2AdvertisementCreate(t *testing.T) {
 		},
 		{
 			testL2Advertisement: buildInValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
-			expectedError:       fmt.Errorf("L2Advertisement 'nsname' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyL2AdvertisementNsname),
 		},
 	}
 
@@ -223,7 +223,7 @@ func TestL2AdvertisementDelete(t *testing.T) {
 		},
 		{
 			testL2Advertisement: buildInValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
-			expectedError:       fmt.Errorf("L2Advertisement 'nsname' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyL2AdvertisementNsname),
 		},
 	}
 
@@ -256,7 +256,7 @@ func TestL2AdvertisementUpdate(t *testing.T) {
 		},
 		{
 			testL2Advertisement: buildInValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
-			expectedError:       fmt.Errorf("L2Advertisement 'nsname' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyL2AdvertisementNsname),
 			addressPool:         []string{"1.1.1.1-1.1.1.2"},
 		},
 	}
@@ -288,12 +288,12 @@ func TestL2AdvertisementWithNodeSelector(t *testing.T) {
 		{
 			testL2Advertisement: buildInValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
 			nodeSelector:        []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
-			expectedError:       "L2Advertisement 'nsname' cannot be empty",
+			expectedError:       errEmptyL2AdvertisementNsname,
 		},
 		{
 			testL2Advertisement: buildValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
 			nodeSelector:        []metav1.LabelSelector{},
-			expectedError:       "error: nodeSelectors setting is empty list, the list should contain at least one element",
+			expectedError:       errEmptyNodeSelectors,
 		},
 	}
 
@@ -320,12 +320,12 @@ func TestL2AdvertisementWithIPAddressPools(t *testing.T) {
 		},
 		{
 			testL2Advertisement: buildValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
-			expectedError:       "error: IPAddressPools setting is empty list, the list should contain at least one element",
+			expectedError:       errEmptyIPAddressPools,
 			addressPool:         []string{},
 		},
 		{
 			testL2Advertisement: buildInValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
-			expectedError:       "L2Advertisement 'nsname' cannot be empty",
+			expectedError:       errEmptyL2AdvertisementNsname,
 			addressPool:         []string{"1.1.1.1-1.1.1.2"},
 		},
 	}
@@ -353,7 +353,7 @@ func TestL2AdvertisementWithIPAddressPoolsSelectors(t *testing.T) {
 		{
 			testL2Advertisement: buildInValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
 			poolSelector:        []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
-			expectedError:       "L2Advertisement 'nsname' cannot be empty",
+			expectedError:       errEmptyL2AdvertisementNsname,
 		},
 		{
 			testL2Advertisement: buildValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
@@ -386,7 +386,7 @@ func TestL2AdvertisementWithInterfaces(t *testing.T) {
 		{
 			testL2Advertisement: buildInValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
 			interfaces:          []string{"eno1"},
-			expectedError:       "L2Advertisement 'nsname' cannot be empty",
+			expectedError:       errEmptyL2AdvertisementNsname,
 		},
 		{
 			testL2Advertisement: buildValidL2AdvertisementBuilder(buildL2AdvertisementTestClientWithDummyObject()),
@@ -423,7 +423,7 @@ func TestL2AdvertisementWithOptions(t *testing.T) {
 func TestL2AdvertisementGVR(t *testing.T) {
 	assert.Equal(t, GetIPAddressPoolGVR(),
 		schema.GroupVersionResource{
-			Group: APIGroup, Version: APIVersion, Resource: "ipaddresspools",
+			Group: APIGroup, Version: APIVersion, Resource: resourceIPAddressPools,
 		})
 }
 

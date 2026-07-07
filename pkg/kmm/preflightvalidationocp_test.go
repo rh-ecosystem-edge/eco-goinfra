@@ -43,7 +43,7 @@ func TestNewPreflightValidationOCPBuilder(t *testing.T) {
 			name:              defaultPreflightOCPName,
 			namespace:         "",
 			expectedPreflight: nil,
-			expectedErr:       "PreflightValidationOCP 'nsname' cannot be empty",
+			expectedErr:       errEmptyPreflightOCPNsname,
 		},
 		{
 			name:              "",
@@ -106,7 +106,7 @@ func TestPreflightValidationOcpWithKernelVersion(t *testing.T) {
 		},
 		{
 			kernelVersion: "",
-			expectedErr:   "invalid 'kernelVersion' argument can not be nil",
+			expectedErr:   errNilKernelVersion,
 		},
 	}
 
@@ -242,7 +242,7 @@ func TestPreflightValidationOCPCreate(t *testing.T) {
 		},
 		{
 			testPreflight: buildInValidTestPreflightOCP(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "PreflightValidationOCP 'nsname' cannot be empty",
+			expectedError: errEmptyPreflightOCPNsname,
 		},
 		{
 			testPreflight: buildValidTestPreflightOCP(buildPreflightOCPTestClientWithDummyObject()),
@@ -270,7 +270,7 @@ func TestPreflightValidationOCPUpdate(t *testing.T) {
 	}{
 		{
 			testPreflightOCP: buildInValidTestPreflightOCP(buildPreflightOCPTestClientWithDummyObject()),
-			expectedError:    fmt.Errorf("PreflightValidationOCP 'nsname' cannot be empty"),
+			expectedError:    fmt.Errorf(errEmptyPreflightOCPNsname),
 			kernelVersion:    "testKernel",
 			dtkImage:         "",
 		},
@@ -343,7 +343,7 @@ func TestPreflightValidationOCPDelete(t *testing.T) {
 		},
 		{
 			testPreflight: buildInValidTestPreflightOCP(buildPreflightOCPTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("PreflightValidationOCP 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyPreflightOCPNsname),
 		},
 		{
 			testPreflight: buildValidTestPreflightOCP(clients.GetTestClients(clients.TestClientParams{})),
@@ -372,7 +372,7 @@ func TestPreflightValidationOCPGet(t *testing.T) {
 		},
 		{
 			testPreflight: buildInValidTestPreflightOCP(buildPreflightOCPTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("PreflightValidationOCP 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyPreflightOCPNsname),
 		},
 	}
 

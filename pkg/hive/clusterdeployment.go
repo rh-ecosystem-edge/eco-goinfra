@@ -16,6 +16,15 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	kindAgentClusterInstall       = "AgentClusterInstall"
+	errEmptyName                  = "clusterdeployment 'name' cannot be empty"
+	errEmptyNamespace             = "clusterdeployment 'namespace' cannot be empty"
+	errEmptyClusterName           = "clusterdeployment 'clusterName' cannot be empty"
+	errEmptyBaseDomain            = "clusterdeployment 'baseDomain' cannot be empty"
+	errEmptyClusterInstallRefName = "clusterdeployment 'clusterInstallRef.name' cannot be empty"
+)
+
 // ClusterDeploymentBuilder provides struct for the clusterdeployment object containing connection to
 // the cluster and the clusterdeployment definitions.
 type ClusterDeploymentBuilder struct {
@@ -47,7 +56,7 @@ func NewABMClusterDeploymentBuilder(
 		hiveV1.ClusterInstallLocalReference{
 			Group:   hiveextV1Beta1.Group,
 			Version: hiveextV1Beta1.Version,
-			Kind:    "AgentClusterInstall",
+			Kind:    kindAgentClusterInstall,
 			Name:    clusterInstallRef,
 		}, hiveV1.Platform{
 			AgentBareMetal: &agent.BareMetalPlatform{
@@ -103,7 +112,7 @@ func NewClusterDeploymentByInstallRefBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the clusterdeployment is empty")
 
-		builder.errorMsg = "clusterdeployment 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -111,7 +120,7 @@ func NewClusterDeploymentByInstallRefBuilder(
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the clusterdeployment is empty")
 
-		builder.errorMsg = "clusterdeployment 'namespace' cannot be empty"
+		builder.errorMsg = errEmptyNamespace
 
 		return builder
 	}
@@ -119,7 +128,7 @@ func NewClusterDeploymentByInstallRefBuilder(
 	if clusterName == "" {
 		klog.V(100).Info("The clusterName of the clusterdeployment is empty")
 
-		builder.errorMsg = "clusterdeployment 'clusterName' cannot be empty"
+		builder.errorMsg = errEmptyClusterName
 
 		return builder
 	}
@@ -127,7 +136,7 @@ func NewClusterDeploymentByInstallRefBuilder(
 	if baseDomain == "" {
 		klog.V(100).Info("The baseDomain of the clusterdeployment is empty")
 
-		builder.errorMsg = "clusterdeployment 'baseDomain' cannot be empty"
+		builder.errorMsg = errEmptyBaseDomain
 
 		return builder
 	}
@@ -135,7 +144,7 @@ func NewClusterDeploymentByInstallRefBuilder(
 	if clusterInstallRef.Name == "" {
 		klog.V(100).Info("The clusterInstallRef name of the clusterdeployment is empty")
 
-		builder.errorMsg = "clusterdeployment 'clusterInstallRef.name' cannot be empty"
+		builder.errorMsg = errEmptyClusterInstallRefName
 
 		return builder
 	}
@@ -249,13 +258,13 @@ func PullClusterDeployment(apiClient *clients.Settings, name, nsname string) (*C
 	if name == "" {
 		klog.V(100).Info("The name of the clusterdeployment is empty")
 
-		return nil, fmt.Errorf("clusterdeployment 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyName)
 	}
 
 	if nsname == "" {
 		klog.V(100).Info("The namespace of the clusterdeployment is empty")
 
-		return nil, fmt.Errorf("clusterdeployment 'namespace' cannot be empty")
+		return nil, fmt.Errorf(errEmptyNamespace)
 	}
 
 	if !builder.Exists() {

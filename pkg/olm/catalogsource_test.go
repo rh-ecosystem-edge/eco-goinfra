@@ -26,7 +26,7 @@ func TestNewCatalogSourceBuilder(t *testing.T) {
 		client        bool
 	}{
 		{
-			name:          "catalogsource",
+			name:          resourceCatalogSource,
 			namespace:     "test-namespace",
 			client:        true,
 			expectedError: "",
@@ -38,13 +38,13 @@ func TestNewCatalogSourceBuilder(t *testing.T) {
 			expectedError: "catalogsource 'name' cannot be empty",
 		},
 		{
-			name:          "catalogsource",
+			name:          resourceCatalogSource,
 			namespace:     "",
 			client:        true,
-			expectedError: "catalogsource 'nsname' cannot be empty",
+			expectedError: errEmptyCatalogSourceNsname,
 		},
 		{
-			name:          "catalogsource",
+			name:          resourceCatalogSource,
 			namespace:     "test-namespace",
 			client:        false,
 			expectedError: "",
@@ -94,7 +94,7 @@ func TestPullCatalogSource(t *testing.T) {
 		client              bool
 	}{
 		{
-			name:                "catalogsource",
+			name:                resourceCatalogSource,
 			namespace:           "test-namespace",
 			addToRuntimeObjects: true,
 			expectedError:       nil,
@@ -108,21 +108,21 @@ func TestPullCatalogSource(t *testing.T) {
 			client:              true,
 		},
 		{
-			name:                "catalogsource",
+			name:                resourceCatalogSource,
 			namespace:           "",
 			addToRuntimeObjects: true,
 			expectedError:       fmt.Errorf("catalogsource 'namespace' cannot be empty"),
 			client:              true,
 		},
 		{
-			name:                "catalogsource",
+			name:                resourceCatalogSource,
 			namespace:           "test-namespace",
 			addToRuntimeObjects: false,
 			expectedError:       fmt.Errorf("catalogsource object catalogsource does not exist in namespace test-namespace"),
 			client:              true,
 		},
 		{
-			name:                "catalogsource",
+			name:                resourceCatalogSource,
 			namespace:           "test-namespace",
 			addToRuntimeObjects: true,
 			expectedError:       fmt.Errorf("catalogsource 'apiClient' cannot be empty"),
@@ -168,7 +168,7 @@ func TestCatalogSourceGet(t *testing.T) {
 		},
 		{
 			catalogSource: buildInValidCatalogSourceBuilder(buildTestClientWithDummyObject()),
-			expectedError: "catalogsource 'nsname' cannot be empty",
+			expectedError: errEmptyCatalogSourceNsname,
 		},
 		{
 			catalogSource: buildValidCatalogSourceBuilder(
@@ -226,7 +226,7 @@ func TestCatalogSourceCreate(t *testing.T) {
 		},
 		{
 			catalogSource: buildInValidCatalogSourceBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("catalogsource 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyCatalogSourceNsname),
 		},
 		{
 			catalogSource: buildValidCatalogSourceBuilder(
@@ -256,7 +256,7 @@ func TestCatalogSourceDelete(t *testing.T) {
 		},
 		{
 			catalogSource: buildInValidCatalogSourceBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("catalogsource 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyCatalogSourceNsname),
 		},
 		{
 			catalogSource: buildValidCatalogSourceBuilder(
@@ -290,7 +290,7 @@ func TestCatalogSourceUpdate(t *testing.T) {
 		},
 		{
 			catalogSource: buildInValidCatalogSourceBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("catalogsource 'nsname' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyCatalogSourceNsname),
 			address:       "",
 			force:         false,
 		},
@@ -317,11 +317,11 @@ func TestCatalogSourceUpdate(t *testing.T) {
 }
 
 func buildValidCatalogSourceBuilder(apiClient *clients.Settings) *CatalogSourceBuilder {
-	return NewCatalogSourceBuilder(apiClient, "catalogsource", "test-namespace")
+	return NewCatalogSourceBuilder(apiClient, resourceCatalogSource, "test-namespace")
 }
 
 func buildInValidCatalogSourceBuilder(apiClient *clients.Settings) *CatalogSourceBuilder {
-	return NewCatalogSourceBuilder(apiClient, "catalogsource", "")
+	return NewCatalogSourceBuilder(apiClient, resourceCatalogSource, "")
 }
 
 func buildTestClientWithDummyObject() *clients.Settings {
@@ -334,7 +334,7 @@ func buildTestClientWithDummyObject() *clients.Settings {
 func buildDummyCatalogSource() []runtime.Object {
 	return append([]runtime.Object{}, &oplmV1alpha1.CatalogSource{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "catalogsource",
+			Name:      resourceCatalogSource,
 			Namespace: "test-namespace",
 		},
 		Spec: oplmV1alpha1.CatalogSourceSpec{

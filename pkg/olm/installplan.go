@@ -15,6 +15,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	errEmptyInstallPlanNsname = "installplan 'nsname' cannot be empty"
+	resourceInstallPlan       = "installplan"
+)
+
 // InstallPlanBuilder provides a struct for installplan object from the cluster and an installplan definition.
 type InstallPlanBuilder struct {
 	// Installplan definition, used to create the installplan object.
@@ -66,7 +71,7 @@ func NewInstallPlanBuilder(apiClient *clients.Settings, name, nsname string) *In
 	if nsname == "" {
 		klog.V(100).Info("The nsname of the installplan is empty")
 
-		builder.errorMsg = "installplan 'nsname' cannot be empty"
+		builder.errorMsg = errEmptyInstallPlanNsname
 
 		return builder
 	}
@@ -241,7 +246,7 @@ func (builder *InstallPlanBuilder) Update() (*InstallPlanBuilder, error) {
 // validate will check that the builder and builder definition are properly initialized before
 // accessing any member fields.
 func (builder *InstallPlanBuilder) validate() (bool, error) {
-	resourceCRD := "installplan"
+	resourceCRD := resourceInstallPlan
 
 	if builder == nil {
 		klog.V(100).Infof("The builder %s is uninitialized", resourceCRD)

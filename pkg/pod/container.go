@@ -11,9 +11,14 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	capabilityNetAdmin = "NET_ADMIN"
+	netRaw             = "NET_RAW"
+)
+
 var (
 	// AllowedSCList list of allowed SecurityCapabilities.
-	AllowedSCList = []string{"NET_RAW", "NET_ADMIN", "SYS_ADMIN", "IPC_LOCK", "ALL",
+	AllowedSCList = []string{netRaw, capabilityNetAdmin, "SYS_ADMIN", "IPC_LOCK", "ALL",
 		"SETFCAP", "CAP_NET_RAW", "CAP_NET_ADMIN"}
 	falseVar               = false
 	trueVar                = true

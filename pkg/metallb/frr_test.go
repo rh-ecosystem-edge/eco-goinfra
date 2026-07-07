@@ -37,7 +37,7 @@ func TestNewFrrConfigurationBuilder(t *testing.T) {
 			name:          "",
 			namespace:     defaultFrrConfigurationNsName,
 			client:        true,
-			expectedError: "frrConfiguration 'name' cannot be empty",
+			expectedError: errEmptyFRRName,
 		},
 		{
 			name:          defaultFrrConfigurationName,
@@ -85,7 +85,7 @@ func TestFrrConfigurationCreate(t *testing.T) {
 		},
 		{
 			testFrrConfiguration: buildInValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf("frrConfiguration 'name' cannot be empty"),
+			expectedError:        fmt.Errorf(errEmptyFRRName),
 		},
 	}
 
@@ -110,7 +110,7 @@ func TestFrrConfigurationDelete(t *testing.T) {
 		},
 		{
 			testFrrConfiguration: buildInValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf("frrConfiguration 'name' cannot be empty"),
+			expectedError:        fmt.Errorf(errEmptyFRRName),
 		},
 	}
 
@@ -135,7 +135,7 @@ func TestFrrConfigurationGet(t *testing.T) {
 		},
 		{
 			testFrrConfiguration: buildInValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedError:        "frrConfiguration 'name' cannot be empty",
+			expectedError:        errEmptyFRRName,
 		},
 		{
 			testFrrConfiguration: buildValidFRRConfigurationBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -345,14 +345,14 @@ func TestFrrConfigurationWithConnectTime(t *testing.T) {
 			connectTime: &metav1.Duration{
 				Duration: 0 * time.Second,
 			},
-			expectedError: "frrConfiguration 'connectTime' value is not valid",
+			expectedError: frrconfigurationConnecttimeValueIsNotValid,
 		},
 		{
 			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
 			connectTime: &metav1.Duration{
 				Duration: 65555 * time.Second,
 			},
-			expectedError: "frrConfiguration 'connectTime' value is not valid",
+			expectedError: frrconfigurationConnecttimeValueIsNotValid,
 		},
 	}
 

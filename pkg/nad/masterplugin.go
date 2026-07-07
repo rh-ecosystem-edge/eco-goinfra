@@ -9,6 +9,11 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	cniVersion031 = "0.3.1"
+	cniTypeIpvlan = "ipvlan"
+)
+
 var (
 	// allowedMacVlanMode represents all allowed modes for macvlan plugin type.
 	allowedMacVlanMode      = []string{"bridge", "passthru", "private", "vepa"}
@@ -28,7 +33,7 @@ func NewMasterMacVlanPlugin(name string) *MasterMacVlanPlugin {
 
 	builder := &MasterMacVlanPlugin{
 		masterPlugin: &MasterPlugin{
-			CniVersion: "0.3.1",
+			CniVersion: cniVersion031,
 			Name:       name,
 			Type:       "macvlan",
 		},
@@ -149,7 +154,7 @@ func NewMasterBridgePlugin(name, bridgeName string) *MasterBridgePlugin {
 
 	builder := &MasterBridgePlugin{
 		masterPlugin: &MasterPlugin{
-			CniVersion: "0.3.1",
+			CniVersion: cniVersion031,
 			Name:       name,
 			Type:       "bridge",
 			Bridge:     bridgeName,
@@ -213,7 +218,7 @@ func NewMasterVlanPlugin(name string, vlanID uint16) *MasterVlanPlugin {
 
 	builder := &MasterVlanPlugin{
 		masterPlugin: &MasterPlugin{
-			CniVersion: "0.3.1",
+			CniVersion: cniVersion031,
 			Name:       name,
 			Type:       "vlan",
 			VlanID:     vlanID,
@@ -323,9 +328,9 @@ func NewMasterIPVlanPlugin(name string) *MasterIPVlanPlugin {
 
 	builder := &MasterIPVlanPlugin{
 		masterPlugin: &MasterPlugin{
-			CniVersion: "0.3.1",
+			CniVersion: cniVersion031,
 			Name:       name,
-			Type:       "ipvlan",
+			Type:       cniTypeIpvlan,
 		},
 	}
 
@@ -433,7 +438,7 @@ func NewMasterBondPlugin(name, mode string) *MasterBondPlugin {
 
 	builder := &MasterBondPlugin{
 		masterPlugin: &MasterPlugin{
-			CniVersion: "0.3.1",
+			CniVersion: cniVersion031,
 			Name:       name,
 			Type:       "bond",
 			Mode:       mode,
@@ -601,7 +606,7 @@ func NewMasterHostDevicePlugin(name, interfaceName string) *MasterHostDevicePlug
 
 	builder := &MasterHostDevicePlugin{
 		masterPlugin: &MasterPlugin{
-			CniVersion: "0.3.1",
+			CniVersion: cniVersion031,
 			Name:       name,
 			Type:       "host-device",
 			Device:     interfaceName,

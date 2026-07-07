@@ -304,7 +304,7 @@ func TestWithSpoof(t *testing.T) {
 		},
 		{
 			spoof:             false,
-			expectedSpoofFlag: "off",
+			expectedSpoofFlag: spoofChkOff,
 		},
 	}
 
@@ -369,11 +369,11 @@ func TestWithLinkState(t *testing.T) {
 		},
 		{
 			linkState:           "invalid",
-			expectedErrorOutput: "invalid 'linkState' parameters",
+			expectedErrorOutput: errInvalidLinkState,
 		},
 		{
 			linkState:           "",
-			expectedErrorOutput: "invalid 'linkState' parameters",
+			expectedErrorOutput: errInvalidLinkState,
 		},
 	}
 	for _, testCase := range testCases {
@@ -440,7 +440,7 @@ func TestWithTrustFlag(t *testing.T) {
 		},
 		{
 			trustFlag:         false,
-			expectedTrustFlag: "off",
+			expectedTrustFlag: spoofChkOff,
 		},
 	}
 
@@ -602,7 +602,7 @@ func TestWithTargetNamespace(t *testing.T) {
 				buildTestClientWithDummyObject(),
 			),
 			targetNs:      "",
-			expectedError: "SrIovNetwork 'targetNsname' cannot be empty",
+			expectedError: errEmptyTargetNsname,
 		},
 		{
 			networkBuilder: buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
@@ -612,7 +612,7 @@ func TestWithTargetNamespace(t *testing.T) {
 		{
 			networkBuilder: buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
 			targetNs:       "",
-			expectedError:  "SrIovNetwork 'targetNsname' cannot be empty",
+			expectedError:  errEmptyTargetNsname,
 		},
 	}
 

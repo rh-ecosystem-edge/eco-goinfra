@@ -46,7 +46,7 @@ func TestPull(t *testing.T) {
 		{
 			name:                "",
 			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("NUMAResourcesOperator 'name' cannot be empty"),
+			expectedError:       fmt.Errorf(errEmptyOperatorName),
 			client:              true,
 		},
 		{
@@ -105,7 +105,7 @@ func TestNewNROPBuilder(t *testing.T) {
 		},
 		{
 			name:          "",
-			expectedError: "NUMAResourcesOperator 'name' cannot be empty",
+			expectedError: errEmptyOperatorName,
 		},
 	}
 
@@ -159,7 +159,7 @@ func TestNROPGet(t *testing.T) {
 		},
 		{
 			testNROP:      buildInValidNROPBuilder(buildNROPClientWithDummyObject()),
-			expectedError: fmt.Errorf("NUMAResourcesOperator 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyOperatorName),
 		},
 		{
 			testNROP: buildValidNROPBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -191,7 +191,7 @@ func TestNROPCreate(t *testing.T) {
 		},
 		{
 			testNROP:      buildInValidNROPBuilder(buildNROPClientWithDummyObject()),
-			expectedError: "NUMAResourcesOperator 'name' cannot be empty",
+			expectedError: errEmptyOperatorName,
 		},
 		{
 			testNROP:      buildValidNROPBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -222,7 +222,7 @@ func TestNROPDelete(t *testing.T) {
 		},
 		{
 			testNROP:      buildInValidNROPBuilder(buildNROPClientWithDummyObject()),
-			expectedError: fmt.Errorf("NUMAResourcesOperator 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyOperatorName),
 		},
 		{
 			testNROP:      buildValidNROPBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -262,7 +262,7 @@ func TestNROPUpdate(t *testing.T) {
 		},
 		{
 			testNROP:      buildInValidNROPBuilder(buildNROPClientWithDummyObject()),
-			expectedError: "NUMAResourcesOperator 'name' cannot be empty",
+			expectedError: errEmptyOperatorName,
 			mcpSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"machineconfiguration.openshift.io/role": "mcp-name"}},
 		},

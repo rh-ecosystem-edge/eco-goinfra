@@ -19,6 +19,10 @@ import (
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyTemplateName = "provisioningRequest 'templateName' cannot be empty"
+)
+
 // ProvisioningRequestBuilder provides a struct to inferface with ProvisioningRequest resources on a specific cluster.
 type ProvisioningRequestBuilder struct {
 	// Definition of the ProvisioningRequest used to create the resource.
@@ -81,7 +85,7 @@ func NewPRBuilder(
 	if templateName == "" {
 		klog.V(100).Info("The template name of the ProvisioningRequest is empty")
 
-		builder.errorMsg = "provisioningRequest 'templateName' cannot be empty"
+		builder.errorMsg = errEmptyTemplateName
 
 		return builder
 	}

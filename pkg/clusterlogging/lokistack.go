@@ -18,6 +18,10 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyLokiStackName = "lokiStack 'name' cannot be empty"
+)
+
 // LokiStackBuilder provides struct for the lokiStack object.
 type LokiStackBuilder struct {
 	// LokiStack definition. Used to create lokiStack object with minimum set of required elements.
@@ -62,7 +66,7 @@ func NewLokiStackBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the lokiStack is empty")
 
-		builder.errorMsg = "lokiStack 'name' cannot be empty"
+		builder.errorMsg = errEmptyLokiStackName
 
 		return builder
 	}
@@ -109,7 +113,7 @@ func PullLokiStack(apiClient *clients.Settings, name, nsname string) (*LokiStack
 	if name == "" {
 		klog.V(100).Info("The name of the lokiStack is empty")
 
-		return nil, fmt.Errorf("lokiStack 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyLokiStackName)
 	}
 
 	if nsname == "" {

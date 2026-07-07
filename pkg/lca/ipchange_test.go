@@ -449,13 +449,13 @@ func TestIPConfigWaitUntilComplete(t *testing.T) {
 		{
 			expectedError: context.DeadlineExceeded,
 			status: lcaipcv1.IPConfigStatus{
-				Conditions: []metav1.Condition{{Status: "True1", Type: "ConfigCompleted", Reason: "Completed"}},
+				Conditions: []metav1.Condition{{Status: "True1", Type: conditionTypeConfigCompleted, Reason: isComplete}},
 			},
 		},
 		{
 			expectedError: nil,
 			status: lcaipcv1.IPConfigStatus{
-				Conditions: []metav1.Condition{{Status: "True", Type: "ConfigCompleted", Reason: "Completed"}},
+				Conditions: []metav1.Condition{{Status: isTrue, Type: conditionTypeConfigCompleted, Reason: isComplete}},
 			},
 		},
 	}
@@ -484,13 +484,13 @@ func TestIPConfigWaitUntilFailed(t *testing.T) {
 		{
 			expectedError: context.DeadlineExceeded,
 			status: lcaipcv1.IPConfigStatus{
-				Conditions: []metav1.Condition{{Status: "False", Type: "ConfigCompleted", Reason: "Completed"}},
+				Conditions: []metav1.Condition{{Status: "False", Type: conditionTypeConfigCompleted, Reason: isComplete}},
 			},
 		},
 		{
 			expectedError: nil,
 			status: lcaipcv1.IPConfigStatus{
-				Conditions: []metav1.Condition{{Status: "False", Type: "ConfigCompleted", Reason: "Failed"}},
+				Conditions: []metav1.Condition{{Status: "False", Type: conditionTypeConfigCompleted, Reason: "Failed"}},
 			},
 		},
 	}
@@ -519,13 +519,13 @@ func TestIPConfigWaitUntilIdle(t *testing.T) {
 		{
 			expectedError: context.DeadlineExceeded,
 			status: lcaipcv1.IPConfigStatus{
-				Conditions: []metav1.Condition{{Status: "True1", Type: "Idle", Reason: "Idle"}},
+				Conditions: []metav1.Condition{{Status: "True1", Type: idle, Reason: idle}},
 			},
 		},
 		{
 			expectedError: nil,
 			status: lcaipcv1.IPConfigStatus{
-				Conditions: []metav1.Condition{{Status: "True", Type: "Idle", Reason: "Idle"}},
+				Conditions: []metav1.Condition{{Status: isTrue, Type: idle, Reason: idle}},
 			},
 		},
 	}

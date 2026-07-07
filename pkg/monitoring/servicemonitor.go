@@ -14,6 +14,11 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errEmptyName   = "serviceMonitor 'name' cannot be empty"
+	errEmptyLabels = "labels can not be empty"
+)
+
 // Builder provides a struct for serviceMonitor object from the cluster
 // and a serviceMonitor definition.
 type Builder struct {
@@ -60,7 +65,7 @@ func NewBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the serviceMonitor is empty")
 
-		builder.errorMsg = "serviceMonitor 'name' cannot be empty"
+		builder.errorMsg = errEmptyName
 
 		return builder
 	}
@@ -107,7 +112,7 @@ func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	if name == "" {
 		klog.V(100).Info("The name of the serviceMonitor is empty")
 
-		return nil, fmt.Errorf("serviceMonitor 'name' cannot be empty")
+		return nil, fmt.Errorf(errEmptyName)
 	}
 
 	if nsname == "" {
@@ -266,9 +271,9 @@ func (builder *Builder) WithLabels(labels map[string]string) *Builder {
 	klog.V(100).Infof("Defining serviceMonitor with labels: %v", labels)
 
 	if len(labels) == 0 {
-		klog.V(100).Info("labels can not be empty")
+		klog.V(100).Info(errEmptyLabels)
 
-		builder.errorMsg = "labels can not be empty"
+		builder.errorMsg = errEmptyLabels
 
 		return builder
 	}

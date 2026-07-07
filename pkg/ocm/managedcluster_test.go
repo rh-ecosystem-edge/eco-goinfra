@@ -33,7 +33,7 @@ func TestNewManagedClusterBuilder(t *testing.T) {
 		{
 			managedClusterName: "",
 			client:             true,
-			expectedErrorText:  "managedCluster 'name' cannot be empty",
+			expectedErrorText:  errEmptyManagedClusterName,
 		},
 		{
 			managedClusterName: defaultManagedClusterName,
@@ -83,7 +83,7 @@ func TestManagedClusterWithOptions(t *testing.T) {
 			options: func(builder *ManagedClusterBuilder) (*ManagedClusterBuilder, error) {
 				return builder, nil
 			},
-			expectedErrorText: "managedCluster 'name' cannot be empty",
+			expectedErrorText: errEmptyManagedClusterName,
 		},
 		{
 			valid: true,
@@ -134,7 +134,7 @@ func TestPullManagedCluster(t *testing.T) {
 			managedClusterName:  "",
 			addToRuntimeObjects: false,
 			client:              true,
-			expectedErrorText:   "managedCluster 'name' cannot be empty",
+			expectedErrorText:   errEmptyManagedClusterName,
 		},
 		{
 			managedClusterName:  defaultManagedClusterName,
@@ -211,7 +211,7 @@ func TestManagedClusterGet(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			expectedError: "managedCluster 'name' cannot be empty",
+			expectedError: errEmptyManagedClusterName,
 		},
 		{
 			testBuilder: buildValidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme()),
@@ -264,7 +264,7 @@ func TestManagedClusterCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme()),
-			expectedError: fmt.Errorf("managedCluster 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyManagedClusterName),
 		},
 	}
 
@@ -293,7 +293,7 @@ func TestManagedClusterDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			expectedError: fmt.Errorf("managedCluster 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyManagedClusterName),
 		},
 	}
 
@@ -322,7 +322,7 @@ func TestManagedClusterDeleteAndWait(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			expectedError: fmt.Errorf("managedCluster 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyManagedClusterName),
 		},
 	}
 
@@ -396,7 +396,7 @@ func TestManagedClusterWaitForLabel(t *testing.T) {
 			exists:        true,
 			valid:         false,
 			hasLabel:      true,
-			expectedError: fmt.Errorf("managedCluster 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyManagedClusterName),
 		},
 		{
 			exists:        true,
@@ -583,7 +583,7 @@ func TestManagedClusterWaitForCondition(t *testing.T) {
 			condition: metav1.Condition{
 				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
 			},
-			expectedError: fmt.Errorf("managedCluster 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errEmptyManagedClusterName),
 		},
 		{
 			exists:       true,

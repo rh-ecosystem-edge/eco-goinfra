@@ -14,6 +14,10 @@ import (
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	resourceIPAddressPools = "ipaddresspools"
+)
+
 // IPAddressPoolBuilder provides struct for the IPAddressPool object containing connection to
 // the cluster and the IPAddressPool definitions.
 type IPAddressPoolBuilder struct {
@@ -321,7 +325,7 @@ func (builder *IPAddressPoolBuilder) WithOptions(options ...IPAddressPoolAdditio
 // GetIPAddressPoolGVR returns ipaddresspool's GroupVersionResource, which could be used for Clean function.
 func GetIPAddressPoolGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
-		Group: APIGroup, Version: APIVersion, Resource: "ipaddresspools",
+		Group: APIGroup, Version: APIVersion, Resource: resourceIPAddressPools,
 	}
 }
 
