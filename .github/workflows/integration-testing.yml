@@ -24,22 +24,22 @@ jobs:
       KUBECONFIG: '/home/runner/.kube/config'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ inputs.branch || github.sha }}
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
 
       - name: Setup cluster (k8s)
-        uses: palmsoftware/quick-k8s@v0.0.74
+        uses: palmsoftware/quick-k8s@5345f72c8712ccaf49a81ba4d1c9cf1d1d746864 # v0.0.74
         with:
           waitForPodsReady: true
 
       - name: Run integration tests
-        uses: nick-fields/retry@v4
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 90
           max_attempts: 3
