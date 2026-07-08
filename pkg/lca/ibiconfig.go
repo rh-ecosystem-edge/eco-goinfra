@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	assistedv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"
+	"gopkg.in/yaml.v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -108,6 +108,29 @@ func SeedVersionFromSeedImage(seedImage string) string {
 	return ref[lastColon+1:]
 }
 
+// marshalInstallationConfigYAML renders cfg as YAML using gopkg.in/yaml.v2.
+// JSON is used first so assisted NetConfig custom marshaling is applied.
+func marshalInstallationConfigYAML(cfg *InstallationConfig) ([]byte, error) {
+	jsonBytes, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal InstallationConfig to JSON: %w", err)
+	}
+
+	var doc any
+
+	err = yaml.Unmarshal(jsonBytes, &doc)
+	if err != nil {
+		return nil, fmt.Errorf("convert InstallationConfig JSON to YAML document: %w", err)
+	}
+
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("marshal InstallationConfig YAML: %w", err)
+	}
+
+	return out, nil
+}
+
 // WriteInstallationConfig writes image-based-installation-config.yaml to destDir.
 func WriteInstallationConfig(data InstallationConfigInput, destDir string) error {
 	klog.V(100).Infof("Generating %s in %s", ibiConfigFileName, destDir)
@@ -152,7 +175,7 @@ func WriteInstallationConfig(data InstallationConfigInput, destDir string) error
 		cfg.ExtraPartitionLabel = data.ExtraPartitionLabel
 	}
 
-	out, err := yaml.Marshal(&cfg)
+	out, err := marshalInstallationConfigYAML(&cfg)
 	if err != nil {
 		return fmt.Errorf("marshal InstallationConfig: %w", err)
 	}
