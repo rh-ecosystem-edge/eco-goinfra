@@ -7,120 +7,42 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+var openshiftAPIServerGVK = operatorv1.GroupVersion.WithKind("OpenShiftAPIServer")
+
 func TestPullOpenshiftAPIServer(t *testing.T) {
-	generateOpenShiftAPIServer := func() *operatorv1.OpenShiftAPIServer {
-		return &operatorv1.OpenShiftAPIServer{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: openshiftAPIServerObjName,
-			},
-			Spec: operatorv1.OpenShiftAPIServerSpec{},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("openshiftApiServer 'apiClient' cannot be empty"),
-			client:              false,
-		},
-		{
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("openshiftAPIServer object cluster does not exist"),
-			client:              true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		openShiftAPIServer := generateOpenShiftAPIServer()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, openShiftAPIServer)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{K8sMockObjects: runtimeObjects})
-		}
-
-		builderResult, err := PullOpenshiftAPIServer(testSettings)
-
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, "cluster", builderResult.Object.Name)
-		}
-	}
+	testhelper.NewSingletonClusterScopedPullTestConfig(
+		PullOpenshiftAPIServer,
+		operatorv1.Install,
+		openshiftAPIServerGVK,
+		openshiftAPIServerObjName,
+	).ExecuteTests(t)
 }
 
-func TestOpenshiftAPIServerGet(t *testing.T) {
-	testCases := []struct {
-		testOpenshiftAPIServerBuilder *OpenshiftAPIServerBuilder
-		expectedError                 error
-	}{
-		{
-			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(buildOpenshiftAPIServerBuilderWithDummyObject()),
-			expectedError:                 nil,
-		},
-		{
-			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
-				clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("openshiftapiservers.operator.openshift.io \"cluster\" not found"),
-		},
-	}
+func TestOpenshiftAPIServerBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testOpenshiftAPIServer, err := testCase.testOpenshiftAPIServerBuilder.Get()
+	commonConfig := testhelper.NewCommonTestConfig[operatorv1.OpenShiftAPIServer, OpenshiftAPIServerBuilder](
+		operatorv1.Install, openshiftAPIServerGVK, testhelper.ResourceScopeClusterScoped)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testOpenshiftAPIServer.Name, testCase.testOpenshiftAPIServerBuilder.Definition.Name)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestOpenshiftAPIServerExists(t *testing.T) {
-	testCases := []struct {
-		testOpenshiftAPIServerBuilder *OpenshiftAPIServerBuilder
-		expectedStatus                bool
-	}{
-		{
-			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
-				buildOpenshiftAPIServerBuilderWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
-				clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		status := testCase.testOpenshiftAPIServerBuilder.Exists()
-		assert.Equal(t, testCase.expectedStatus, status)
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		Run(t)
 }
 
 func TestOpenshiftAPIServerGetCondition(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testOpenshiftAPIServerBuilder *OpenshiftAPIServerBuilder
 		condition                     string
@@ -149,111 +71,132 @@ func TestOpenshiftAPIServerGetCondition(t *testing.T) {
 			condition:       conditionTypeAPIServerDeploymentProgressing,
 			conditionStatus: operatorv1.ConditionTrue,
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
-				clients.GetTestClients(clients.TestClientParams{})),
+				newOpenshiftAPIServerTestClient()),
 			expectedError: fmt.Errorf("cluster openshiftAPIServer not found"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		status, msg, err := testCase.testOpenshiftAPIServerBuilder.GetCondition(testCase.condition)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.condition, func(t *testing.T) {
+			t.Parallel()
 
-		if err == nil {
-			assert.Equal(t, *status, testCase.conditionStatus)
-		} else {
-			assert.Nil(t, status)
-			assert.Equal(t, "", msg)
-		}
+			status, msg, err := testCase.testOpenshiftAPIServerBuilder.GetCondition(testCase.condition)
+			assert.Equal(t, testCase.expectedError, err)
+
+			if err == nil {
+				assert.Equal(t, *status, testCase.conditionStatus)
+			} else {
+				assert.Nil(t, status)
+				assert.Equal(t, "", msg)
+			}
+		})
 	}
 }
 
 func TestOpenshiftAPIServerWaitUntilConditionTrue(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name                          string
 		testOpenshiftAPIServerBuilder *OpenshiftAPIServerBuilder
 		condition                     string
 		expectedError                 error
 	}{
 		{
+			name:      "condition becomes true",
 			condition: conditionTypeAPIServerDeploymentProgressing,
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
 				buildOpenshiftAPIServerBuilderWithDummyObject()),
 			expectedError: nil,
 		},
 		{
+			name:      "unknown condition times out",
 			condition: "Unavailable",
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
 				buildOpenshiftAPIServerBuilderWithDummyObject()),
 			expectedError: fmt.Errorf("the Unavailable condition not found exists: context deadline exceeded"),
 		},
 		{
+			name:      "empty condition type",
 			condition: "",
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
 				buildOpenshiftAPIServerBuilderWithDummyObject()),
 			expectedError: fmt.Errorf("openshiftAPIServer 'conditionType' cannot be empty"),
 		},
 		{
+			name:      "resource not found",
 			condition: conditionTypeAPIServerDeploymentProgressing,
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
-				clients.GetTestClients(clients.TestClientParams{})),
+				newOpenshiftAPIServerTestClient()),
 			expectedError: fmt.Errorf("cluster openshiftAPIServer not found"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testOpenshiftAPIServerBuilder.WaitUntilConditionTrue(testCase.condition, 1*time.Second)
-		if err != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := testCase.testOpenshiftAPIServerBuilder.WaitUntilConditionTrue(testCase.condition, 1*time.Second)
+			if testCase.expectedError != nil {
+				require.Error(t, err)
+				assert.Equal(t, testCase.expectedError.Error(), err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 
 func TestOpenshiftAPIServerWaitAllPodsAtTheLatestGeneration(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name                          string
 		testOpenshiftAPIServerBuilder *OpenshiftAPIServerBuilder
-		condition                     string
-		conditionStatus               operatorv1.ConditionStatus
 		expectedError                 error
 	}{
 		{
-			condition:                     conditionTypeAPIServerDeploymentProgressing,
-			conditionStatus:               operatorv1.ConditionTrue,
+			name:                          "all pods at latest generation",
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(buildOpenshiftAPIServerBuilderWithDummyObject()),
 			expectedError:                 nil,
 		},
 		{
-			condition:                     "Unavailable",
-			conditionStatus:               "",
-			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(buildOpenshiftAPIServerBuilderWithDummyObject()),
-			expectedError:                 fmt.Errorf("the Unavailable condition not found exists: context deadline exceeded"),
-		},
-		{
-			condition:       "",
-			conditionStatus: "",
+			name: "openshift apiserver not found",
 			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
-				buildOpenshiftAPIServerBuilderWithDummyObject()),
-			expectedError: fmt.Errorf("openshiftAPIServer 'conditionType' cannot be empty"),
-		},
-		{
-			condition:       conditionTypeNodeInstallerProgressing,
-			conditionStatus: operatorv1.ConditionTrue,
-			testOpenshiftAPIServerBuilder: buildValidOpenshiftAPIServerBuilder(
-				clients.GetTestClients(clients.TestClientParams{})),
+				newOpenshiftAPIServerTestClient()),
 			expectedError: fmt.Errorf("cluster openshiftAPIServer not found"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testOpenshiftAPIServerBuilder.WaitAllPodsAtTheLatestGeneration(1 * time.Second)
-		if err != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := testCase.testOpenshiftAPIServerBuilder.WaitAllPodsAtTheLatestGeneration(1 * time.Second)
+			if testCase.expectedError != nil {
+				require.Error(t, err)
+				assert.Equal(t, testCase.expectedError.Error(), err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 
+func newOpenshiftAPIServerTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{operatorv1.Install},
+	})
+}
+
 func buildValidOpenshiftAPIServerBuilder(apiClient *clients.Settings) *OpenshiftAPIServerBuilder {
-	return &OpenshiftAPIServerBuilder{
-		apiClient: apiClient.Client,
-		Definition: &operatorv1.OpenShiftAPIServer{
+	return common.NewClusterScopedBuilder[operatorv1.OpenShiftAPIServer, OpenshiftAPIServerBuilder](
+		apiClient, operatorv1.Install, openshiftAPIServerObjName)
+}
+
+func buildOpenshiftAPIServerBuilderWithDummyObject() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: append([]runtime.Object{}, &operatorv1.OpenShiftAPIServer{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: openshiftAPIServerObjName,
 			},
@@ -264,26 +207,7 @@ func buildValidOpenshiftAPIServerBuilder(apiClient *clients.Settings) *Openshift
 						{Type: conditionTypeAPIServerDeploymentProgressing, Status: operatorv1.ConditionTrue, Reason: conditionReasonAsExpected}},
 				},
 			},
-		},
-	}
-}
-
-func buildOpenshiftAPIServerBuilderWithDummyObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: buildDummyOpenshiftAPIServerBuilderObject()})
-}
-
-func buildDummyOpenshiftAPIServerBuilderObject() []runtime.Object {
-	return append([]runtime.Object{}, &operatorv1.OpenShiftAPIServer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: openshiftAPIServerObjName,
-		},
-		Spec: operatorv1.OpenShiftAPIServerSpec{},
-		Status: operatorv1.OpenShiftAPIServerStatus{
-			OperatorStatus: operatorv1.OperatorStatus{
-				Conditions: []operatorv1.OperatorCondition{
-					{Type: conditionTypeAPIServerDeploymentProgressing, Status: operatorv1.ConditionTrue, Reason: conditionReasonAsExpected}},
-			},
-		},
+		}),
+		SchemeAttachers: []clients.SchemeAttacher{operatorv1.Install},
 	})
 }
