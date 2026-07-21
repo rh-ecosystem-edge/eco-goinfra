@@ -195,6 +195,67 @@ func TestHFSDelete(t *testing.T) {
 	}
 }
 
+func TestHFSUpdate(t *testing.T) {
+	testCases := []struct {
+		testBuilder   *HFSBuilder
+		expectedError string
+	}{
+		{
+			testBuilder:   buildValidHFSBuilder(buildTestClientWithDummyHFS()),
+			expectedError: "",
+		},
+		{
+			testBuilder:   buildValidHFSBuilder(buildTestClientWithHFSScheme()),
+			expectedError: fmt.Sprintf("hostFirmwareSettings object %s does not exist in namespace %s", defaultHFSName, defaultHFSNamespace),
+		},
+		{
+			testBuilder: &HFSBuilder{
+				Definition: buildDummyHFS(defaultHFSName, defaultHFSNamespace),
+				apiClient:  buildTestClientWithDummyHFS().Client,
+				errorMsg:   "test error",
+			},
+			expectedError: "test error",
+		},
+	}
+
+	for _, testCase := range testCases {
+		hfsBuilder, err := testCase.testBuilder.Update()
+
+		if testCase.expectedError == "" {
+			assert.Nil(t, err)
+			assert.Equal(t, hfsBuilder.Definition.Name, hfsBuilder.Object.Name)
+			assert.Equal(t, hfsBuilder.Definition.Namespace, hfsBuilder.Object.Namespace)
+		} else {
+			assert.Nil(t, hfsBuilder)
+			assert.EqualError(t, err, testCase.expectedError)
+		}
+	}
+}
+
+func TestHFSWithSettings(t *testing.T) {
+	testBuilder := buildValidHFSBuilder(buildTestClientWithDummyHFS())
+
+	testBuilder.WithSettings(map[string]string{
+		"SecureBoot":        "Enabled",
+		"SriovGlobalEnable": "Enabled",
+	})
+
+	secureBoot := testBuilder.Definition.Spec.Settings["SecureBoot"]
+	assert.Equal(t, "Enabled", secureBoot.String())
+
+	sriovGlobal := testBuilder.Definition.Spec.Settings["SriovGlobalEnable"]
+	assert.Equal(t, "Enabled", sriovGlobal.String())
+
+	invalidBuilder := &HFSBuilder{
+		Definition: buildDummyHFS(defaultHFSName, defaultHFSNamespace),
+		errorMsg:   "test error",
+	}
+
+	result := invalidBuilder.WithSettings(map[string]string{"SecureBoot": "Enabled"})
+	assert.Equal(t, invalidBuilder, result)
+	assert.Nil(t, result.Definition.Spec.Settings)
+}
+
 // buildDummyHFS returns a HostFirmwareSettings with the provided name and namespace.
 func buildDummyHFS(name, namespace string) *bmhv1alpha1.HostFirmwareSettings {
 	return &bmhv1alpha1.HostFirmwareSettings{
