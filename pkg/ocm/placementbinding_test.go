@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	policiesv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
@@ -28,355 +30,179 @@ var (
 		APIGroup: policyOpenClusterManagementIo,
 		Kind:     kindPolicySet,
 	}
-	placementBindingTestSchemes = []clients.SchemeAttacher{
-		policiesv1.AddToScheme,
-	}
 )
 
 func TestNewPlacementBindingBuilder(t *testing.T) {
-	// No test cases for invalid refs or subjects, those have their own unit tests.
+	t.Parallel()
+
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
+
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *PlacementBindingBuilder {
+				return NewPlacementBindingBuilder(
+					apiClient, name, nsname, defaultPlacementBindingRef, defaultPlacementBindingSubject)
+			},
+			policiesv1.AddToScheme,
+			placementBindingGVK,
+		).ExecuteTests(t)
+	})
+
 	testCases := []struct {
-		placementBindingName      string
-		placementBindingNamespace string
-		placementBindingRef       policiesv1.PlacementSubject
-		placementBindingSubject   policiesv1.Subject
-		client                    bool
-		expectedErrorText         string
-	}{
-		{
-			placementBindingName:      defaultPlacementBindingName,
-			placementBindingNamespace: defaultPlacementBindingNsName,
-			placementBindingRef:       defaultPlacementBindingRef,
-			placementBindingSubject:   defaultPlacementBindingSubject,
-			client:                    true,
-			expectedErrorText:         "",
-		},
-		{
-			placementBindingName:      "",
-			placementBindingNamespace: defaultPlacementBindingNsName,
-			placementBindingRef:       defaultPlacementBindingRef,
-			placementBindingSubject:   defaultPlacementBindingSubject,
-			client:                    true,
-			expectedErrorText:         "placementBinding's 'name' cannot be empty",
-		},
-		{
-			placementBindingName:      defaultPlacementBindingName,
-			placementBindingNamespace: "",
-			placementBindingRef:       defaultPlacementBindingRef,
-			placementBindingSubject:   defaultPlacementBindingSubject,
-			client:                    true,
-			expectedErrorText:         "placementBinding's 'nsname' cannot be empty",
-		},
-		{
-			placementBindingName:      defaultPlacementBindingName,
-			placementBindingNamespace: defaultPlacementBindingNsName,
-			placementBindingRef:       defaultPlacementBindingRef,
-			placementBindingSubject:   defaultPlacementBindingSubject,
-			client:                    false,
-			expectedErrorText:         "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var client *clients.Settings
-
-		if testCase.client {
-			client = buildTestClientWithPlacementBindingScheme()
-		}
-
-		placementBindingBuilder := NewPlacementBindingBuilder(
-			client,
-			testCase.placementBindingName,
-			testCase.placementBindingNamespace,
-			testCase.placementBindingRef,
-			testCase.placementBindingSubject)
-
-		if testCase.client {
-			assert.Equal(t, testCase.expectedErrorText, placementBindingBuilder.errorMsg)
-
-			if testCase.expectedErrorText == "" {
-				assert.Equal(t, testCase.expectedErrorText, placementBindingBuilder.errorMsg)
-				assert.Equal(t, testCase.placementBindingRef, placementBindingBuilder.Definition.PlacementRef)
-				assert.Equal(t, []policiesv1.Subject{testCase.placementBindingSubject}, placementBindingBuilder.Definition.Subjects)
-			}
-		} else {
-			assert.Nil(t, placementBindingBuilder)
-		}
-	}
-}
-
-func TestPullPlacementBinding(t *testing.T) {
-	testCases := []struct {
-		placementBindingName      string
-		placementBindingNamespace string
-		addToRuntimeObjects       bool
-		client                    bool
-		expectedError             error
-	}{
-		{
-			placementBindingName:      defaultPlacementBindingName,
-			placementBindingNamespace: defaultPlacementBindingNsName,
-			addToRuntimeObjects:       true,
-			client:                    true,
-			expectedError:             nil,
-		},
-		{
-			placementBindingName:      defaultPlacementBindingName,
-			placementBindingNamespace: defaultPlacementBindingNsName,
-			addToRuntimeObjects:       false,
-			client:                    true,
-			expectedError: fmt.Errorf(
-				"placementBinding object %s does not exist in namespace %s",
-				defaultPlacementBindingName,
-				defaultPlacementBindingNsName),
-		},
-		{
-			placementBindingName:      "",
-			placementBindingNamespace: defaultPlacementBindingNsName,
-			addToRuntimeObjects:       false,
-			client:                    true,
-			expectedError:             fmt.Errorf("placementBinding's 'name' cannot be empty"),
-		},
-		{
-			placementBindingName:      defaultPlacementBindingName,
-			placementBindingNamespace: "",
-			addToRuntimeObjects:       false,
-			client:                    true,
-			expectedError:             fmt.Errorf("placementBinding's 'namespace' cannot be empty"),
-		},
-		{
-			placementBindingName:      defaultPlacementBindingName,
-			placementBindingNamespace: defaultPlacementBindingNsName,
-			addToRuntimeObjects:       false,
-			client:                    false,
-			expectedError:             fmt.Errorf("placementBinding's 'apiClient' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testPlacementBinding := buildDummyPlacementBinding(testCase.placementBindingName, testCase.placementBindingNamespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testPlacementBinding)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: placementBindingTestSchemes,
-			})
-		}
-
-		placementBindingBuilder, err := PullPlacementBinding(
-			testSettings, testPlacementBinding.Name, testPlacementBinding.Namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testPlacementBinding.Name, placementBindingBuilder.Object.Name)
-			assert.Equal(t, testPlacementBinding.Namespace, placementBindingBuilder.Object.Namespace)
-		}
-	}
-}
-
-func TestPlacementBindingExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *PlacementBindingBuilder
-		exists      bool
-	}{
-		{
-			testBuilder: buildValidPlacementBindingTestBuilder(buildTestClientWithDummyPlacementBinding()),
-			exists:      true,
-		},
-		{
-			testBuilder: buildInvalidPlacementBindingTestBuilder(buildTestClientWithDummyPlacementBinding()),
-			exists:      false,
-		},
-		{
-			testBuilder: buildValidPlacementBindingTestBuilder(buildTestClientWithPlacementBindingScheme()),
-			exists:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
-}
-
-func TestPlacementBindingGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder              *PlacementBindingBuilder
-		expectedPlacementBinding *policiesv1.PlacementBinding
-	}{
-		{
-			testBuilder:              buildValidPlacementBindingTestBuilder(buildTestClientWithDummyPlacementBinding()),
-			expectedPlacementBinding: buildDummyPlacementBinding(defaultPlacementBindingName, defaultPlacementBindingNsName),
-		},
-		{
-			testBuilder:              buildValidPlacementBindingTestBuilder(buildTestClientWithPlacementBindingScheme()),
-			expectedPlacementBinding: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		placementBinding, err := testCase.testBuilder.Get()
-
-		if testCase.expectedPlacementBinding == nil {
-			assert.Nil(t, placementBinding)
-			assert.True(t, k8serrors.IsNotFound(err))
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.expectedPlacementBinding.Name, placementBinding.Name)
-			assert.Equal(t, testCase.expectedPlacementBinding.Namespace, placementBinding.Namespace)
-		}
-	}
-}
-
-func TestPlacementBindingCreate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *PlacementBindingBuilder
+		name          string
+		placementRef  policiesv1.PlacementSubject
+		subject       policiesv1.Subject
 		expectedError error
 	}{
 		{
-			testBuilder:   buildValidPlacementBindingTestBuilder(buildTestClientWithPlacementBindingScheme()),
+			name:          "valid refs",
+			placementRef:  defaultPlacementBindingRef,
+			subject:       defaultPlacementBindingSubject,
 			expectedError: nil,
 		},
 		{
-			testBuilder:   buildInvalidPlacementBindingTestBuilder(buildTestClientWithPlacementBindingScheme()),
-			expectedError: fmt.Errorf("placementBinding's 'nsname' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		placementBindingBuilder, err := testCase.testBuilder.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, placementBindingBuilder.Definition, placementBindingBuilder.Object)
-		}
-	}
-}
-
-func TestPlacementBindingDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *PlacementBindingBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidPlacementBindingTestBuilder(buildTestClientWithDummyPlacementBinding()),
-			expectedError: nil,
+			name: "invalid placement ref",
+			placementRef: policiesv1.PlacementSubject{
+				Name:     defaultPlacementRuleName,
+				APIGroup: "",
+				Kind:     kindPlacementRule,
+			},
+			subject:       defaultPlacementBindingSubject,
+			expectedError: fmt.Errorf("placementBinding's 'PlacementRef.APIGroup' must be a valid option"),
 		},
 		{
-			testBuilder:   buildInvalidPlacementBindingTestBuilder(buildTestClientWithDummyPlacementBinding()),
-			expectedError: fmt.Errorf("placementBinding's 'nsname' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
-	}
-}
-
-func TestPlacementBindingUpdate(t *testing.T) {
-	testCases := []struct {
-		alreadyExists bool
-		force         bool
-	}{
-		{
-			alreadyExists: false,
-			force:         false,
-		},
-		{
-			alreadyExists: true,
-			force:         false,
-		},
-		{
-			alreadyExists: false,
-			force:         true,
-		},
-		{
-			alreadyExists: true,
-			force:         true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidPlacementBindingTestBuilder(buildTestClientWithPlacementBindingScheme())
-
-		// Create the builder rather than just adding it to the client so that the proper metadata is added and
-		// the update will not fail.
-		if testCase.alreadyExists {
-			var err error
-
-			testBuilder = buildValidPlacementBindingTestBuilder(buildTestClientWithPlacementBindingScheme())
-			testBuilder, err = testBuilder.Create()
-			assert.Nil(t, err)
-		}
-
-		assert.NotNil(t, testBuilder.Definition)
-		assert.Empty(t, testBuilder.Definition.SubFilter)
-
-		testBuilder.Definition.SubFilter = "restricted"
-
-		placementBindingBuilder, err := testBuilder.Update(testCase.force)
-		assert.NotNil(t, testBuilder.Definition)
-
-		if testCase.alreadyExists {
-			assert.Nil(t, err)
-			assert.Equal(t, testBuilder.Definition.Name, placementBindingBuilder.Definition.Name)
-			assert.Equal(t, testBuilder.Definition.SubFilter, placementBindingBuilder.Definition.SubFilter)
-		} else {
-			assert.NotNil(t, err)
-		}
-	}
-}
-
-func TestWithAdditionalSubject(t *testing.T) {
-	testCases := []struct {
-		subject           policiesv1.Subject
-		expectedErrorText string
-	}{
-		{
-			subject:           defaultPlacementBindingSubject,
-			expectedErrorText: "",
-		},
-		{
+			name:         "invalid subject",
+			placementRef: defaultPlacementBindingRef,
 			subject: policiesv1.Subject{
 				Name:     "",
 				APIGroup: policyOpenClusterManagementIo,
 				Kind:     kindPolicySet,
 			},
-			expectedErrorText: errEmptySubjectName,
+			expectedError: fmt.Errorf(errEmptySubjectName),
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithPlacementBindingScheme()
-		placementBindingBuilder := buildValidPlacementBindingTestBuilder(testSettings).WithAdditionalSubject(testCase.subject)
-		assert.Equal(t, testCase.expectedErrorText, placementBindingBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(
-				t,
-				[]policiesv1.Subject{defaultPlacementBindingSubject, testCase.subject},
-				placementBindingBuilder.Definition.Subjects)
-		} else {
-			assert.Equal(t, []policiesv1.Subject{defaultPlacementBindingSubject}, placementBindingBuilder.Definition.Subjects)
-		}
+			testBuilder := NewPlacementBindingBuilder(
+				clients.GetTestClients(clients.TestClientParams{
+					SchemeAttachers: []clients.SchemeAttacher{policiesv1.AddToScheme},
+				}),
+				defaultPlacementBindingName,
+				defaultPlacementBindingNsName,
+				testCase.placementRef,
+				testCase.subject,
+			)
+
+			assert.Equal(t, testCase.expectedError, testBuilder.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, testCase.placementRef, testBuilder.Definition.PlacementRef)
+				assert.Equal(t, []policiesv1.Subject{testCase.subject}, testBuilder.Definition.Subjects)
+			}
+		})
+	}
+}
+
+func TestPullPlacementBinding(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig(
+		PullPlacementBinding, policiesv1.AddToScheme, placementBindingGVK).ExecuteTests(t)
+}
+
+func TestPlacementBindingBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[policiesv1.PlacementBinding, PlacementBindingBuilder](
+		policiesv1.AddToScheme,
+		placementBindingGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
+}
+
+func TestPlacementBindingWithAdditionalSubject(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		subject       policiesv1.Subject
+		valid         bool
+		expectedError error
+	}{
+		{
+			name:    "valid subject",
+			subject: defaultPlacementBindingSubject,
+			valid:   true,
+		},
+		{
+			name: "empty subject name",
+			subject: policiesv1.Subject{
+				Name:     "",
+				APIGroup: policyOpenClusterManagementIo,
+				Kind:     kindPolicySet,
+			},
+			valid:         true,
+			expectedError: fmt.Errorf(errEmptySubjectName),
+		},
+		{
+			name:    "invalid builder",
+			subject: defaultPlacementBindingSubject,
+			valid:   false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var placementBindingBuilder *PlacementBindingBuilder
+			if testCase.valid {
+				placementBindingBuilder = buildValidPlacementBindingTestBuilder(buildTestClientWithPlacementBindingScheme())
+			} else {
+				placementBindingBuilder = buildInvalidPlacementBindingTestBuilder(buildTestClientWithPlacementBindingScheme())
+			}
+
+			placementBindingBuilder = placementBindingBuilder.WithAdditionalSubject(testCase.subject)
+
+			switch testCase.name {
+			case "invalid builder":
+				require.Error(t, placementBindingBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(placementBindingBuilder.GetError()))
+			default:
+				assert.Equal(t, testCase.expectedError, placementBindingBuilder.GetError())
+
+				if testCase.expectedError == nil {
+					assert.Equal(
+						t,
+						[]policiesv1.Subject{defaultPlacementBindingSubject, testCase.subject},
+						placementBindingBuilder.Definition.Subjects,
+					)
+				} else {
+					assert.Equal(
+						t,
+						[]policiesv1.Subject{defaultPlacementBindingSubject},
+						placementBindingBuilder.Definition.Subjects,
+					)
+				}
+			}
+		})
 	}
 }
 
 func TestValidatePlacementRef(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		ref               policiesv1.PlacementSubject
 		expectedErrorText string
@@ -412,12 +238,18 @@ func TestValidatePlacementRef(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		err := validatePlacementRef(testCase.ref)
-		assert.Equal(t, testCase.expectedErrorText, err)
+		t.Run(testCase.expectedErrorText, func(t *testing.T) {
+			t.Parallel()
+
+			err := validatePlacementRef(testCase.ref)
+			assert.Equal(t, testCase.expectedErrorText, err)
+		})
 	}
 }
 
 func TestValidateSubject(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		subject           policiesv1.Subject
 		expectedErrorText string
@@ -453,84 +285,12 @@ func TestValidateSubject(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		err := validateSubject(testCase.subject)
-		assert.Equal(t, testCase.expectedErrorText, err)
-	}
-}
+		t.Run(testCase.expectedErrorText, func(t *testing.T) {
+			t.Parallel()
 
-func TestPlacementBindingValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil      bool
-		definitionNil   bool
-		apiClientNil    bool
-		builderErrorMsg string
-		expectedError   error
-	}{
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   nil,
-		},
-		{
-			builderNil:      true,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("error: received nil PlacementBinding builder"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   true,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("can not redefine the undefined PlacementBinding"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    true,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("PlacementBinding builder cannot have nil apiClient"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "test error",
-			expectedError:   fmt.Errorf("test error"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		placementBindingBuilder := buildValidPlacementBindingTestBuilder(buildTestClientWithPlacementBindingScheme())
-
-		if testCase.builderNil {
-			placementBindingBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			placementBindingBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			placementBindingBuilder.apiClient = nil
-		}
-
-		if testCase.builderErrorMsg != "" {
-			placementBindingBuilder.errorMsg = testCase.builderErrorMsg
-		}
-
-		valid, err := placementBindingBuilder.validate()
-
-		if testCase.expectedError != nil {
-			assert.False(t, valid)
-			assert.Equal(t, testCase.expectedError, err)
-		} else {
-			assert.True(t, valid)
-			assert.Nil(t, err)
-		}
+			err := validateSubject(testCase.subject)
+			assert.Equal(t, testCase.expectedErrorText, err)
+		})
 	}
 }
 
@@ -552,14 +312,18 @@ func buildTestClientWithDummyPlacementBinding() *clients.Settings {
 		K8sMockObjects: []runtime.Object{
 			buildDummyPlacementBinding(defaultPlacementBindingName, defaultPlacementBindingNsName),
 		},
-		SchemeAttachers: placementBindingTestSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{
+			policiesv1.AddToScheme,
+		},
 	})
 }
 
 // buildTestClientWithPlacementBindingScheme returns a client with no objects but the PlacementBinding scheme attached.
 func buildTestClientWithPlacementBindingScheme() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		SchemeAttachers: placementBindingTestSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{
+			policiesv1.AddToScheme,
+		},
 	})
 }
 
