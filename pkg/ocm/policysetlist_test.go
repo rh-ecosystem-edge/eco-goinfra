@@ -5,38 +5,36 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/labels"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestListPolicieSetsInAllNamespaces(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		policySets    []*PolicySetBuilder
+		name          string
 		listOptions   []runtimeclient.ListOptions
 		expectedError error
 		client        bool
 	}{
 		{
-			policySets: []*PolicySetBuilder{
-				buildValidPolicySetTestBuilder(buildTestClientWithDummyPolicySet()),
-			},
+			name:          "list all",
 			listOptions:   nil,
 			expectedError: nil,
 			client:        true,
 		},
 		{
-			policySets: []*PolicySetBuilder{
-				buildValidPolicySetTestBuilder(buildTestClientWithDummyPolicySet()),
-			},
+			name:          "list with options",
 			listOptions:   []runtimeclient.ListOptions{{LabelSelector: labels.NewSelector()}},
 			expectedError: nil,
 			client:        true,
 		},
 		{
-			policySets: []*PolicySetBuilder{
-				buildValidPolicySetTestBuilder(buildTestClientWithDummyPolicySet()),
-			},
+			name: "too many list options",
 			listOptions: []runtimeclient.ListOptions{
 				{LabelSelector: labels.NewSelector()},
 				{LabelSelector: labels.NewSelector()},
@@ -45,27 +43,39 @@ func TestListPolicieSetsInAllNamespaces(t *testing.T) {
 			client:        true,
 		},
 		{
-			policySets: []*PolicySetBuilder{
-				buildValidPolicySetTestBuilder(buildTestClientWithDummyPolicySet()),
-			},
+			name:          "nil client",
 			listOptions:   []runtimeclient.ListOptions{{LabelSelector: labels.NewSelector()}},
-			expectedError: fmt.Errorf("failed to list policySets, 'apiClient' parameter is nil"),
+			expectedError: fmt.Errorf("apiClient for PolicySet is nil"),
 			client:        false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			testSettings = buildTestClientWithDummyPolicySet()
-		}
+			var testSettings *clients.Settings
 
-		builders, err := ListPolicieSetsInAllNamespaces(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+			if testCase.client {
+				testSettings = buildTestClientWithDummyPolicySet()
+			}
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.policySets), len(builders))
-		}
+			builders, err := ListPolicieSetsInAllNamespaces(testSettings, testCase.listOptions...)
+
+			switch {
+			case testCase.name == "nil client":
+				require.Error(t, err)
+				assert.True(t, commonerrors.IsAPIClientNil(err))
+				assert.Nil(t, builders)
+			case testCase.expectedError != nil:
+				assert.Equal(t, testCase.expectedError, err)
+			default:
+				assert.NoError(t, err)
+
+				if len(testCase.listOptions) == 0 {
+					assert.Len(t, builders, 1)
+				}
+			}
+		})
 	}
 }
