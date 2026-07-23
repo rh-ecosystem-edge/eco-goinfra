@@ -2,7 +2,6 @@ package ocm
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
@@ -14,10 +13,6 @@ import (
 func ListPlacementBindingsInAllNamespaces(apiClient *clients.Settings,
 	options ...runtimeclient.ListOptions) (
 	[]*PlacementBindingBuilder, error) {
-	if len(options) > 1 {
-		return nil, fmt.Errorf("error: more than one ListOptions was passed")
-	}
-
 	return common.List[policiesv1.PlacementBinding, policiesv1.PlacementBindingList, PlacementBindingBuilder](
 		context.TODO(), apiClient, policiesv1.AddToScheme, common.ConvertListOptionsToOptions(options)...)
 }

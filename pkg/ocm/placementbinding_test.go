@@ -9,8 +9,6 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	policiesv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
 )
 
@@ -292,30 +290,6 @@ func TestValidateSubject(t *testing.T) {
 			assert.Equal(t, testCase.expectedErrorText, err)
 		})
 	}
-}
-
-// buildDummyPlacementBinding returns a PlacementBinding with the provided name and namespace.
-func buildDummyPlacementBinding(name, nsname string) *policiesv1.PlacementBinding {
-	return &policiesv1.PlacementBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nsname,
-		},
-		PlacementRef: defaultPlacementBindingRef,
-		Subjects:     []policiesv1.Subject{defaultPlacementBindingSubject},
-	}
-}
-
-// buildTestClientWithDummyPlacementBinding returns a client with a mock dummy PlacementBinding.
-func buildTestClientWithDummyPlacementBinding() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyPlacementBinding(defaultPlacementBindingName, defaultPlacementBindingNsName),
-		},
-		SchemeAttachers: []clients.SchemeAttacher{
-			policiesv1.AddToScheme,
-		},
-	})
 }
 
 // buildTestClientWithPlacementBindingScheme returns a client with no objects but the PlacementBinding scheme attached.

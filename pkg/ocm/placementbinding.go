@@ -2,7 +2,7 @@ package ocm
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
@@ -58,13 +58,13 @@ func NewPlacementBindingBuilder(
 	}
 
 	if placementRefErr := validatePlacementRef(placementRef); placementRefErr != "" {
-		builder.SetError(fmt.Errorf("%s", placementRefErr))
+		builder.SetError(errors.New(placementRefErr))
 
 		return builder
 	}
 
 	if subjectErr := validateSubject(subject); subjectErr != "" {
-		builder.SetError(fmt.Errorf("%s", subjectErr))
+		builder.SetError(errors.New(subjectErr))
 
 		return builder
 	}
@@ -90,7 +90,7 @@ func (builder *PlacementBindingBuilder) WithAdditionalSubject(subject policiesv1
 	klog.V(100).Infof("Adding Subject %s to PlacementBinding %s", subject.Name, builder.Definition.Name)
 
 	if err := validateSubject(subject); err != "" {
-		builder.SetError(fmt.Errorf("%s", err))
+		builder.SetError(errors.New(err))
 
 		return builder
 	}
@@ -100,8 +100,8 @@ func (builder *PlacementBindingBuilder) WithAdditionalSubject(subject policiesv1
 	return builder
 }
 
-// validatePlacementRef validates all the fields of the PlacementRef and returns an errorMsg based on the validation.
-// The errorMsg will be empty for valid Subjects.
+// validatePlacementRef validates all the fields of the PlacementRef and returns an error message based on the
+// validation. The message will be empty for valid placement refs.
 func validatePlacementRef(placementRef policiesv1.PlacementSubject) string {
 	apiGroup := placementRef.APIGroup
 	if apiGroup != appsOpenClusterManagementIo && apiGroup != "cluster.open-cluster-management.io" {
@@ -126,8 +126,8 @@ func validatePlacementRef(placementRef policiesv1.PlacementSubject) string {
 	return ""
 }
 
-// validateSubject validates the fields of the Subject and returns an errorMsg based on the validation. The errorMsg
-// will be empty for valid Subjects.
+// validateSubject validates the fields of the Subject and returns an error message based on the validation. The message
+// will be empty for valid subjects.
 func validateSubject(subject policiesv1.Subject) string {
 	if subject.APIGroup != policyOpenClusterManagementIo {
 		klog.V(100).Info("The APIGroup of the PlacementBinding subject is invalid")
