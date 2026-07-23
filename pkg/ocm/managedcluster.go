@@ -98,7 +98,7 @@ func (builder *ManagedClusterBuilder) WaitForLabel(
 		return nil, err
 	}
 
-	klog.V(100).Infof("Waiting up to %s until ManageddCluster %s has label %s", timeout, builder.Definition.Name, label)
+	klog.V(100).Infof("Waiting up to %s until ManagedCluster %s has label %s", timeout, builder.Definition.Name, label)
 
 	if !builder.Exists() {
 		klog.V(100).Infof("ManagedCluster %s does not exist", builder.Definition.Name)
