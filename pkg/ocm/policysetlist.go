@@ -2,7 +2,6 @@ package ocm
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
@@ -14,10 +13,6 @@ import (
 func ListPolicieSetsInAllNamespaces(apiClient *clients.Settings,
 	options ...runtimeclient.ListOptions) (
 	[]*PolicySetBuilder, error) {
-	if len(options) > 1 {
-		return nil, fmt.Errorf("error: more than one ListOptions was passed")
-	}
-
 	return common.List[policiesv1beta1.PolicySet, policiesv1beta1.PolicySetList, PolicySetBuilder](
 		context.TODO(), apiClient, policiesv1beta1.AddToScheme, common.ConvertListOptionsToOptions(options)...)
 }

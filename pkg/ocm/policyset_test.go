@@ -9,8 +9,6 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	policiesv1beta1 "open-cluster-management.io/governance-policy-propagator/api/v1beta1"
 )
 
@@ -162,28 +160,6 @@ func TestPolicySetWithAdditionalPolicy(t *testing.T) {
 			}
 		})
 	}
-}
-
-// buildDummyPolicySet returns a PolicySet with the provided name and namespace.
-func buildDummyPolicySet(name, nsname string) *policiesv1beta1.PolicySet {
-	return &policiesv1beta1.PolicySet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nsname,
-		},
-	}
-}
-
-// buildTestClientWithDummyPolicySet returns a client with a mock dummy PolicySet.
-func buildTestClientWithDummyPolicySet() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyPolicySet(defaultPolicySetName, defaultPolicySetNsName),
-		},
-		SchemeAttachers: []clients.SchemeAttacher{
-			policiesv1beta1.AddToScheme,
-		},
-	})
 }
 
 // buildTestClientWithPolicySetScheme returns a client with no objects but the PolicySet scheme attached.
