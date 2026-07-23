@@ -19,10 +19,6 @@ import (
 func ListPoliciesInAllNamespaces(apiClient *clients.Settings,
 	options ...runtimeclient.ListOptions) (
 	[]*PolicyBuilder, error) {
-	if len(options) > 1 {
-		return nil, fmt.Errorf("error: more than one ListOptions was passed")
-	}
-
 	return common.List[policiesv1.Policy, policiesv1.PolicyList, PolicyBuilder](
 		context.TODO(), apiClient, policiesv1.AddToScheme, common.ConvertListOptionsToOptions(options)...)
 }
@@ -34,10 +30,6 @@ func WaitForAllPoliciesComplianceState(
 	complianceState policiesv1.ComplianceState,
 	timeout time.Duration,
 	options ...runtimeclient.ListOptions) error {
-	if len(options) > 1 {
-		return fmt.Errorf("error: more than one ListOptions was passed")
-	}
-
 	if apiClient == nil {
 		klog.V(100).Info("Policies 'apiClient' parameter cannot be nil")
 
@@ -45,8 +37,8 @@ func WaitForAllPoliciesComplianceState(
 	}
 
 	logMessage := fmt.Sprintf("Waiting up to %s until policies have compliance state %s", timeout, complianceState)
-	if len(options) == 1 {
-		logMessage += fmt.Sprintf(", listing with the options %v", options[0])
+	if len(options) > 0 {
+		logMessage += fmt.Sprintf(", listing with the options %v", options)
 	}
 
 	klog.V(100).Info(logMessage)
