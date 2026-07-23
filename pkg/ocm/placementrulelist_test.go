@@ -1,81 +1,18 @@
 package ocm
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/labels"
-	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	placementrulev1 "open-cluster-management.io/multicloud-operators-subscription/pkg/apis/apps/placementrule/v1"
 )
 
 func TestListPlacementrulesInAllNamespaces(t *testing.T) {
 	t.Parallel()
 
-	testCases := []struct {
-		name          string
-		listOptions   []runtimeclient.ListOptions
-		expectedError error
-		client        bool
-	}{
-		{
-			name:          "list all",
-			listOptions:   nil,
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			name:          "list with options",
-			listOptions:   []runtimeclient.ListOptions{{LabelSelector: labels.NewSelector()}},
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			name: "too many list options",
-			listOptions: []runtimeclient.ListOptions{
-				{LabelSelector: labels.NewSelector()},
-				{LabelSelector: labels.NewSelector()},
-			},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
-		},
-		{
-			name:          "nil client",
-			listOptions:   []runtimeclient.ListOptions{{LabelSelector: labels.NewSelector()}},
-			expectedError: fmt.Errorf("apiClient for PlacementRule is nil"),
-			client:        false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
-			var testSettings *clients.Settings
-
-			if testCase.client {
-				testSettings = buildTestClientWithDummyPlacementRule()
-			}
-
-			builders, err := ListPlacementrulesInAllNamespaces(testSettings, testCase.listOptions...)
-
-			switch {
-			case testCase.name == "nil client":
-				require.Error(t, err)
-				assert.True(t, commonerrors.IsAPIClientNil(err))
-				assert.Nil(t, builders)
-			case testCase.expectedError != nil:
-				assert.Equal(t, testCase.expectedError, err)
-			default:
-				assert.NoError(t, err)
-
-				if len(testCase.listOptions) == 0 {
-					assert.Len(t, builders, 1)
-				}
-			}
-		})
-	}
+	testhelper.NewListTestConfig(
+		ListPlacementrulesInAllNamespaces,
+		placementrulev1.AddToScheme,
+		placementRuleGVK,
+	).ExecuteTests(t)
 }
