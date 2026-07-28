@@ -551,6 +551,7 @@ func TestBGPPeerWithDisableMP(t *testing.T) {
 		assert.Equal(t, testCase.expectedError, bgpPeerBuilder.errorMsg)
 
 		if testCase.expectedError == "" {
+			//nolint:staticcheck // DisableMP is deprecated, keep for backward compatibility.
 			assert.Equal(t, testCase.disableMP, bgpPeerBuilder.Definition.Spec.DisableMP)
 		}
 	}
