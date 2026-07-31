@@ -481,7 +481,9 @@ github.com/openshift-kni/lifecycle-agent/api/seedgenerator/v1
 github.com/openshift-kni/numaresources-operator/api/v1
 # github.com/openshift-kni/oran-o2ims v0.0.0-20260707122918-22ed0a55833b
 ## explicit; go 1.25.9
+github.com/openshift-kni/oran-o2ims/api/common
 github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1
+github.com/openshift-kni/oran-o2ims/api/inventory/v1alpha1
 github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1
 github.com/openshift-kni/oran-o2ims/internal/constants
 github.com/openshift-kni/oran-o2ims/internal/validation
