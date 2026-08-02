@@ -763,6 +763,71 @@ func TestPodExecCommandWithTimeoutContainerSelection(t *testing.T) {
 	}
 }
 
+// TestPodExecCommandWithOptions tests the ExecCommandWithOptions method validation and option handling.
+func TestPodExecCommandWithOptions(t *testing.T) {
+	testCases := []struct {
+		name          string
+		command       []string
+		opts          []ExecOption
+		testBuilder   *Builder
+		expectedError string
+	}{
+		{
+			name:          "invalid pod builder",
+			command:       []string{"echo", "test"},
+			testBuilder:   buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
+			expectedError: "pod 'namespace' cannot be empty",
+		},
+		{
+			name:          "pod does not exist",
+			command:       []string{"echo", "test"},
+			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			expectedError: "does not exist in namespace",
+		},
+		{
+			name:          "without tty",
+			command:       []string{"echo", "test"},
+			opts:          []ExecOption{WithoutTTY()},
+			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			expectedError: "does not exist in namespace",
+		},
+		{
+			name:          "with timeout",
+			command:       []string{"echo", "test"},
+			opts:          []ExecOption{WithTimeout(5 * time.Second)},
+			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			expectedError: "does not exist in namespace",
+		},
+		{
+			name:          "with container",
+			command:       []string{"echo", "test"},
+			opts:          []ExecOption{WithContainer("custom-container")},
+			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			expectedError: "does not exist in namespace",
+		},
+		{
+			name:    "combined options",
+			command: []string{"echo", "test"},
+			opts: []ExecOption{
+				WithContainer("custom-container"),
+				WithTimeout(5 * time.Second),
+				WithoutTTY(),
+			},
+			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			expectedError: "does not exist in namespace",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			buffer, err := testCase.testBuilder.ExecCommandWithOptions(testCase.command, testCase.opts...)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), testCase.expectedError)
+			assert.Empty(t, buffer.String())
+		})
+	}
+}
+
 func testPodDeleteHelper(t *testing.T, deleteFunc func(builder *Builder) (*Builder, error)) {
 	t.Helper()
 
