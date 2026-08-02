@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/stmcginnis/gofish/redfish"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/ssh"
 )
 
 //go:embed testdata/redfish_v1.json
@@ -117,6 +119,8 @@ func TestBMCNew(t *testing.T) {
 
 			if testCase.expectedErrMsg == "" {
 				assert.Equal(t, testCase.host, bmc.host)
+				assert.True(t, bmc.insecureSkipVerify)
+				assert.Nil(t, bmc.sshHostKeyCallback)
 			}
 		})
 	}
@@ -375,6 +379,147 @@ func TestBMCWithSSHTimeout(t *testing.T) {
 
 			if testCase.expectedErrMsg == "" {
 				assert.Equal(t, testCase.timeout, bmc.timeOuts.Redfish)
+			}
+		})
+	}
+}
+
+func TestBMCWithInsecureConnections(t *testing.T) {
+	testCases := []struct {
+		name     string
+		insecure bool
+	}{
+		{
+			name:     "insecure connections enabled",
+			insecure: true,
+		},
+		{
+			name:     "insecure connections disabled",
+			insecure: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			bmc := New(defaultHost).WithInsecureConnections(testCase.insecure)
+
+			assert.Equal(t, testCase.insecure, bmc.insecureSkipVerify)
+		})
+	}
+}
+
+func TestBMCWithSSHHostKeyCallback(t *testing.T) {
+	customCallback := ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		return nil
+	})
+
+	testCases := []struct {
+		name                 string
+		callback             ssh.HostKeyCallback
+		expectCallbackStored bool
+	}{
+		{
+			name:                 "nil callback",
+			callback:             nil,
+			expectCallbackStored: false,
+		},
+		{
+			name:                 "custom callback",
+			callback:             customCallback,
+			expectCallbackStored: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			bmc := New(defaultHost).WithSSHHostKeyCallback(testCase.callback)
+
+			if testCase.expectCallbackStored {
+				assert.NotNil(t, bmc.sshHostKeyCallback)
+			} else {
+				assert.Nil(t, bmc.sshHostKeyCallback)
+			}
+		})
+	}
+}
+
+func TestBMCSSHClientConfigHostKeyCallback(t *testing.T) {
+	customCallback := ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		return nil
+	})
+
+	testCases := []struct {
+		name                 string
+		callback             ssh.HostKeyCallback
+		expectCallbackStored bool
+	}{
+		{
+			name:                 "default callback when none configured",
+			callback:             nil,
+			expectCallbackStored: false,
+		},
+		{
+			name:                 "custom callback when configured",
+			callback:             customCallback,
+			expectCallbackStored: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			bmc := New(defaultHost).
+				WithSSHUser(defaultUsername, defaultPassword).
+				WithSSHHostKeyCallback(testCase.callback)
+
+			config, err := bmc.sshClientConfig()
+			assert.NoError(t, err)
+			assert.NotNil(t, config.HostKeyCallback)
+
+			if testCase.expectCallbackStored {
+				assert.NotNil(t, bmc.sshHostKeyCallback)
+			} else {
+				assert.Nil(t, bmc.sshHostKeyCallback)
+			}
+		})
+	}
+}
+
+func TestRedfishConnectTLSVerification(t *testing.T) {
+	redfishServer := createFakeRedfishLocalServer(false, redfishAPIResponseCallbacks{})
+	defer redfishServer.Close()
+
+	host := strings.Split(redfishServer.URL, "//")[1]
+
+	testCases := []struct {
+		name          string
+		insecure      bool
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:     "insecure connections succeed",
+			insecure: true,
+		},
+		{
+			name:          "secure connections reject self-signed certificate",
+			insecure:      false,
+			expectError:   true,
+			errorContains: "x509",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			bmc := New(host).
+				WithRedfishUser(defaultUsername, defaultPassword).
+				WithInsecureConnections(testCase.insecure)
+
+			_, err := bmc.SystemManufacturer()
+			if testCase.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), testCase.errorContains)
+			} else {
+				assert.NoError(t, err)
 			}
 		})
 	}
