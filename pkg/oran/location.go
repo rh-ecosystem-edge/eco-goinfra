@@ -53,6 +53,26 @@ func ListLocations(apiClient *clients.Settings, options ...runtimeclient.ListOpt
 		context.TODO(), apiClient, inventoryv1alpha1.AddToScheme, options...)
 }
 
+// ListReadyLocations returns all Location CRs across all namespaces that are ready. It relies on the IsResourceReady
+// function from the inventoryv1alpha1 package to determine if the Location is ready.
+func ListReadyLocations(apiClient *clients.Settings, options ...runtimeclient.ListOption) ([]*LocationBuilder, error) {
+	locationBuilders, err := common.List[inventoryv1alpha1.Location, inventoryv1alpha1.LocationList, LocationBuilder](
+		context.TODO(), apiClient, inventoryv1alpha1.AddToScheme, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	readyLocationBuilders := make([]*LocationBuilder, 0)
+
+	for _, locationBuilder := range locationBuilders {
+		if inventoryv1alpha1.IsResourceReady(locationBuilder.Object.Status.Conditions) {
+			readyLocationBuilders = append(readyLocationBuilders, locationBuilder)
+		}
+	}
+
+	return readyLocationBuilders, nil
+}
+
 // WithDescription sets the description on the Location spec.
 func (builder *LocationBuilder) WithDescription(description string) *LocationBuilder {
 	if err := common.Validate(builder); err != nil {

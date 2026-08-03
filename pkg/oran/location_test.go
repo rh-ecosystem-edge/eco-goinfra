@@ -71,6 +71,34 @@ func TestListLocations(t *testing.T) {
 	).ExecuteTests(t)
 }
 
+func TestListReadyLocations(t *testing.T) {
+	t.Parallel()
+
+	const (
+		readyLocationName    = "ready-location"
+		notReadyLocationName = "not-ready-location"
+	)
+
+	readyLocation := buildDummyLocation(readyLocationName, testLocationNamespace)
+	readyLocation.Status.Conditions = append(readyLocation.Status.Conditions, defaultLocationCondition)
+
+	notReadyLocation := buildDummyLocation(notReadyLocationName, testLocationNamespace)
+
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: []runtime.Object{
+			readyLocation,
+			notReadyLocation,
+		},
+		SchemeAttachers: inventoryTestSchemes,
+	})
+
+	locations, err := ListReadyLocations(testSettings)
+	require.NoError(t, err)
+	require.Len(t, locations, 1)
+	assert.Equal(t, readyLocationName, locations[0].Definition.Name)
+	assert.Equal(t, testLocationNamespace, locations[0].Definition.Namespace)
+}
+
 func TestLocationMethods(t *testing.T) {
 	t.Parallel()
 
