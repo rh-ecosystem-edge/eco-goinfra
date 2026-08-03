@@ -54,6 +54,27 @@ func ListResourcePools(
 		context.TODO(), apiClient, inventoryv1alpha1.AddToScheme, options...)
 }
 
+// ListReadyResourcePools returns all ResourcePool CRs across all namespaces that are ready. It relies on the
+// IsResourceReady function from the inventoryv1alpha1 package to determine if the ResourcePool is ready.
+func ListReadyResourcePools(
+	apiClient *clients.Settings, options ...runtimeclient.ListOption) ([]*ResourcePoolBuilder, error) {
+	resourcePoolBuilders, err := common.List[inventoryv1alpha1.ResourcePool, inventoryv1alpha1.ResourcePoolList, ResourcePoolBuilder](
+		context.TODO(), apiClient, inventoryv1alpha1.AddToScheme, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	readyResourcePoolBuilders := make([]*ResourcePoolBuilder, 0)
+
+	for _, resourcePoolBuilder := range resourcePoolBuilders {
+		if inventoryv1alpha1.IsResourceReady(resourcePoolBuilder.Object.Status.Conditions) {
+			readyResourcePoolBuilders = append(readyResourcePoolBuilders, resourcePoolBuilder)
+		}
+	}
+
+	return readyResourcePoolBuilders, nil
+}
+
 // WithOCloudSiteName sets the oCloudSiteName on the ResourcePool spec.
 func (builder *ResourcePoolBuilder) WithOCloudSiteName(oCloudSiteName string) *ResourcePoolBuilder {
 	if err := common.Validate(builder); err != nil {

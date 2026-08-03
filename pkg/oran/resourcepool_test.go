@@ -72,6 +72,34 @@ func TestListResourcePools(t *testing.T) {
 	).ExecuteTests(t)
 }
 
+func TestListReadyResourcePools(t *testing.T) {
+	t.Parallel()
+
+	const (
+		readyResourcePoolName    = "ready-resourcepool"
+		notReadyResourcePoolName = "not-ready-resourcepool"
+	)
+
+	readyResourcePool := buildDummyResourcePool(readyResourcePoolName, testResourcePoolNamespace)
+	readyResourcePool.Status.Conditions = append(readyResourcePool.Status.Conditions, defaultResourcePoolCondition)
+
+	notReadyResourcePool := buildDummyResourcePool(notReadyResourcePoolName, testResourcePoolNamespace)
+
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: []runtime.Object{
+			readyResourcePool,
+			notReadyResourcePool,
+		},
+		SchemeAttachers: inventoryTestSchemes,
+	})
+
+	resourcePools, err := ListReadyResourcePools(testSettings)
+	require.NoError(t, err)
+	require.Len(t, resourcePools, 1)
+	assert.Equal(t, readyResourcePoolName, resourcePools[0].Definition.Name)
+	assert.Equal(t, testResourcePoolNamespace, resourcePools[0].Definition.Namespace)
+}
+
 func TestResourcePoolMethods(t *testing.T) {
 	t.Parallel()
 
