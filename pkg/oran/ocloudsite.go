@@ -54,6 +54,27 @@ func ListOCloudSites(
 		context.TODO(), apiClient, inventoryv1alpha1.AddToScheme, options...)
 }
 
+// ListReadyOCloudSites returns all OCloudSite CRs across all namespaces that are ready. It relies on the
+// IsResourceReady function from the inventoryv1alpha1 package to determine if the OCloudSite is ready.
+func ListReadyOCloudSites(
+	apiClient *clients.Settings, options ...runtimeclient.ListOption) ([]*OCloudSiteBuilder, error) {
+	ocloudSiteBuilders, err := common.List[inventoryv1alpha1.OCloudSite, inventoryv1alpha1.OCloudSiteList, OCloudSiteBuilder](
+		context.TODO(), apiClient, inventoryv1alpha1.AddToScheme, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	readyOCloudSiteBuilders := make([]*OCloudSiteBuilder, 0)
+
+	for _, ocloudSiteBuilder := range ocloudSiteBuilders {
+		if inventoryv1alpha1.IsResourceReady(ocloudSiteBuilder.Object.Status.Conditions) {
+			readyOCloudSiteBuilders = append(readyOCloudSiteBuilders, ocloudSiteBuilder)
+		}
+	}
+
+	return readyOCloudSiteBuilders, nil
+}
+
 // WithGlobalLocationName sets the globalLocationName on the OCloudSite spec.
 func (builder *OCloudSiteBuilder) WithGlobalLocationName(globalLocationName string) *OCloudSiteBuilder {
 	if err := common.Validate(builder); err != nil {

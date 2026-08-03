@@ -72,6 +72,34 @@ func TestListOCloudSites(t *testing.T) {
 	).ExecuteTests(t)
 }
 
+func TestListReadyOCloudSites(t *testing.T) {
+	t.Parallel()
+
+	const (
+		readyOCloudSiteName    = "ready-ocloudsite"
+		notReadyOCloudSiteName = "not-ready-ocloudsite"
+	)
+
+	readyOCloudSite := buildDummyOCloudSite(readyOCloudSiteName, testOCloudSiteNamespace)
+	readyOCloudSite.Status.Conditions = append(readyOCloudSite.Status.Conditions, defaultOCloudSiteCondition)
+
+	notReadyOCloudSite := buildDummyOCloudSite(notReadyOCloudSiteName, testOCloudSiteNamespace)
+
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: []runtime.Object{
+			readyOCloudSite,
+			notReadyOCloudSite,
+		},
+		SchemeAttachers: inventoryTestSchemes,
+	})
+
+	ocloudSites, err := ListReadyOCloudSites(testSettings)
+	require.NoError(t, err)
+	require.Len(t, ocloudSites, 1)
+	assert.Equal(t, readyOCloudSiteName, ocloudSites[0].Definition.Name)
+	assert.Equal(t, testOCloudSiteNamespace, ocloudSites[0].Definition.Namespace)
+}
+
 func TestOCloudSiteMethods(t *testing.T) {
 	t.Parallel()
 
