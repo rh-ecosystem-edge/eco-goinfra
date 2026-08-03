@@ -615,6 +615,54 @@ func TestPolicyWithEthernetIPv6LinkLocalInterface(t *testing.T) {
 	}
 }
 
+func TestPolicyWithEthernetDualStackInterface(t *testing.T) {
+	testCases := []struct {
+		testNMStatePolicy *PolicyBuilder
+		expectedError     string
+		interfaceName     string
+	}{
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "",
+			interfaceName:     "ens1",
+		},
+		{
+			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "nodenetworkconfigurationpolicy 'interfaceName' cannot be empty",
+			interfaceName:     "",
+		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     "nodeNetworkConfigurationPolicy 'nodeSelector' cannot be empty map",
+			interfaceName:     "ens1",
+		},
+	}
+	for _, testCase := range testCases {
+		testPolicy := testCase.testNMStatePolicy.WithEthernetDualStackInterface(testCase.interfaceName)
+		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+
+		desireState := &DesiredState{}
+		if testCase.expectedError == "" {
+			_ = yaml.Unmarshal(testPolicy.Definition.Spec.DesiredState.Raw, desireState)
+			assert.Equal(t, &DesiredState{
+				Interfaces: []NetworkInterface{
+					{
+						Name:  testCase.interfaceName,
+						Type:  "ethernet",
+						State: "up",
+						Ipv4: InterfaceIpv4{
+							Enabled: true,
+						},
+						Ipv6: InterfaceIpv6{
+							Enabled: true,
+						},
+					},
+				},
+			}, desireState)
+		}
+	}
+}
+
 func TestPolicyWithAbsentInterface(t *testing.T) {
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
