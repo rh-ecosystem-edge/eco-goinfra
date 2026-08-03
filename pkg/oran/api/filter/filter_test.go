@@ -85,6 +85,13 @@ func TestAnd(t *testing.T) {
 	assert.Equal(t, "(eq,field1,value1);(cont,field2,value2)", andFilter.Filter())
 }
 
+func TestRaw(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "(eq,field,value)", Raw("(eq,field,value)").Filter())
+	assert.Equal(t, "not-a-valid-filter", Raw("not-a-valid-filter").Filter())
+}
+
 func TestBasicFilterWithSpecialCharacters(t *testing.T) {
 	t.Parallel()
 
