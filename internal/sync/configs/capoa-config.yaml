@@ -1,0 +1,32 @@
+---
+# Cannot be automatically synced because the local types combine sources from
+# multiple upstream directories and inline CAPI types:
+#
+# - OpenshiftAssistedControlPlane types from controlplane/api/v1alpha3/
+# - OpenshiftAssistedConfigSpec from bootstrap/api/v1alpha2/
+# - CAPI helper types (ObjectMeta, ContractVersionedObjectReference,
+#   MachineDeletionSpec) defined locally to avoid pulling in
+#   sigs.k8s.io/cluster-api as a dependency
+#
+# Import rewrites applied manually:
+#   "github.com/openshift/assisted-service/api/hiveextension/v1beta1"
+#     -> "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/hiveextension/v1beta1"
+#   "github.com/openshift/assisted-service/api/v1beta1"
+#     -> "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"
+#   sigs.k8s.io/cluster-api types inlined as local structs
+- name: capoa-controlplane-v1alpha3
+  sync: false
+  repo_link: "https://github.com/openshift-assisted/cluster-api-provider-openshift-assisted"
+  branch: main
+  remote_api_directory: controlplane/api/v1alpha3
+  local_api_directory: schemes/capoa/controlplane/v1alpha3
+  replace_imports:
+    - old: '"github.com/openshift/assisted-service/api/hiveextension/v1beta1"'
+      new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/hiveextension/v1beta1"'
+    - old: '"github.com/openshift/assisted-service/api/v1beta1"'
+      new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"'
+  excludes:
+    - "*_test.go"
+    - "conversion.go"
+    - "condition_consts.go"
+    - "webhook.go"
