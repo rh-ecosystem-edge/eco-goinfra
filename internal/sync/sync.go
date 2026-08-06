@@ -65,7 +65,7 @@ func syncRemoteRepo(repo *repo) {
 	klog.V(100).Infof("Comparing local %s and cloned %s api directories for repo %s",
 		projectLocalDirectory, projectClonedDirectory, repo.Name)
 
-	err := execCmd("", "diff", []string{projectClonedDirectory, projectLocalDirectory})
+	err := execCmd("", "diff", []string{"-r", projectClonedDirectory, projectLocalDirectory})
 	if err != nil {
 		klog.V(100).Infof("Repos not synced. Copying cloned repo %s to %s", projectClonedDirectory, projectLocalDirectory)
 
