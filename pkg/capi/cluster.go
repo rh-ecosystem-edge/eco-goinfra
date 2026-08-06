@@ -64,6 +64,12 @@ func (builder *ClusterBuilder) WithControlPlaneEndpoint(host string, port int32)
 		return builder
 	}
 
+	if port < 1 || port > 65535 {
+		builder.SetError(fmt.Errorf("'port' must be between 1 and 65535, got %d", port))
+
+		return builder
+	}
+
 	builder.Definition.Spec.ControlPlaneEndpoint = clusterv1beta1.APIEndpoint{
 		Host: host,
 		Port: port,
@@ -81,6 +87,12 @@ func (builder *ClusterBuilder) WithControlPlaneRef(
 
 	klog.V(100).Infof("Setting control plane ref %s/%s on CAPI Cluster %s/%s",
 		kind, name, builder.Definition.Namespace, builder.Definition.Name)
+
+	if apiVersion == "" {
+		builder.SetError(fmt.Errorf("'apiVersion' cannot be empty"))
+
+		return builder
+	}
 
 	if kind == "" {
 		builder.SetError(fmt.Errorf("'kind' cannot be empty"))
@@ -112,6 +124,12 @@ func (builder *ClusterBuilder) WithInfrastructureRef(
 
 	klog.V(100).Infof("Setting infrastructure ref %s/%s on CAPI Cluster %s/%s",
 		kind, name, builder.Definition.Namespace, builder.Definition.Name)
+
+	if apiVersion == "" {
+		builder.SetError(fmt.Errorf("'apiVersion' cannot be empty"))
+
+		return builder
+	}
 
 	if kind == "" {
 		builder.SetError(fmt.Errorf("'kind' cannot be empty"))
