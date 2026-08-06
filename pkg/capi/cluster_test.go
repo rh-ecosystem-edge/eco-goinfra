@@ -93,9 +93,11 @@ func TestWithControlPlaneEndpoint(t *testing.T) {
 			builder: func() *ClusterBuilder {
 				return NewClusterBuilder(newClusterTestClient(), "test", "test-ns")
 			},
-			host:        "example.com",
-			port:        65536,
-			assertError: func(err error) bool { return err != nil && err.Error() == "'port' must be between 1 and 65535, got 65536" },
+			host: "example.com",
+			port: 65536,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "'port' must be between 1 and 65535, got 65536"
+			},
 		},
 		{
 			name: "invalid builder short circuits",
@@ -352,7 +354,9 @@ func TestWithPaused(t *testing.T) {
 	}
 }
 
-func newClusterCommonTestConfig() testhelper.CommonTestConfig[clusterv1beta1.Cluster, ClusterBuilder, *clusterv1beta1.Cluster, *ClusterBuilder] {
+func newClusterCommonTestConfig() testhelper.CommonTestConfig[
+	clusterv1beta1.Cluster, ClusterBuilder, *clusterv1beta1.Cluster, *ClusterBuilder,
+] {
 	return testhelper.NewCommonTestConfig[clusterv1beta1.Cluster, ClusterBuilder](
 		clusterv1beta1.AddToScheme, clusterGVK, testhelper.ResourceScopeNamespaced)
 }
