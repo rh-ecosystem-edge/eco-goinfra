@@ -24,4 +24,5 @@
     - "*_webhook.go"
     - "testdata"
     - "apis"
+    - "openapi"
 ...
