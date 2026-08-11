@@ -18,6 +18,7 @@ package v1beta1
 
 import (
 	v1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -248,50 +249,33 @@ type ModuleLoaderSpec struct {
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 }
 
-type DevicePluginContainerSpec struct {
+// CommonContainerSpec is a shared container type for DevicePlugin and DRA containers.
+type CommonContainerSpec struct {
 	// Entrypoint array. Not executed within a shell.
 	// The container image's ENTRYPOINT is used if this is not provided.
-	// Variable references $(VAR_NAME) are expanded using the container's environment. If a variable
-	// cannot be resolved, the reference in the input string will be unchanged. Double $$ are reduced
-	// to a single $, which allows for escaping the $(VAR_NAME) syntax: i.e. "$$(VAR_NAME)" will
-	// produce the string literal "$(VAR_NAME)". Escaped references will never be expanded, regardless
-	// of whether the variable exists or not. Cannot be updated.
-	// More info: https://kubernetes.io/docs/tasks/inject-data-application/define-command-argument-container/#running-a-command-in-a-shell
 	// +optional
 	Command []string `json:"command,omitempty" protobuf:"bytes,3,rep,name=command"`
 
 	// Arguments to the entrypoint.
 	// The container image's CMD is used if this is not provided.
-	// Variable references $(VAR_NAME) are expanded using the container's environment. If a variable
-	// cannot be resolved, the reference in the input string will be unchanged. Double $$ are reduced
-	// to a single $, which allows for escaping the $(VAR_NAME) syntax: i.e. "$$(VAR_NAME)" will
-	// produce the string literal "$(VAR_NAME)". Escaped references will never be expanded, regardless
-	// of whether the variable exists or not. Cannot be updated.
-	// More info: https://kubernetes.io/docs/tasks/inject-data-application/define-command-argument-container/#running-a-command-in-a-shell
 	// +optional
 	Args []string `json:"args,omitempty" protobuf:"bytes,4,rep,name=args"`
 
 	// List of environment variables to set in the container.
-	// Cannot be updated.
 	// +optional
 	// +patchMergeKey=name
 	// +patchStrategy=merge
 	Env []v1.EnvVar `json:"env,omitempty" patchStrategy:"merge" patchMergeKey:"name" protobuf:"bytes,7,rep,name=env"`
 
-	// Image is the name of the container image that the device plugin container will run.
+	// Image is the name of the container image.
 	Image string `json:"image"`
 
 	// Image pull policy.
 	// One of Always, Never, IfNotPresent.
-	// Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
-	// Cannot be updated.
-	// More info: https://kubernetes.io/docs/concepts/containers/images#updating-images
 	// +optional
 	ImagePullPolicy v1.PullPolicy `json:"imagePullPolicy,omitempty" protobuf:"bytes,14,opt,name=imagePullPolicy,casttype=PullPolicy"`
 
 	// Compute Resources required by this container.
-	// Cannot be updated.
-	// More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
 	// +optional
 	Resources v1.ResourceRequirements `json:"resources,omitempty" protobuf:"bytes,8,opt,name=resources"`
 
@@ -299,6 +283,9 @@ type DevicePluginContainerSpec struct {
 	// +optional
 	VolumeMounts []v1.VolumeMount `json:"volumeMounts,omitempty"`
 }
+
+// DevicePluginContainerSpec is a backward-compatible alias for CommonContainerSpec.
+type DevicePluginContainerSpec = CommonContainerSpec
 
 type DevicePluginSpec struct {
 	Container DevicePluginContainerSpec `json:"container"`
@@ -321,6 +308,49 @@ type DevicePluginSpec struct {
 	AutomountServiceAccountToken *bool `json:"automountServiceAccountToken,omitempty"`
 }
 
+// DRASpec configures a DRA driver DaemonSet and optional DeviceClasses.
+type DRASpec struct {
+	// Container holds the configuration for the DRA driver container.
+	Container CommonContainerSpec `json:"container"`
+
+	// +optional
+	// InitContainer defines the init container for the DRA DaemonSet.
+	InitContainer *CommonContainerSpec `json:"initContainer,omitempty"`
+
+	// +optional
+	// ServiceAccountName is the name of the ServiceAccount to use to run the DRA pod.
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+
+	// +optional
+	// Volumes is a list of volumes appended to the DRA DaemonSet pod spec.
+	Volumes []v1.Volume `json:"volumes,omitempty"`
+
+	// +optional
+	// AutomountServiceAccountToken controls whether the SA token is auto-mounted.
+	AutomountServiceAccountToken *bool `json:"automountServiceAccountToken,omitempty"`
+
+	// DriverName is the DRA driver name, must be a valid DNS subdomain.
+	DriverName string `json:"driverName"`
+
+	// +optional
+	// DeviceClasses lists DeviceClass resources managed by KMM on behalf of this Module.
+	DeviceClasses []DeviceClassSpec `json:"deviceClasses,omitempty"`
+}
+
+// DeviceClassSpec defines a DeviceClass managed by KMM on behalf of a Module.
+type DeviceClassSpec struct {
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	Name string `json:"name"`
+
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	Selectors []resourcev1.DeviceSelector `json:"selectors,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	Config []resourcev1.DeviceClassConfiguration `json:"config,omitempty"`
+}
+
 // ModuleSpec describes how the KMM operator should deploy a Module on those nodes that need it.
 type ModuleSpec struct {
 	// DevicePlugin allows overriding some properties of the container that deploys the device plugin on the node.
@@ -332,6 +362,11 @@ type ModuleSpec struct {
 	// Name and image are ignored and are set automatically by the KMM Operator.
 	// +optional
 	ModuleLoader *ModuleLoaderSpec `json:"moduleLoader,omitempty"`
+
+	// DRA configures a DRA driver DaemonSet and optional DeviceClasses.
+	// Mutually exclusive with DevicePlugin (enforced by CEL on the CRD).
+	// +optional
+	DRA *DRASpec `json:"dra,omitempty"`
 
 	// ImageRepoSecret is an optional secret that is used to pull both the module loader and the device plugin, and
 	// to push the resulting image from the module loader build, if enabled.
@@ -370,6 +405,8 @@ type ModuleStatus struct {
 	DevicePlugin DaemonSetStatus `json:"devicePlugin,omitempty"`
 	// ModuleLoader contains the status of the ModuleLoader daemonset
 	ModuleLoader DaemonSetStatus `json:"moduleLoader,omitempty"`
+	// DRA contains the status of the DRA DaemonSet
+	DRA DaemonSetStatus `json:"dra,omitempty"`
 	// ImageRebuildTriggerGeneration contains the last value of spec.imageRebuildTriggerGeneration that was applied.
 	// When this differs from spec.imageRebuildTriggerGeneration, all module images will be re-verified and potentially rebuilt.
 	// +optional
