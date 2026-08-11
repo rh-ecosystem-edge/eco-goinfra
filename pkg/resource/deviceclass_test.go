@@ -50,13 +50,14 @@ func TestNewDeviceClassBuilder(t *testing.T) {
 
 		testBuilder := NewDeviceClassBuilder(testSettings, testCase.name)
 
-		if !testCase.client {
+		switch {
+		case !testCase.client:
 			assert.Nil(t, testBuilder)
-		} else if testCase.expectedErr == "" {
+		case testCase.expectedErr == "":
 			assert.NotNil(t, testBuilder)
 			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
 			assert.Empty(t, testBuilder.errorMsg)
-		} else {
+		default:
 			assert.NotNil(t, testBuilder)
 			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
 		}

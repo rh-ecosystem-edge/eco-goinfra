@@ -13,6 +13,8 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const errEmptyDeviceClassName = "deviceClass 'name' cannot be empty"
+
 // DeviceClassBuilder provides struct for the DeviceClass object containing
 // connection to the cluster and the DeviceClass definitions.
 type DeviceClassBuilder struct {
@@ -52,7 +54,7 @@ func NewDeviceClassBuilder(apiClient *clients.Settings, name string) *DeviceClas
 	if name == "" {
 		klog.V(100).Info("The name of the DeviceClass is empty")
 
-		builder.errorMsg = "deviceClass 'name' cannot be empty"
+		builder.errorMsg = errEmptyDeviceClassName
 
 		return builder
 	}
@@ -181,7 +183,7 @@ func PullDeviceClass(apiClient *clients.Settings, name string) (*DeviceClassBuil
 	}
 
 	if name == "" {
-		return nil, fmt.Errorf("deviceClass 'name' cannot be empty")
+		return nil, fmt.Errorf("%s", errEmptyDeviceClassName)
 	}
 
 	if !builder.Exists() {
