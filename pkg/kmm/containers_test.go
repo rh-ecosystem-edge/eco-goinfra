@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/kmm/v1beta1"
 	"github.com/stretchr/testify/assert"
@@ -555,4 +556,300 @@ func buildLiteralKernelMapping(literal string) *v1beta1.KernelMapping {
 	litBuild, _ := lit.BuildKernelMappingConfig()
 
 	return litBuild
+}
+
+func TestNewDRAContainerBuilder(t *testing.T) {
+	testCases := []struct {
+		image         string
+		expectedError string
+	}{
+		{
+			image:         "quay.io/myrepo/dra-driver:v1.0",
+			expectedError: "",
+		},
+		{
+			image:         "",
+			expectedError: "invalid parameter 'image' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDRAContainerBuilder(testCase.image)
+
+		assert.NotNil(t, testBuilder)
+		assert.NotNil(t, testBuilder.definition)
+		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.image, testBuilder.definition.Image)
+		}
+	}
+}
+
+func TestDRAContainerWithCommand(t *testing.T) {
+	testCases := []struct {
+		cmd           []string
+		expectedError string
+	}{
+		{
+			cmd:           []string{"/usr/bin/driver", "--start"},
+			expectedError: "",
+		},
+		{
+			cmd:           []string{},
+			expectedError: "'cmd' cannot be empty for DRA container command",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDRAContainerBuilder("test-image:latest")
+		testBuilder.WithCommand(testCase.cmd)
+
+		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.cmd, testBuilder.definition.Command)
+		}
+	}
+}
+
+func TestDRAContainerWithArgs(t *testing.T) {
+	testCases := []struct {
+		args          []string
+		expectedError string
+	}{
+		{
+			args:          []string{"--verbose", "--config=/etc/dra.conf"},
+			expectedError: "",
+		},
+		{
+			args:          []string{},
+			expectedError: "'args' cannot be empty for DRA container args",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDRAContainerBuilder("test-image:latest")
+		testBuilder.WithArgs(testCase.args)
+
+		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.args, testBuilder.definition.Args)
+		}
+	}
+}
+
+func TestDRAContainerWithEnv(t *testing.T) {
+	testCases := []struct {
+		name          string
+		value         string
+		expectedError string
+	}{
+		{
+			name:          "MY_ENV_VAR",
+			value:         "my-value",
+			expectedError: "",
+		},
+		{
+			name:          "",
+			value:         "some-value",
+			expectedError: "'name' cannot be empty for DRA container env",
+		},
+		{
+			name:          "ALLOW_EMPTY",
+			value:         "",
+			expectedError: "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDRAContainerBuilder("test-image:latest")
+		testBuilder.WithEnv(testCase.name, testCase.value)
+
+		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Len(t, testBuilder.definition.Env, 1)
+			assert.Equal(t, testCase.name, testBuilder.definition.Env[0].Name)
+			assert.Equal(t, testCase.value, testBuilder.definition.Env[0].Value)
+		}
+	}
+}
+
+func TestDRAContainerWithVolumeMount(t *testing.T) {
+	testCases := []struct {
+		mountPath     string
+		name          string
+		expectedError string
+	}{
+		{
+			mountPath:     "/dev/vfio",
+			name:          "vfio-volume",
+			expectedError: "",
+		},
+		{
+			mountPath:     "/some/path",
+			name:          "",
+			expectedError: "'name' cannot be empty for DRA container volumeMount",
+		},
+		{
+			mountPath:     "",
+			name:          "some-name",
+			expectedError: "'mountPath' cannot be empty for DRA container volumeMount",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDRAContainerBuilder("test-image:latest")
+		testBuilder.WithVolumeMount(testCase.mountPath, testCase.name)
+
+		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Len(t, testBuilder.definition.VolumeMounts, 1)
+			assert.Equal(t, testCase.name, testBuilder.definition.VolumeMounts[0].Name)
+			assert.Equal(t, testCase.mountPath, testBuilder.definition.VolumeMounts[0].MountPath)
+		}
+	}
+}
+
+func TestDRAContainerWithVolumeMountMultiple(t *testing.T) {
+	testBuilder := NewDRAContainerBuilder("test-image:latest")
+	testBuilder.WithVolumeMount("/dev/vfio", "vfio-volume")
+	testBuilder.WithVolumeMount("/var/run/dra", "dra-socket")
+
+	assert.Equal(t, "", testBuilder.errorMsg)
+	assert.Len(t, testBuilder.definition.VolumeMounts, 2)
+	assert.Equal(t, "vfio-volume", testBuilder.definition.VolumeMounts[0].Name)
+	assert.Equal(t, "/dev/vfio", testBuilder.definition.VolumeMounts[0].MountPath)
+	assert.Equal(t, "dra-socket", testBuilder.definition.VolumeMounts[1].Name)
+	assert.Equal(t, "/var/run/dra", testBuilder.definition.VolumeMounts[1].MountPath)
+}
+
+func TestDRAContainerWithImagePullPolicy(t *testing.T) {
+	testCases := []struct {
+		imagePolicy   string
+		expectedError string
+	}{
+		{
+			imagePolicy:   "",
+			expectedError: "'policy' cannot be empty for DRA container",
+		},
+		{
+			imagePolicy:   "Always",
+			expectedError: "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDRAContainerBuilder("test-image:latest")
+		testBuilder.WithImagePullPolicy(testCase.imagePolicy)
+
+		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, corev1.PullPolicy(testCase.imagePolicy), testBuilder.definition.ImagePullPolicy)
+		}
+	}
+}
+
+func TestDRAContainerWithResources(t *testing.T) {
+	resources := corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+	}
+
+	testBuilder := NewDRAContainerBuilder("test-image:latest")
+	testBuilder.WithResources(resources)
+
+	assert.Equal(t, "", testBuilder.errorMsg)
+	assert.Equal(t, resources, testBuilder.definition.Resources)
+}
+
+func TestGetDRAContainerConfig(t *testing.T) {
+	testCases := []struct {
+		image         string
+		expectedError string
+	}{
+		{
+			image:         "test-image:latest",
+			expectedError: "",
+		},
+		{
+			image:         "",
+			expectedError: "error building DRA container config due to: invalid parameter 'image' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := NewDRAContainerBuilder(testCase.image)
+		config, err := testBuilder.GetDRAContainerConfig()
+
+		if testCase.expectedError == "" {
+			assert.Nil(t, err)
+			assert.NotNil(t, config)
+			assert.Equal(t, testCase.image, config.Image)
+		} else {
+			assert.NotNil(t, err)
+			assert.Equal(t, testCase.expectedError, err.Error())
+			assert.Nil(t, config)
+		}
+	}
+}
+
+func TestDRAContainerBuilderChaining(t *testing.T) {
+	testBuilder := NewDRAContainerBuilder("quay.io/myrepo/dra-driver:v1.0").
+		WithCommand([]string{"/usr/bin/driver"}).
+		WithArgs([]string{"--verbose"}).
+		WithEnv("DEBUG", "true").
+		WithEnv("LOG_LEVEL", "info").
+		WithVolumeMount("/dev/vfio", "vfio-volume").
+		WithVolumeMount("/var/run/dra", "dra-socket").
+		WithImagePullPolicy("Always")
+
+	assert.Equal(t, "", testBuilder.errorMsg)
+	assert.Equal(t, "quay.io/myrepo/dra-driver:v1.0", testBuilder.definition.Image)
+	assert.Equal(t, []string{"/usr/bin/driver"}, testBuilder.definition.Command)
+	assert.Equal(t, []string{"--verbose"}, testBuilder.definition.Args)
+	assert.Len(t, testBuilder.definition.Env, 2)
+	assert.Len(t, testBuilder.definition.VolumeMounts, 2)
+	assert.Equal(t, corev1.PullPolicy("Always"), testBuilder.definition.ImagePullPolicy)
+
+	config, err := testBuilder.GetDRAContainerConfig()
+	assert.Nil(t, err)
+	assert.NotNil(t, config)
+	assert.Equal(t, "quay.io/myrepo/dra-driver:v1.0", config.Image)
+}
+
+func TestDRAContainerBuilderWithInvalidBuilder(t *testing.T) {
+	// Test that methods return early when builder has error
+	testBuilder := NewDRAContainerBuilder("")
+
+	assert.Equal(t, "invalid parameter 'image' cannot be empty", testBuilder.errorMsg)
+
+	// Calling methods on invalid builder should not change error message
+	testBuilder.WithCommand([]string{"/usr/bin/driver"})
+	assert.Equal(t, "invalid parameter 'image' cannot be empty", testBuilder.errorMsg)
+
+	testBuilder.WithArgs([]string{"--verbose"})
+	assert.Equal(t, "invalid parameter 'image' cannot be empty", testBuilder.errorMsg)
+
+	testBuilder.WithEnv("ENV", "value")
+	assert.Equal(t, "invalid parameter 'image' cannot be empty", testBuilder.errorMsg)
+
+	testBuilder.WithVolumeMount("/path", "name")
+	assert.Equal(t, "invalid parameter 'image' cannot be empty", testBuilder.errorMsg)
+
+	testBuilder.WithImagePullPolicy("Always")
+	assert.Equal(t, "invalid parameter 'image' cannot be empty", testBuilder.errorMsg)
+
+	testBuilder.WithResources(corev1.ResourceRequirements{})
+	assert.Equal(t, "invalid parameter 'image' cannot be empty", testBuilder.errorMsg)
 }

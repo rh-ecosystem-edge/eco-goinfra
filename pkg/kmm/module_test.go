@@ -703,3 +703,371 @@ func generateModule(name, nsname string) *v1beta1.Module {
 		},
 	}
 }
+
+func TestModuleWithDRA(t *testing.T) {
+	testCases := []struct {
+		dra         *v1beta1.DRASpec
+		expectedErr string
+	}{
+		{
+			dra:         &v1beta1.DRASpec{DriverName: "test.example.com"},
+			expectedErr: "",
+		},
+		{
+			dra:         nil,
+			expectedErr: "invalid 'dra' argument cannot be nil",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithDRA(testCase.dra)
+
+		if testCase.expectedErr == "" {
+			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+			assert.Equal(t, testCase.dra.DriverName, testBuilder.Definition.Spec.DRA.DriverName)
+		} else {
+			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestModuleWithDRAContainer(t *testing.T) {
+	testCases := []struct {
+		container   *v1beta1.CommonContainerSpec
+		expectedErr string
+	}{
+		{
+			container:   &v1beta1.CommonContainerSpec{Image: "test-image:latest"},
+			expectedErr: "",
+		},
+		{
+			container:   nil,
+			expectedErr: errNilContainer,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithDRAContainer(testCase.container)
+
+		if testCase.expectedErr == "" {
+			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+			assert.Equal(t, testCase.container.Image, testBuilder.Definition.Spec.DRA.Container.Image)
+		} else {
+			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestModuleWithDRAInitContainer(t *testing.T) {
+	testCases := []struct {
+		container   *v1beta1.CommonContainerSpec
+		expectedErr string
+	}{
+		{
+			container:   &v1beta1.CommonContainerSpec{Image: "init-image:latest"},
+			expectedErr: "",
+		},
+		{
+			container:   nil,
+			expectedErr: errNilContainer,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithDRAInitContainer(testCase.container)
+
+		if testCase.expectedErr == "" {
+			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+			assert.NotNil(t, testBuilder.Definition.Spec.DRA.InitContainer)
+			assert.Equal(t, testCase.container.Image, testBuilder.Definition.Spec.DRA.InitContainer.Image)
+		} else {
+			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestModuleWithDRAServiceAccount(t *testing.T) {
+	testCases := []struct {
+		serviceAccount string
+		expectedErr    string
+	}{
+		{
+			serviceAccount: "test-sa",
+			expectedErr:    "",
+		},
+		{
+			serviceAccount: "",
+			expectedErr:    canNotRedefineModuleWithEmpty,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithDRAServiceAccount(testCase.serviceAccount)
+
+		if testCase.expectedErr == "" {
+			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+			assert.Equal(t, testCase.serviceAccount, testBuilder.Definition.Spec.DRA.ServiceAccountName)
+		} else {
+			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestModuleWithDRADriverName(t *testing.T) {
+	testCases := []struct {
+		driverName  string
+		expectedErr string
+	}{
+		{
+			driverName:  "gpu.example.com",
+			expectedErr: "",
+		},
+		{
+			driverName:  "",
+			expectedErr: "cannot set empty DRA driverName",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithDRADriverName(testCase.driverName)
+
+		if testCase.expectedErr == "" {
+			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+			assert.Equal(t, testCase.driverName, testBuilder.Definition.Spec.DRA.DriverName)
+		} else {
+			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestModuleWithDRADeviceClass(t *testing.T) {
+	testCases := []struct {
+		deviceClass v1beta1.DeviceClassSpec
+		expectedErr string
+	}{
+		{
+			deviceClass: v1beta1.DeviceClassSpec{Name: "test-device"},
+			expectedErr: "",
+		},
+		{
+			deviceClass: v1beta1.DeviceClassSpec{Name: ""},
+			expectedErr: "cannot append DeviceClass with empty name",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithDRADeviceClass(testCase.deviceClass)
+
+		if testCase.expectedErr == "" {
+			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+			assert.Len(t, testBuilder.Definition.Spec.DRA.DeviceClasses, 1)
+			assert.Equal(t, testCase.deviceClass.Name, testBuilder.Definition.Spec.DRA.DeviceClasses[0].Name)
+		} else {
+			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestModuleWithDRADeviceClassMultiple(t *testing.T) {
+	testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+	testBuilder.WithDRADeviceClass(v1beta1.DeviceClassSpec{Name: "device-a"})
+	testBuilder.WithDRADeviceClass(v1beta1.DeviceClassSpec{Name: "device-b"})
+
+	assert.Empty(t, testBuilder.errorMsg)
+	assert.Len(t, testBuilder.Definition.Spec.DRA.DeviceClasses, 2)
+	assert.Equal(t, "device-a", testBuilder.Definition.Spec.DRA.DeviceClasses[0].Name)
+	assert.Equal(t, "device-b", testBuilder.Definition.Spec.DRA.DeviceClasses[1].Name)
+}
+
+func TestModuleWithDRAVolume(t *testing.T) {
+	testCases := []struct {
+		name          string
+		configMapName string
+		expectedErr   string
+	}{
+		{
+			name:          "test-vol",
+			configMapName: "test-cm",
+			expectedErr:   "",
+		},
+		{
+			name:          "",
+			configMapName: "test-cm",
+			expectedErr:   "cannot add DRA volume with empty 'name'",
+		},
+		{
+			name:          "test-vol",
+			configMapName: "",
+			expectedErr:   "cannot add DRA volume with empty 'configMapName'",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithDRAVolume(testCase.name, testCase.configMapName)
+
+		if testCase.expectedErr == "" {
+			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+			assert.Len(t, testBuilder.Definition.Spec.DRA.Volumes, 1)
+			assert.Equal(t, testCase.name, testBuilder.Definition.Spec.DRA.Volumes[0].Name)
+			assert.Equal(t, testCase.configMapName,
+				testBuilder.Definition.Spec.DRA.Volumes[0].ConfigMap.Name)
+		} else {
+			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestModuleWithDRAHostPathVolume(t *testing.T) {
+	dirType := corev1.HostPathDirectory
+
+	testCases := []struct {
+		name        string
+		path        string
+		pathType    *corev1.HostPathType
+		expectedErr string
+	}{
+		{
+			name:        "kubelet-plugins",
+			path:        "/var/lib/kubelet/plugins",
+			pathType:    &dirType,
+			expectedErr: "",
+		},
+		{
+			name:        "",
+			path:        "/var/lib/kubelet/plugins",
+			pathType:    &dirType,
+			expectedErr: "cannot add DRA hostPath volume with empty 'name'",
+		},
+		{
+			name:        "kubelet-plugins",
+			path:        "",
+			pathType:    &dirType,
+			expectedErr: "cannot add DRA hostPath volume with empty 'path'",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithDRAHostPathVolume(testCase.name, testCase.path, testCase.pathType)
+
+		if testCase.expectedErr == "" {
+			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+			assert.Len(t, testBuilder.Definition.Spec.DRA.Volumes, 1)
+			assert.Equal(t, testCase.name, testBuilder.Definition.Spec.DRA.Volumes[0].Name)
+			assert.Equal(t, testCase.path, testBuilder.Definition.Spec.DRA.Volumes[0].HostPath.Path)
+			assert.Equal(t, testCase.pathType, testBuilder.Definition.Spec.DRA.Volumes[0].HostPath.Type)
+		} else {
+			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+		}
+	}
+}
+
+func TestModuleWithDRAAutomountServiceAccountToken(t *testing.T) {
+	testCases := []struct {
+		automount     bool
+		expectedValue bool
+	}{
+		{
+			automount:     false,
+			expectedValue: false,
+		},
+		{
+			automount:     true,
+			expectedValue: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+		testBuilder.WithDRAAutomountServiceAccountToken(testCase.automount)
+
+		assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+		assert.NotNil(t, testBuilder.Definition.Spec.DRA.AutomountServiceAccountToken)
+		assert.Equal(t, testCase.expectedValue,
+			*testBuilder.Definition.Spec.DRA.AutomountServiceAccountToken)
+	}
+}
+
+func TestModuleWithServiceAccountDRAPath(t *testing.T) {
+	testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+	testBuilder.WithDRAServiceAccount("dra-sa")
+
+	assert.Empty(t, testBuilder.errorMsg)
+	assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+	assert.Equal(t, "dra-sa", testBuilder.Definition.Spec.DRA.ServiceAccountName)
+}
+
+func TestModuleWithServiceAccountInvalidType(t *testing.T) {
+	testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+	testBuilder.withServiceAccount("test-sa", "invalid")
+
+	assert.Equal(t, "invalid account type parameter. Supported parameters are: 'module', 'device', 'dra'",
+		testBuilder.errorMsg)
+}
+
+func TestModuleWithDRAChaining(t *testing.T) {
+	testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+	testBuilder.
+		WithDRADriverName("gpu.example.com").
+		WithDRAContainer(&v1beta1.CommonContainerSpec{Image: "driver:v1"}).
+		WithDRAServiceAccount("dra-sa").
+		WithDRADeviceClass(v1beta1.DeviceClassSpec{Name: "test-device"}).
+		WithDRAVolume("config", "config-cm").
+		WithDRAAutomountServiceAccountToken(true)
+
+	assert.Empty(t, testBuilder.errorMsg)
+	assert.Equal(t, "gpu.example.com", testBuilder.Definition.Spec.DRA.DriverName)
+	assert.Equal(t, "driver:v1", testBuilder.Definition.Spec.DRA.Container.Image)
+	assert.Equal(t, "dra-sa", testBuilder.Definition.Spec.DRA.ServiceAccountName)
+	assert.Len(t, testBuilder.Definition.Spec.DRA.DeviceClasses, 1)
+	assert.Len(t, testBuilder.Definition.Spec.DRA.Volumes, 1)
+	assert.True(t, *testBuilder.Definition.Spec.DRA.AutomountServiceAccountToken)
+}
+
+func TestModuleWithDRAOnInvalidBuilder(t *testing.T) {
+	testBuilder := buildInValidTestModule(buildModuleTestClientWithDummyObject())
+	origErr := testBuilder.errorMsg
+
+	testBuilder.WithDRA(&v1beta1.DRASpec{DriverName: "test"})
+	assert.Equal(t, origErr, testBuilder.errorMsg)
+
+	testBuilder.WithDRAContainer(&v1beta1.CommonContainerSpec{Image: "test"})
+	assert.Equal(t, origErr, testBuilder.errorMsg)
+
+	testBuilder.WithDRAInitContainer(&v1beta1.CommonContainerSpec{Image: "test"})
+	assert.Equal(t, origErr, testBuilder.errorMsg)
+
+	testBuilder.WithDRADriverName("test")
+	assert.Equal(t, origErr, testBuilder.errorMsg)
+
+	testBuilder.WithDRAServiceAccount("test")
+	assert.Equal(t, origErr, testBuilder.errorMsg)
+
+	testBuilder.WithDRADeviceClass(v1beta1.DeviceClassSpec{Name: "test"})
+	assert.Equal(t, origErr, testBuilder.errorMsg)
+
+	testBuilder.WithDRAVolume("test", "test")
+	assert.Equal(t, origErr, testBuilder.errorMsg)
+
+	testBuilder.WithDRAHostPathVolume("test", "/test", nil)
+	assert.Equal(t, origErr, testBuilder.errorMsg)
+
+	testBuilder.WithDRAAutomountServiceAccountToken(true)
+	assert.Equal(t, origErr, testBuilder.errorMsg)
+}
+
+func TestModuleWithDRAInitializesDRASpec(t *testing.T) {
+	testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
+	assert.Nil(t, testBuilder.Definition.Spec.DRA)
+
+	testBuilder.WithDRADriverName("test.example.com")
+	assert.NotNil(t, testBuilder.Definition.Spec.DRA)
+	assert.Equal(t, "test.example.com", testBuilder.Definition.Spec.DRA.DriverName)
+}

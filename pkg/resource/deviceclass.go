@@ -67,6 +67,12 @@ func (builder *DeviceClassBuilder) WithSelector(
 		return builder
 	}
 
+	if selector.CEL == nil {
+		builder.errorMsg = "selector must have a CEL expression"
+
+		return builder
+	}
+
 	klog.V(100).Infof("Appending selector to DeviceClass %s", builder.Definition.Name)
 
 	builder.Definition.Spec.Selectors = append(builder.Definition.Spec.Selectors, selector)
@@ -103,6 +109,18 @@ func (builder *DeviceClassBuilder) WithCELSelector(expression string) *DeviceCla
 func (builder *DeviceClassBuilder) WithConfig(
 	config resourcev1.DeviceClassConfiguration) *DeviceClassBuilder {
 	if valid, _ := builder.validate(); !valid {
+		return builder
+	}
+
+	if config.Opaque == nil {
+		builder.errorMsg = "config must have an Opaque device configuration"
+
+		return builder
+	}
+
+	if config.Opaque.Driver == "" {
+		builder.errorMsg = "config Opaque 'Driver' cannot be empty"
+
 		return builder
 	}
 
