@@ -13,6 +13,7 @@ import (
 const (
 	errEmptyModName = "'modName' cannot be empty"
 	errEmptyMapping = "'mapping' can not be empty nil"
+	errEmptyImage   = "invalid parameter 'image' cannot be empty"
 )
 
 // ModuleLoaderContainerBuilder provides struct for the module object containing the ModuleLoaderContainerSpec
@@ -237,7 +238,7 @@ func NewDevicePluginContainerBuilder(image string) *DevicePluginContainerBuilder
 	if image == "" {
 		klog.V(100).Info("The image of NewDevicePluginContainerBuilder is empty")
 
-		builder.errorMsg = "invalid parameter 'image' cannot be empty"
+		builder.errorMsg = errEmptyImage
 
 		return builder
 	}
@@ -363,7 +364,7 @@ func NewDRAContainerBuilder(image string) *DRAContainerBuilder {
 	if image == "" {
 		klog.V(100).Info("The image of NewDRAContainerBuilder is empty")
 
-		builder.errorMsg = "invalid parameter 'image' cannot be empty"
+		builder.errorMsg = errEmptyImage
 
 		return builder
 	}

@@ -413,16 +413,16 @@ func (builder *ModuleBuilder) WithDRADriverName(driverName string) *ModuleBuilde
 
 // WithDRADeviceClass appends a DeviceClass to the Module's DRA spec.
 func (builder *ModuleBuilder) WithDRADeviceClass(
-	dc moduleV1Beta1.DeviceClassSpec) *ModuleBuilder {
+	deviceClass moduleV1Beta1.DeviceClassSpec) *ModuleBuilder {
 	if valid, _ := builder.validate(); !valid {
 		return builder
 	}
 
 	klog.V(100).Infof(
 		"Appending DRA DeviceClass %s to Module %s in namespace %s",
-		dc.Name, builder.Definition.Name, builder.Definition.Namespace)
+		deviceClass.Name, builder.Definition.Name, builder.Definition.Namespace)
 
-	if dc.Name == "" {
+	if deviceClass.Name == "" {
 		builder.errorMsg = "cannot append DeviceClass with empty name"
 
 		return builder
@@ -433,7 +433,7 @@ func (builder *ModuleBuilder) WithDRADeviceClass(
 	}
 
 	builder.Definition.Spec.DRA.DeviceClasses = append(
-		builder.Definition.Spec.DRA.DeviceClasses, dc)
+		builder.Definition.Spec.DRA.DeviceClasses, deviceClass)
 
 	return builder
 }

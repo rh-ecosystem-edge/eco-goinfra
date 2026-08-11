@@ -292,7 +292,7 @@ func ListDeviceClasses(
 
 	deviceClassList := &resourcev1.DeviceClassList{}
 
-	err = apiClient.Client.List(logging.DiscardContext(), deviceClassList, options...)
+	err = apiClient.List(logging.DiscardContext(), deviceClassList, options...)
 	if err != nil {
 		return nil, err
 	}
