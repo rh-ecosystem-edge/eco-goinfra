@@ -44,3 +44,9 @@ func newEventV1CommonTestConfig() testhelper.CommonTestConfig[
 	return testhelper.NewCommonTestConfig[eventsv1.Event, EventV1Builder](
 		eventsv1.AddToScheme, eventV1GVK, testhelper.ResourceScopeNamespaced)
 }
+
+func TestListEventV1s(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewListTestConfig(ListEventV1s, eventsv1.AddToScheme, eventV1GVK).ExecuteTests(t)
+}
