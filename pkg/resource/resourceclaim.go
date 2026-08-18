@@ -38,7 +38,7 @@ func ListResourceClaims(
 
 	claimList := &resourcev1.ResourceClaimList{}
 
-	allOptions := append([]goclient.ListOption{goclient.InNamespace(namespace)}, options...)
+	allOptions := append(append([]goclient.ListOption{}, options...), goclient.InNamespace(namespace))
 
 	err = apiClient.List(logging.DiscardContext(), claimList, allOptions...)
 	if err != nil {

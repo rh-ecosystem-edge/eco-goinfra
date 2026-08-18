@@ -103,7 +103,7 @@ func (builder *ResourceClaimTemplateBuilder) WithDeviceRequest(
 		Name: requestName,
 		FirstAvailable: []resourcev1.DeviceSubRequest{
 			{
-				Name:            requestName + "-subrequest",
+				Name:            "default",
 				DeviceClassName: deviceClassName,
 				Count:           count,
 			},
