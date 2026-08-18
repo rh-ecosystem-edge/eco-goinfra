@@ -30,6 +30,9 @@ type Builder struct {
 type AdditionalOptions func(builder *Builder) (*Builder, error)
 
 const (
+	errNameEmpty              = "DeviceConfig 'name' cannot be empty"
+	errNamespaceEmpty         = "DeviceConfig 'namespace' cannot be empty"
+	errDriversImageEmpty      = "DeviceConfig 'driversImage' cannot be empty"
 	errDriverVersionEmpty     = "DeviceConfig 'driverVersion' cannot be empty"
 	errDevicePluginImageEmpty = "DeviceConfig 'devicePluginImage' cannot be empty"
 	errDRADriverImageEmpty    = "DeviceConfig 'draDriverImage' cannot be empty"
@@ -75,7 +78,7 @@ func NewBuilder(
 	if name == "" {
 		klog.V(100).Infof("The name of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'name' cannot be empty"
+		builder.errorMsg = errNameEmpty
 
 		return builder
 	}
@@ -83,7 +86,7 @@ func NewBuilder(
 	if namespace == "" {
 		klog.V(100).Infof("The namespace of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'namespace' cannot be empty"
+		builder.errorMsg = errNamespaceEmpty
 
 		return builder
 	}
@@ -91,7 +94,7 @@ func NewBuilder(
 	if driversImage == "" {
 		klog.V(100).Infof("The driversImage of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'driversImage' cannot be empty"
+		builder.errorMsg = errDriversImageEmpty
 
 		return builder
 	}
@@ -156,7 +159,7 @@ func NewBuilderWithInClusterBuild(
 	if name == "" {
 		klog.V(100).Infof("The name of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'name' cannot be empty"
+		builder.errorMsg = errNameEmpty
 
 		return builder
 	}
@@ -164,7 +167,7 @@ func NewBuilderWithInClusterBuild(
 	if namespace == "" {
 		klog.V(100).Infof("The namespace of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'namespace' cannot be empty"
+		builder.errorMsg = errNamespaceEmpty
 
 		return builder
 	}
@@ -229,7 +232,7 @@ func NewBuilderWithDRA(
 	if name == "" {
 		klog.V(100).Infof("The name of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'name' cannot be empty"
+		builder.errorMsg = errNameEmpty
 
 		return builder
 	}
@@ -237,7 +240,7 @@ func NewBuilderWithDRA(
 	if namespace == "" {
 		klog.V(100).Infof("The namespace of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'namespace' cannot be empty"
+		builder.errorMsg = errNamespaceEmpty
 
 		return builder
 	}
@@ -245,7 +248,7 @@ func NewBuilderWithDRA(
 	if driversImage == "" {
 		klog.V(100).Infof("The driversImage of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'driversImage' cannot be empty"
+		builder.errorMsg = errDriversImageEmpty
 
 		return builder
 	}
@@ -309,7 +312,7 @@ func NewBuilderWithInClusterBuildDRA(
 	if name == "" {
 		klog.V(100).Infof("The name of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'name' cannot be empty"
+		builder.errorMsg = errNameEmpty
 
 		return builder
 	}
@@ -317,7 +320,7 @@ func NewBuilderWithInClusterBuildDRA(
 	if namespace == "" {
 		klog.V(100).Infof("The namespace of the DeviceConfig is empty")
 
-		builder.errorMsg = "DeviceConfig 'namespace' cannot be empty"
+		builder.errorMsg = errNamespaceEmpty
 
 		return builder
 	}
