@@ -32,7 +32,7 @@ func TestNewResourceClaimTemplateBuilder(t *testing.T) {
 		{
 			name:        "",
 			namespace:   defaultRCTNamespace,
-			expectedErr: "ResourceClaimTemplate 'name' cannot be empty",
+			expectedErr: errRCTNameEmpty,
 			client:      true,
 		},
 		{
@@ -237,7 +237,7 @@ func TestResourceClaimTemplateCreate(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidResourceClaimTemplate(),
-			expectedError: "ResourceClaimTemplate 'name' cannot be empty",
+			expectedError: errRCTNameEmpty,
 		},
 	}
 
@@ -266,7 +266,7 @@ func TestResourceClaimTemplateDelete(t *testing.T) {
 		},
 		{
 			testBuilder:   buildInvalidResourceClaimTemplate(),
-			expectedError: fmt.Errorf("ResourceClaimTemplate 'name' cannot be empty"),
+			expectedError: fmt.Errorf(errRCTNameEmpty),
 		},
 	}
 

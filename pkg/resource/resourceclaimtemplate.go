@@ -13,6 +13,11 @@ import (
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	errRCTNameEmpty      = "ResourceClaimTemplate 'name' cannot be empty"
+	errRCTNamespaceEmpty = "ResourceClaimTemplate 'namespace' cannot be empty"
+)
+
 // ResourceClaimTemplateBuilder provides struct for the ResourceClaimTemplate object
 // containing connection to the cluster and the ResourceClaimTemplate definitions.
 type ResourceClaimTemplateBuilder struct {
@@ -55,7 +60,7 @@ func NewResourceClaimTemplateBuilder(
 	if name == "" {
 		klog.V(100).Info("The name of the ResourceClaimTemplate is empty")
 
-		builder.errorMsg = "ResourceClaimTemplate 'name' cannot be empty"
+		builder.errorMsg = errRCTNameEmpty
 
 		return builder
 	}
@@ -63,7 +68,7 @@ func NewResourceClaimTemplateBuilder(
 	if namespace == "" {
 		klog.V(100).Info("The namespace of the ResourceClaimTemplate is empty")
 
-		builder.errorMsg = "ResourceClaimTemplate 'namespace' cannot be empty"
+		builder.errorMsg = errRCTNamespaceEmpty
 
 		return builder
 	}
