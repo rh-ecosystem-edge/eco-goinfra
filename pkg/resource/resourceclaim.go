@@ -1,85 +1,63 @@
 package resource
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// ListResourceClaims returns ResourceClaim objects matching the given options.
+// ResourceClaimBuilder provides a struct for the ResourceClaim resource containing a connection
+// to the cluster and the ResourceClaim definitions.
+type ResourceClaimBuilder struct {
+	common.EmbeddableBuilder[resourcev1.ResourceClaim, *resourcev1.ResourceClaim]
+	common.EmbeddableDeleter[resourcev1.ResourceClaim, *resourcev1.ResourceClaim]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *ResourceClaimBuilder) AttachMixins() {
+	builder.EmbeddableDeleter.SetBase(builder)
+}
+
+// GetGVK returns the ResourceClaim GVK for this builder.
+func (builder *ResourceClaimBuilder) GetGVK() schema.GroupVersionKind {
+	return resourcev1.SchemeGroupVersion.WithKind("ResourceClaim")
+}
+
+// NewResourceClaimBuilder creates a new instance of ResourceClaimBuilder.
+func NewResourceClaimBuilder(
+	apiClient *clients.Settings, name, namespace string) *ResourceClaimBuilder {
+	return common.NewNamespacedBuilder[resourcev1.ResourceClaim, ResourceClaimBuilder](
+		apiClient, resourcev1.AddToScheme, name, namespace)
+}
+
+// PullResourceClaim fetches an existing ResourceClaim from the cluster by name and namespace.
+func PullResourceClaim(
+	apiClient *clients.Settings, name, namespace string) (*ResourceClaimBuilder, error) {
+	return common.PullNamespacedBuilder[resourcev1.ResourceClaim, ResourceClaimBuilder](
+		context.TODO(), apiClient, resourcev1.AddToScheme, name, namespace)
+}
+
+// ListResourceClaims returns ResourceClaim builders matching the given options in the specified namespace.
 func ListResourceClaims(
 	apiClient *clients.Settings,
 	namespace string,
-	options ...goclient.ListOption) ([]resourcev1.ResourceClaim, error) {
+	options ...runtimeclient.ListOption) ([]*ResourceClaimBuilder, error) {
 	klog.V(100).Infof("Listing ResourceClaims in namespace %s", namespace)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("resourceClaim 'apiClient' cannot be nil")
-	}
-
-	if namespace == "" {
-		klog.V(100).Info("The namespace is empty")
-
-		return nil, fmt.Errorf("resourceClaim 'namespace' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(resourcev1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add resource v1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	claimList := &resourcev1.ResourceClaimList{}
-
-	allOptions := append(append([]goclient.ListOption{}, options...), goclient.InNamespace(namespace))
-
-	err = apiClient.List(logging.DiscardContext(), claimList, allOptions...)
-	if err != nil {
-		return nil, err
-	}
-
-	return claimList.Items, nil
-}
-
-// GetResourceClaim fetches a single ResourceClaim by name and namespace.
-func GetResourceClaim(
-	apiClient *clients.Settings,
-	name, namespace string) (*resourcev1.ResourceClaim, error) {
-	klog.V(100).Infof("Getting ResourceClaim %s in namespace %s", name, namespace)
-
-	if apiClient == nil {
-		return nil, fmt.Errorf("resourceClaim 'apiClient' cannot be nil")
-	}
-
-	if name == "" {
-		return nil, fmt.Errorf("resourceClaim 'name' cannot be empty")
-	}
-
 	if namespace == "" {
 		return nil, fmt.Errorf("resourceClaim 'namespace' cannot be empty")
 	}
 
-	err := apiClient.AttachScheme(resourcev1.AddToScheme)
-	if err != nil {
-		return nil, err
-	}
+	allOptions := append(
+		append([]runtimeclient.ListOption{}, options...),
+		runtimeclient.InNamespace(namespace))
 
-	claim := &resourcev1.ResourceClaim{}
-
-	err = apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name:      name,
-		Namespace: namespace,
-	}, claim)
-	if err != nil {
-		return nil, err
-	}
-
-	return claim, nil
+	return common.List[resourcev1.ResourceClaim, resourcev1.ResourceClaimList, ResourceClaimBuilder](
+		context.TODO(), apiClient, resourcev1.AddToScheme, allOptions...)
 }

@@ -1,64 +1,58 @@
 package resource
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// ListResourceSlices returns ResourceSlice objects matching the given options.
-func ListResourceSlices(
-	apiClient *clients.Settings,
-	options ...goclient.ListOption) ([]resourcev1.ResourceSlice, error) {
-	klog.V(100).Info("Listing ResourceSlices")
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("resourceSlice 'apiClient' cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(resourcev1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add resource v1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	sliceList := &resourcev1.ResourceSliceList{}
-
-	err = apiClient.List(logging.DiscardContext(), sliceList, options...)
-	if err != nil {
-		return nil, err
-	}
-
-	return sliceList.Items, nil
+// ResourceSliceBuilder provides a struct for the ResourceSlice resource containing a connection
+// to the cluster and the ResourceSlice definitions.
+type ResourceSliceBuilder struct {
+	common.EmbeddableBuilder[resourcev1.ResourceSlice, *resourcev1.ResourceSlice]
 }
 
-// ListResourceSlicesByDriver returns ResourceSlice objects filtered by driver name.
+// GetGVK returns the ResourceSlice GVK for this builder.
+func (builder *ResourceSliceBuilder) GetGVK() schema.GroupVersionKind {
+	return resourcev1.SchemeGroupVersion.WithKind("ResourceSlice")
+}
+
+// ListResourceSlices returns ResourceSlice builders matching the given options.
+func ListResourceSlices(
+	apiClient *clients.Settings,
+	options ...runtimeclient.ListOption) ([]*ResourceSliceBuilder, error) {
+	klog.V(100).Info("Listing ResourceSlices")
+
+	return common.List[resourcev1.ResourceSlice, resourcev1.ResourceSliceList, ResourceSliceBuilder](
+		context.TODO(), apiClient, resourcev1.AddToScheme, options...)
+}
+
+// ListResourceSlicesByDriver returns ResourceSlice builders filtered by driver name.
 func ListResourceSlicesByDriver(
 	apiClient *clients.Settings,
-	driverName string) ([]resourcev1.ResourceSlice, error) {
+	driverName string) ([]*ResourceSliceBuilder, error) {
 	klog.V(100).Infof("Listing ResourceSlices for driver %s", driverName)
 
 	if driverName == "" {
 		return nil, fmt.Errorf("resourceSlice 'driverName' cannot be empty")
 	}
 
-	allSlices, err := ListResourceSlices(apiClient)
+	allBuilders, err := ListResourceSlices(apiClient)
 	if err != nil {
 		return nil, err
 	}
 
-	var filtered []resourcev1.ResourceSlice
+	var filtered []*ResourceSliceBuilder
 
-	for idx := range allSlices {
-		if allSlices[idx].Spec.Driver == driverName {
-			filtered = append(filtered, allSlices[idx])
+	for _, builder := range allBuilders {
+		if builder.Object.Spec.Driver == driverName {
+			filtered = append(filtered, builder)
 		}
 	}
 

@@ -1,79 +1,104 @@
 package resource
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var resourceClaimGVK = resourcev1.SchemeGroupVersion.WithKind("ResourceClaim")
+
+func TestNewResourceClaimBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewResourceClaimBuilder,
+		resourcev1.AddToScheme,
+		resourceClaimGVK,
+	).ExecuteTests(t)
+}
+
+func TestPullResourceClaim(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig(
+		PullResourceClaim,
+		resourcev1.AddToScheme,
+		resourceClaimGVK,
+	).ExecuteTests(t)
+}
 
 func TestListResourceClaims(t *testing.T) {
 	testCases := []struct {
+		name                string
 		addToRuntimeObjects bool
 		namespace           string
-		expectedCount       int
 		client              bool
-		expectedError       error
+		expectedCount       int
+		expectedError       bool
 	}{
 		{
+			name:                "valid with claims",
 			addToRuntimeObjects: true,
 			namespace:           "test-ns",
+			client:              true,
 			expectedCount:       1,
-			client:              true,
-			expectedError:       nil,
 		},
 		{
+			name:                "valid no claims",
 			addToRuntimeObjects: false,
 			namespace:           "test-ns",
-			expectedCount:       0,
 			client:              true,
-			expectedError:       nil,
+			expectedCount:       0,
 		},
 		{
-			addToRuntimeObjects: true,
-			namespace:           "test-ns",
-			expectedCount:       0,
-			client:              false,
-			expectedError:       fmt.Errorf("resourceClaim 'apiClient' cannot be nil"),
+			name:          "nil apiClient",
+			namespace:     "test-ns",
+			client:        false,
+			expectedError: true,
 		},
 		{
-			addToRuntimeObjects: false,
-			namespace:           "",
-			expectedCount:       0,
-			client:              true,
-			expectedError:       fmt.Errorf("resourceClaim 'namespace' cannot be empty"),
+			name:          "empty namespace",
+			namespace:     "",
+			client:        true,
+			expectedError: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			var (
+				runtimeObjects []runtime.Object
+				testSettings   *clients.Settings
+			)
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects,
-				generateResourceClaim("test-claim", "test-ns"))
-		}
+			if testCase.addToRuntimeObjects {
+				runtimeObjects = append(runtimeObjects,
+					generateResourceClaim("test-claim", "test-ns"))
+			}
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testResourceSchemes,
-			})
-		}
+			if testCase.client {
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  runtimeObjects,
+					SchemeAttachers: testResourceSchemes,
+				})
+			}
 
-		claims, err := ListResourceClaims(testSettings, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
+			builders, err := ListResourceClaims(testSettings, testCase.namespace)
 
-		if testCase.expectedError == nil {
-			assert.Len(t, claims, testCase.expectedCount)
-		}
+			if testCase.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Len(t, builders, testCase.expectedCount)
+			}
+		})
 	}
 }
 
@@ -85,87 +110,77 @@ func TestListResourceClaimsNamespaceOverride(t *testing.T) {
 		SchemeAttachers: testResourceSchemes,
 	})
 
-	claims, err := ListResourceClaims(testSettings, "correct-ns",
-		goclient.InNamespace("wrong-ns"))
-	assert.Nil(t, err)
-	assert.Len(t, claims, 1)
-	assert.Equal(t, "test-claim", claims[0].Name)
+	builders, err := ListResourceClaims(testSettings, "correct-ns",
+		runtimeclient.InNamespace("wrong-ns"))
+	assert.NoError(t, err)
+	assert.Len(t, builders, 1)
+	assert.Equal(t, "test-claim", builders[0].Object.Name)
 }
 
-func TestGetResourceClaim(t *testing.T) {
+func TestResourceClaimBuilderExists(t *testing.T) {
 	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
+		name           string
+		addToRuntime   bool
+		expectedStatus bool
 	}{
 		{
-			name:                "test-claim",
-			namespace:           "test-ns",
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
+			name:           "object exists",
+			addToRuntime:   true,
+			expectedStatus: true,
 		},
 		{
-			name:                "test-claim",
-			namespace:           "test-ns",
-			addToRuntimeObjects: false,
-			client:              false,
-			expectedError:       fmt.Errorf("resourceClaim 'apiClient' cannot be nil"),
-		},
-		{
-			name:                "",
-			namespace:           "test-ns",
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("resourceClaim 'name' cannot be empty"),
-		},
-		{
-			name:                "test-claim",
-			namespace:           "",
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("resourceClaim 'namespace' cannot be empty"),
+			name:           "object does not exist",
+			addToRuntime:   false,
+			expectedStatus: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			var runtimeObjects []runtime.Object
+			if testCase.addToRuntime {
+				runtimeObjects = append(runtimeObjects,
+					generateResourceClaim("test-claim", "test-ns"))
+			}
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects,
-				generateResourceClaim(testCase.name, testCase.namespace))
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
+			testSettings := clients.GetTestClients(clients.TestClientParams{
 				K8sMockObjects:  runtimeObjects,
 				SchemeAttachers: testResourceSchemes,
 			})
-		}
 
-		claim, err := GetResourceClaim(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, claim)
-			assert.Equal(t, testCase.name, claim.Name)
-		}
+			builder := NewResourceClaimBuilder(testSettings, "test-claim", "test-ns")
+			assert.Equal(t, testCase.expectedStatus, builder.Exists())
+		})
 	}
 }
 
-func TestGetResourceClaimNotFound(t *testing.T) {
+func TestResourceClaimBuilderDelete(t *testing.T) {
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: []runtime.Object{
+			generateResourceClaim("test-claim", "test-ns"),
+		},
+		SchemeAttachers: testResourceSchemes,
+	})
+
+	builder := NewResourceClaimBuilder(testSettings, "test-claim", "test-ns")
+	err := builder.Delete()
+	assert.NoError(t, err)
+	assert.Nil(t, builder.Object)
+}
+
+func TestPullResourceClaimNotFound(t *testing.T) {
 	testSettings := clients.GetTestClients(clients.TestClientParams{
 		SchemeAttachers: testResourceSchemes,
 	})
 
-	claim, err := GetResourceClaim(testSettings, "nonexistent", "test-ns")
-	assert.NotNil(t, err)
-	assert.Nil(t, claim)
+	builder, err := PullResourceClaim(testSettings, "nonexistent", "test-ns")
+	assert.Error(t, err)
+	assert.Nil(t, builder)
+}
+
+func TestResourceClaimBuilderGetGVK(t *testing.T) {
+	builder := &ResourceClaimBuilder{}
+	assert.Equal(t, resourceClaimGVK, builder.GetGVK())
 }
 
 func generateResourceClaim(name, namespace string) *resourcev1.ResourceClaim {

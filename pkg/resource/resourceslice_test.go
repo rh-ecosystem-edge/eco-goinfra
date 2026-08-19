@@ -1,133 +1,99 @@
 package resource
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+var resourceSliceGVK = resourcev1.SchemeGroupVersion.WithKind("ResourceSlice")
+
 func TestListResourceSlices(t *testing.T) {
-	testCases := []struct {
-		addToRuntimeObjects bool
-		expectedCount       int
-		client              bool
-		expectedError       error
-	}{
-		{
-			addToRuntimeObjects: true,
-			expectedCount:       1,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			addToRuntimeObjects: false,
-			expectedCount:       0,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			addToRuntimeObjects: true,
-			expectedCount:       0,
-			client:              false,
-			expectedError:       fmt.Errorf("resourceSlice 'apiClient' cannot be nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects,
-				generateResourceSlice("test-slice", "test-driver"))
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testResourceSchemes,
-			})
-		}
-
-		slices, err := ListResourceSlices(testSettings)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Len(t, slices, testCase.expectedCount)
-		}
-	}
+	testhelper.NewListTestConfig(
+		ListResourceSlices,
+		resourcev1.AddToScheme,
+		resourceSliceGVK,
+	).ExecuteTests(t)
 }
 
 func TestListResourceSlicesByDriver(t *testing.T) {
 	testCases := []struct {
+		name          string
 		driverName    string
 		addSlices     bool
 		client        bool
 		expectedCount int
-		expectedError error
+		expectedError bool
 	}{
 		{
+			name:          "matching driver",
 			driverName:    "test-driver",
 			addSlices:     true,
 			client:        true,
 			expectedCount: 1,
-			expectedError: nil,
 		},
 		{
+			name:          "non-matching driver",
 			driverName:    "other-driver",
 			addSlices:     true,
 			client:        true,
 			expectedCount: 0,
-			expectedError: nil,
 		},
 		{
+			name:          "empty driverName",
 			driverName:    "",
-			addSlices:     false,
 			client:        true,
-			expectedCount: 0,
-			expectedError: fmt.Errorf("resourceSlice 'driverName' cannot be empty"),
+			expectedError: true,
 		},
 		{
+			name:          "nil apiClient",
 			driverName:    "test-driver",
-			addSlices:     false,
 			client:        false,
-			expectedCount: 0,
-			expectedError: fmt.Errorf("resourceSlice 'apiClient' cannot be nil"),
+			expectedError: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			var (
+				runtimeObjects []runtime.Object
+				testSettings   *clients.Settings
+			)
 
-		if testCase.addSlices {
-			runtimeObjects = append(runtimeObjects,
-				generateResourceSlice("test-slice", "test-driver"))
-		}
+			if testCase.addSlices {
+				runtimeObjects = append(runtimeObjects,
+					generateResourceSlice("test-slice", "test-driver"))
+			}
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testResourceSchemes,
-			})
-		}
+			if testCase.client {
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  runtimeObjects,
+					SchemeAttachers: testResourceSchemes,
+				})
+			}
 
-		slices, err := ListResourceSlicesByDriver(testSettings, testCase.driverName)
-		assert.Equal(t, testCase.expectedError, err)
+			builders, err := ListResourceSlicesByDriver(testSettings, testCase.driverName)
 
-		if testCase.expectedError == nil {
-			assert.Len(t, slices, testCase.expectedCount)
-		}
+			if testCase.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Len(t, builders, testCase.expectedCount)
+			}
+		})
 	}
+}
+
+func TestResourceSliceBuilderGetGVK(t *testing.T) {
+	builder := &ResourceSliceBuilder{}
+	assert.Equal(t, resourceSliceGVK, builder.GetGVK())
 }
 
 func generateResourceSlice(name, driverName string) *resourcev1.ResourceSlice {
