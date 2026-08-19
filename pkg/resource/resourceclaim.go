@@ -21,7 +21,7 @@ type ResourceClaimBuilder struct {
 
 // AttachMixins wires the embedded CRUD mixins to this builder instance.
 func (builder *ResourceClaimBuilder) AttachMixins() {
-	builder.EmbeddableDeleter.SetBase(builder)
+	builder.SetBase(builder)
 }
 
 // GetGVK returns the ResourceClaim GVK for this builder.

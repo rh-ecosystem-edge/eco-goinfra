@@ -80,7 +80,7 @@ func TestListResourceClaims(t *testing.T) {
 
 			if testCase.addToRuntimeObjects {
 				runtimeObjects = append(runtimeObjects,
-					generateResourceClaim("test-claim", "test-ns"))
+					generateResourceClaim("test-ns"))
 			}
 
 			if testCase.client {
@@ -105,7 +105,7 @@ func TestListResourceClaims(t *testing.T) {
 func TestListResourceClaimsNamespaceOverride(t *testing.T) {
 	testSettings := clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects: []runtime.Object{
-			generateResourceClaim("test-claim", "correct-ns"),
+			generateResourceClaim("correct-ns"),
 		},
 		SchemeAttachers: testResourceSchemes,
 	})
@@ -140,7 +140,7 @@ func TestResourceClaimBuilderExists(t *testing.T) {
 			var runtimeObjects []runtime.Object
 			if testCase.addToRuntime {
 				runtimeObjects = append(runtimeObjects,
-					generateResourceClaim("test-claim", "test-ns"))
+					generateResourceClaim("test-ns"))
 			}
 
 			testSettings := clients.GetTestClients(clients.TestClientParams{
@@ -157,7 +157,7 @@ func TestResourceClaimBuilderExists(t *testing.T) {
 func TestResourceClaimBuilderDelete(t *testing.T) {
 	testSettings := clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects: []runtime.Object{
-			generateResourceClaim("test-claim", "test-ns"),
+			generateResourceClaim("test-ns"),
 		},
 		SchemeAttachers: testResourceSchemes,
 	})
@@ -183,10 +183,10 @@ func TestResourceClaimBuilderGetGVK(t *testing.T) {
 	assert.Equal(t, resourceClaimGVK, builder.GetGVK())
 }
 
-func generateResourceClaim(name, namespace string) *resourcev1.ResourceClaim {
+func generateResourceClaim(namespace string) *resourcev1.ResourceClaim {
 	return &resourcev1.ResourceClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
+			Name:      "test-claim",
 			Namespace: namespace,
 		},
 	}
