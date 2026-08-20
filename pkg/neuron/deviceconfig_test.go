@@ -549,12 +549,12 @@ func TestDeviceConfigWithDeviceClasses(t *testing.T) {
 		{
 			name:          "empty device classes",
 			deviceClasses: []v1beta1.DeviceClassSpec{},
-			expectedError: "DeviceConfig 'deviceClasses' cannot be empty",
+			expectedError: errDeviceClassesEmpty,
 		},
 		{
 			name:          "nil device classes",
 			deviceClasses: nil,
-			expectedError: "DeviceConfig 'deviceClasses' cannot be empty",
+			expectedError: errDeviceClassesEmpty,
 		},
 	}
 

@@ -36,6 +36,7 @@ const (
 	errDriverVersionEmpty     = "DeviceConfig 'driverVersion' cannot be empty"
 	errDevicePluginImageEmpty = "DeviceConfig 'devicePluginImage' cannot be empty"
 	errDRADriverImageEmpty    = "DeviceConfig 'draDriverImage' cannot be empty"
+	errDeviceClassesEmpty     = "DeviceConfig 'deviceClasses' cannot be empty"
 )
 
 // NewBuilder creates a new instance of Builder.
@@ -379,9 +380,9 @@ func (builder *Builder) WithDeviceClasses(
 		builder.Definition.Name, builder.Definition.Namespace, len(deviceClasses))
 
 	if len(deviceClasses) == 0 {
-		klog.V(100).Infof("DeviceConfig 'deviceClasses' cannot be empty")
+		klog.V(100).Infof(errDeviceClassesEmpty)
 
-		builder.errorMsg = "DeviceConfig 'deviceClasses' cannot be empty"
+		builder.errorMsg = errDeviceClassesEmpty
 
 		return builder
 	}
