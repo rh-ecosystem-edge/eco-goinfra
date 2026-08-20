@@ -2,10 +2,11 @@ package resource
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
@@ -51,7 +52,10 @@ func ListResourceClaims(
 	klog.V(100).Infof("Listing ResourceClaims in namespace %s", namespace)
 
 	if namespace == "" {
-		return nil, fmt.Errorf("resourceClaim 'namespace' cannot be empty")
+		klog.V(100).Info("ResourceClaim 'namespace' parameter can not be empty")
+
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey("ResourceClaim", "", ""), commonerrors.BuilderFieldNamespace)
 	}
 
 	allOptions := append(

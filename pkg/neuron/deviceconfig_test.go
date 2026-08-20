@@ -498,6 +498,88 @@ func TestDeviceConfigWithOptions(t *testing.T) {
 	}
 }
 
+func TestDeviceConfigWithDRADriverImage(t *testing.T) {
+	testCases := []struct {
+		draDriverImage string
+		expectedError  string
+	}{
+		{
+			draDriverImage: "public.ecr.aws/neuron/neuron-dra-driver:1.0.0",
+			expectedError:  "",
+		},
+		{
+			draDriverImage: "",
+			expectedError:  errDRADriverImageEmpty,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
+		result := testBuilder.WithDRADriverImage(testCase.draDriverImage)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.draDriverImage, result.Definition.Spec.DRADriverImage)
+		} else {
+			assert.Equal(t, testCase.expectedError, result.errorMsg)
+		}
+	}
+}
+
+func TestDeviceConfigWithDRADriverImageInvalidBuilder(t *testing.T) {
+	testBuilder := buildInvalidDeviceConfigBuilder(buildTestClientWithDummyObject())
+	origErr := testBuilder.errorMsg
+
+	result := testBuilder.WithDRADriverImage("public.ecr.aws/neuron/neuron-dra-driver:1.0.0")
+	assert.Equal(t, origErr, result.errorMsg)
+}
+
+func TestDeviceConfigWithDeviceClasses(t *testing.T) {
+	testCases := []struct {
+		name          string
+		deviceClasses []v1beta1.DeviceClassSpec
+		expectedError string
+	}{
+		{
+			name: "valid device classes",
+			deviceClasses: []v1beta1.DeviceClassSpec{
+				{Name: "neuron-device"},
+			},
+			expectedError: "",
+		},
+		{
+			name:          "empty device classes",
+			deviceClasses: []v1beta1.DeviceClassSpec{},
+			expectedError: "DeviceConfig 'deviceClasses' cannot be empty",
+		},
+		{
+			name:          "nil device classes",
+			deviceClasses: nil,
+			expectedError: "DeviceConfig 'deviceClasses' cannot be empty",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			testBuilder := buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
+			result := testBuilder.WithDeviceClasses(testCase.deviceClasses)
+
+			if testCase.expectedError == "" {
+				assert.Equal(t, testCase.deviceClasses, result.Definition.Spec.DeviceClasses)
+			} else {
+				assert.Equal(t, testCase.expectedError, result.errorMsg)
+			}
+		})
+	}
+}
+
+func TestDeviceConfigWithDeviceClassesInvalidBuilder(t *testing.T) {
+	testBuilder := buildInvalidDeviceConfigBuilder(buildTestClientWithDummyObject())
+	origErr := testBuilder.errorMsg
+
+	result := testBuilder.WithDeviceClasses([]v1beta1.DeviceClassSpec{{Name: "test"}})
+	assert.Equal(t, origErr, result.errorMsg)
+}
+
 // buildDummyDeviceConfig returns a DeviceConfig with the provided name and namespace.
 func buildDummyDeviceConfig(name, namespace string) *v1beta1.DeviceConfig {
 	return &v1beta1.DeviceConfig{

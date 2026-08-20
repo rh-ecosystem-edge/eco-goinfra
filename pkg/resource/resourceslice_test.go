@@ -23,6 +23,21 @@ func TestListResourceSlices(t *testing.T) {
 	).ExecuteTests(t)
 }
 
+func TestResourceSliceBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[resourcev1.ResourceSlice, ResourceSliceBuilder](
+		resourcev1.AddToScheme,
+		resourceSliceGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		Run(t)
+}
+
 func TestListResourceSlicesByDriver(t *testing.T) {
 	testCases := []struct {
 		name          string
