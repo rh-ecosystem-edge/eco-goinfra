@@ -909,6 +909,138 @@ func buildTestClientWithDummyPod() *clients.Settings {
 	})
 }
 
+func TestPodWithCommand(t *testing.T) {
+	testCases := []struct {
+		command       []string
+		hasObject     bool
+		expectedError string
+	}{
+		{
+			command:       []string{"sleep", "infinity"},
+			hasObject:     false,
+			expectedError: "",
+		},
+		{
+			command:       []string{},
+			hasObject:     false,
+			expectedError: "pod command cannot be empty",
+		},
+		{
+			command:       []string{"sleep", "infinity"},
+			hasObject:     true,
+			expectedError: podRunningErrorMsg,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidPodTestBuilder(buildTestClientWithDummyPod())
+
+		if testCase.hasObject {
+			testBuilder.Object = testBuilder.Definition
+			testBuilder.Object.Spec.NodeName = defaultPodNodeName
+		}
+
+		result := testBuilder.WithCommand(testCase.command)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.command, result.Definition.Spec.Containers[0].Command)
+		} else {
+			assert.Equal(t, testCase.expectedError, result.errorMsg)
+		}
+	}
+}
+
+func TestPodWithCommandNoContainers(t *testing.T) {
+	testBuilder := buildValidPodTestBuilder(buildTestClientWithDummyPod())
+	testBuilder.Definition.Spec.Containers = nil
+
+	result := testBuilder.WithCommand([]string{"sleep", "infinity"})
+	assert.Equal(t, "pod has no containers to set command on", result.errorMsg)
+}
+
+func TestPodWithResourceClaim(t *testing.T) {
+	testCases := []struct {
+		claimName         string
+		claimTemplateName string
+		hasObject         bool
+		expectedError     string
+	}{
+		{
+			claimName:         "test-claim",
+			claimTemplateName: "test-template",
+			hasObject:         false,
+			expectedError:     "",
+		},
+		{
+			claimName:         "",
+			claimTemplateName: "test-template",
+			hasObject:         false,
+			expectedError:     "ResourceClaim name cannot be empty",
+		},
+		{
+			claimName:         "test-claim",
+			claimTemplateName: "",
+			hasObject:         false,
+			expectedError:     "ResourceClaimTemplate name cannot be empty",
+		},
+		{
+			claimName:         "test-claim",
+			claimTemplateName: "test-template",
+			hasObject:         true,
+			expectedError:     podRunningErrorMsg,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := buildValidPodTestBuilder(buildTestClientWithDummyPod())
+
+		if testCase.hasObject {
+			testBuilder.Object = testBuilder.Definition
+			testBuilder.Object.Spec.NodeName = defaultPodNodeName
+		}
+
+		result := testBuilder.WithResourceClaim(testCase.claimName, testCase.claimTemplateName)
+
+		if testCase.expectedError == "" {
+			assert.Len(t, result.Definition.Spec.ResourceClaims, 1)
+			assert.Equal(t, testCase.claimName, result.Definition.Spec.ResourceClaims[0].Name)
+			assert.Equal(t, testCase.claimTemplateName,
+				*result.Definition.Spec.ResourceClaims[0].ResourceClaimTemplateName)
+			assert.Len(t, result.Definition.Spec.Containers[0].Resources.Claims, 1)
+			assert.Equal(t, testCase.claimName,
+				result.Definition.Spec.Containers[0].Resources.Claims[0].Name)
+		} else {
+			assert.Equal(t, testCase.expectedError, result.errorMsg)
+		}
+	}
+}
+
+func TestPodWithResourceClaimDuplicate(t *testing.T) {
+	testBuilder := buildValidPodTestBuilder(buildTestClientWithDummyPod())
+
+	result := testBuilder.
+		WithResourceClaim("claim-a", "template-a").
+		WithResourceClaim("claim-a", "template-a")
+
+	assert.Len(t, result.Definition.Spec.ResourceClaims, 1,
+		"Duplicate claim name should not create a second entry")
+	assert.Len(t, result.Definition.Spec.Containers[0].Resources.Claims, 1)
+}
+
+func TestPodWithResourceClaimDistinct(t *testing.T) {
+	testBuilder := buildValidPodTestBuilder(buildTestClientWithDummyPod())
+
+	result := testBuilder.
+		WithResourceClaim("claim-a", "template-a").
+		WithResourceClaim("claim-b", "template-b")
+
+	assert.Len(t, result.Definition.Spec.ResourceClaims, 2,
+		"Distinct claim names should create separate entries")
+	assert.Equal(t, "claim-a", result.Definition.Spec.ResourceClaims[0].Name)
+	assert.Equal(t, "claim-b", result.Definition.Spec.ResourceClaims[1].Name)
+	assert.Len(t, result.Definition.Spec.Containers[0].Resources.Claims, 2)
+}
+
 // buildValidPodTestBuilder returns a valid Pod builder for testing.
 func buildValidPodTestBuilder(apiClient *clients.Settings) *Builder {
 	return NewBuilder(apiClient, defaultPodName, defaultPodNsName, defaultPodImage)
