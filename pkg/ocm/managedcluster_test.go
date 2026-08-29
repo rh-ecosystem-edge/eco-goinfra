@@ -7,398 +7,198 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ocm/clusterv1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const defaultManagedClusterName = "managedcluster-test"
 
-var clusterTestSchemes = []clients.SchemeAttacher{
-	clusterv1.Install,
-}
-
 func TestNewManagedClusterBuilder(t *testing.T) {
-	testCases := []struct {
-		managedClusterName string
-		client             bool
-		expectedErrorText  string
-	}{
-		{
-			managedClusterName: defaultManagedClusterName,
-			client:             true,
-			expectedErrorText:  "",
-		},
-		{
-			managedClusterName: "",
-			client:             true,
-			expectedErrorText:  errEmptyManagedClusterName,
-		},
-		{
-			managedClusterName: defaultManagedClusterName,
-			client:             false,
-			expectedErrorText:  "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = buildTestClientWithManagedClusterScheme()
-		}
-
-		managedClusterBuilder := NewManagedClusterBuilder(testSettings, testCase.managedClusterName)
-
-		if testCase.client {
-			assert.Equal(t, testCase.expectedErrorText, managedClusterBuilder.errorMsg)
-
-			if testCase.expectedErrorText == "" {
-				assert.Equal(t, testCase.managedClusterName, managedClusterBuilder.Definition.Name)
-			}
-		} else {
-			assert.Nil(t, managedClusterBuilder)
-		}
-	}
-}
-
-func TestManagedClusterWithOptions(t *testing.T) {
-	testCases := []struct {
-		valid             bool
-		options           ManagedClusterAdditionalOptions
-		expectedErrorText string
-	}{
-		{
-			valid: true,
-			options: func(builder *ManagedClusterBuilder) (*ManagedClusterBuilder, error) {
-				builder.Definition.Spec.HubAcceptsClient = true
-
-				return builder, nil
-			},
-			expectedErrorText: "",
-		},
-		{
-			valid: false,
-			options: func(builder *ManagedClusterBuilder) (*ManagedClusterBuilder, error) {
-				return builder, nil
-			},
-			expectedErrorText: errEmptyManagedClusterName,
-		},
-		{
-			valid: true,
-			options: func(builder *ManagedClusterBuilder) (*ManagedClusterBuilder, error) {
-				return builder, fmt.Errorf("error adding additional option")
-			},
-			expectedErrorText: "error adding additional option",
-		},
-	}
-
-	for _, testCase := range testCases {
-		managedClusterBuilder := buildInvalidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme())
-		if testCase.valid {
-			managedClusterBuilder = buildValidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme())
-		}
-
-		managedClusterBuilder = managedClusterBuilder.WithOptions(testCase.options)
-
-		assert.NotNil(t, managedClusterBuilder)
-		assert.Equal(t, testCase.expectedErrorText, managedClusterBuilder.errorMsg)
-
-		if testCase.expectedErrorText == "" {
-			assert.True(t, managedClusterBuilder.Definition.Spec.HubAcceptsClient)
-		}
-	}
+	testhelper.NewClusterScopedBuilderTestConfig(
+		NewManagedClusterBuilder, clusterv1.Install, managedClusterGVK).ExecuteTests(t)
 }
 
 func TestPullManagedCluster(t *testing.T) {
-	testCases := []struct {
-		managedClusterName  string
-		addToRuntimeObjects bool
-		client              bool
-		expectedErrorText   string
-	}{
-		{
-			managedClusterName:  defaultManagedClusterName,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedErrorText:   "",
-		},
-		{
-			managedClusterName:  defaultManagedClusterName,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedErrorText:   fmt.Sprintf("managedCluster object %s does not exist", defaultManagedClusterName),
-		},
-		{
-			managedClusterName:  "",
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedErrorText:   errEmptyManagedClusterName,
-		},
-		{
-			managedClusterName:  defaultManagedClusterName,
-			addToRuntimeObjects: false,
-			client:              false,
-			expectedErrorText:   "managedCluster 'apiClient' cannot be empty",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+	testhelper.NewClusterScopedPullTestConfig(
+		PullManagedCluster, clusterv1.Install, managedClusterGVK).ExecuteTests(t)
+}
 
-		testManagedCluster := buildDummyManagedCluster(testCase.managedClusterName)
+func TestManagedClusterBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testManagedCluster)
-		}
+	commonTestConfig := testhelper.NewCommonTestConfig[clusterv1.ManagedCluster, ManagedClusterBuilder](
+		clusterv1.Install,
+		managedClusterGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: clusterTestSchemes,
-			})
-		}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
+}
 
-		managedClusterBuilder, err := PullManagedCluster(testSettings, testManagedCluster.Name)
+func TestManagedClusterWithOptions(t *testing.T) {
+	t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testManagedCluster.Name, managedClusterBuilder.Object.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedErrorText)
-		}
-	}
+	testhelper.NewWithOptionsTestConfig(
+		testhelper.NewCommonTestConfig[clusterv1.ManagedCluster, ManagedClusterBuilder](
+			clusterv1.Install,
+			managedClusterGVK,
+			testhelper.ResourceScopeClusterScoped,
+		)).ExecuteTests(t)
 }
 
 func TestWithHubAcceptsClient(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		accept            bool
-		expectedErrorText string
+		name   string
+		accept bool
+		valid  bool
 	}{
 		{
-			accept:            true,
-			expectedErrorText: "",
+			name:   "accept true",
+			accept: true,
+			valid:  true,
 		},
 		{
-			accept:            false,
-			expectedErrorText: "",
+			name:   "accept false",
+			accept: false,
+			valid:  true,
+		},
+		{
+			name:   "invalid builder",
+			accept: true,
+			valid:  false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithManagedClusterScheme()
-		managedClusterBuilder := buildValidManagedClusterTestBuilder(testSettings).WithHubAcceptsClient(testCase.accept)
-		assert.Equal(t, testCase.expectedErrorText, managedClusterBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, testCase.accept, managedClusterBuilder.Definition.Spec.HubAcceptsClient)
-		}
-	}
-}
+			var managedClusterBuilder *ManagedClusterBuilder
+			if testCase.valid {
+				managedClusterBuilder = buildValidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme())
+			} else {
+				managedClusterBuilder = buildInvalidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme())
+			}
 
-func TestManagedClusterGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ManagedClusterBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildInvalidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			expectedError: errEmptyManagedClusterName,
-		},
-		{
-			testBuilder: buildValidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme()),
-			expectedError: fmt.Sprintf(
-				"managedclusters.cluster.open-cluster-management.io \"%s\" not found", defaultManagedClusterName),
-		},
-	}
+			managedClusterBuilder = managedClusterBuilder.WithHubAcceptsClient(testCase.accept)
 
-	for _, testCase := range testCases {
-		mcl, err := testCase.testBuilder.Get()
-
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.testBuilder.Definition.Name, mcl.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestManagedClusterExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *ManagedClusterBuilder
-		exists      bool
-	}{
-		{
-			testBuilder: buildValidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			exists:      true,
-		},
-		{
-			testBuilder: buildInvalidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			exists:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
-}
-
-func TestManagedClusterCreate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ManagedClusterBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme()),
-			expectedError: fmt.Errorf(errEmptyManagedClusterName),
-		},
-	}
-
-	for _, testCase := range testCases {
-		managedClusterBuilder, err := testCase.testBuilder.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, managedClusterBuilder.Definition, managedClusterBuilder.Object)
-		}
-	}
-}
-
-func TestManagedClusterDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ManagedClusterBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildValidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			expectedError: fmt.Errorf(errEmptyManagedClusterName),
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
+			switch testCase.name {
+			case "invalid builder":
+				require.Error(t, managedClusterBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(managedClusterBuilder.GetError()))
+			default:
+				assert.NoError(t, managedClusterBuilder.GetError())
+				assert.Equal(t, testCase.accept, managedClusterBuilder.Definition.Spec.HubAcceptsClient)
+			}
+		})
 	}
 }
 
 func TestManagedClusterDeleteAndWait(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBuilder   *ManagedClusterBuilder
-		expectedError error
+		name          string
+		valid         bool
+		clusterExists bool
 	}{
 		{
-			testBuilder:   buildValidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			expectedError: nil,
+			name:          "deleted cluster",
+			valid:         true,
+			clusterExists: true,
 		},
 		{
-			testBuilder:   buildValidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme()),
-			expectedError: nil,
+			name:          "cluster already absent",
+			valid:         true,
+			clusterExists: false,
 		},
 		{
-			testBuilder:   buildInvalidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			expectedError: fmt.Errorf(errEmptyManagedClusterName),
+			name:          "invalid builder",
+			valid:         false,
+			clusterExists: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testBuilder.DeleteAndWait(time.Second)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
-	}
-}
+			var testSettings *clients.Settings
+			if testCase.clusterExists {
+				testSettings = buildTestClientWithDummyManagedCluster()
+			} else {
+				testSettings = buildTestClientWithManagedClusterScheme()
+			}
 
-func TestManagedClusterUpdate(t *testing.T) {
-	testCases := []struct {
-		alreadyExists bool
-	}{
-		{
-			alreadyExists: false,
-		},
-		{
-			alreadyExists: true,
-		},
-	}
+			var managedClusterBuilder *ManagedClusterBuilder
+			if testCase.valid {
+				managedClusterBuilder = buildValidManagedClusterTestBuilder(testSettings)
+			} else {
+				managedClusterBuilder = buildInvalidManagedClusterTestBuilder(testSettings)
+			}
 
-	for _, testCase := range testCases {
-		testBuilder := buildValidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme())
+			err := managedClusterBuilder.DeleteAndWait(time.Second)
 
-		if testCase.alreadyExists {
-			testBuilder = buildValidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster())
-		}
-
-		assert.NotNil(t, testBuilder.Definition)
-		assert.False(t, testBuilder.Definition.Spec.HubAcceptsClient)
-
-		testBuilder.Definition.Spec.HubAcceptsClient = true
-
-		managedClusterBuilder, err := testBuilder.Update()
-		assert.NotNil(t, testBuilder.Definition)
-
-		if testCase.alreadyExists {
-			assert.Nil(t, err)
-			assert.Equal(t, testBuilder.Definition.Name, managedClusterBuilder.Definition.Name)
-			assert.Equal(t, testBuilder.Definition.Spec.HubAcceptsClient, managedClusterBuilder.Definition.Spec.HubAcceptsClient)
-		} else {
-			assert.NotNil(t, err)
-		}
+			switch testCase.name {
+			case "invalid builder":
+				require.Error(t, err)
+				assert.True(t, commonerrors.IsBuilderNameEmpty(err))
+			default:
+				assert.NoError(t, err)
+				assert.Nil(t, managedClusterBuilder.Object)
+			}
+		})
 	}
 }
 
 func TestManagedClusterWaitForLabel(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		exists        bool
 		valid         bool
 		hasLabel      bool
 		expectedError error
 	}{
 		{
-			exists:        true,
-			valid:         true,
-			hasLabel:      true,
-			expectedError: nil,
+			name:     "label found",
+			exists:   true,
+			valid:    true,
+			hasLabel: true,
 		},
 		{
+			name:          "not exists",
 			exists:        false,
 			valid:         true,
 			hasLabel:      true,
 			expectedError: fmt.Errorf("managedCluster object %s does not exist", defaultManagedClusterName),
 		},
 		{
-			exists:        true,
-			valid:         false,
-			hasLabel:      true,
-			expectedError: fmt.Errorf(errEmptyManagedClusterName),
+			name:     "invalid builder",
+			exists:   true,
+			valid:    false,
+			hasLabel: true,
 		},
 		{
+			name:          "timeout waiting for label",
 			exists:        true,
 			valid:         true,
 			hasLabel:      false,
@@ -407,110 +207,162 @@ func TestManagedClusterWaitForLabel(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testBuilder    *ManagedClusterBuilder
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			mcl := buildDummyManagedCluster(defaultManagedClusterName)
+			var runtimeObjects []runtime.Object
 
-			if testCase.hasLabel {
-				mcl.Labels = map[string]string{"test": ""}
+			if testCase.exists {
+				mcl := buildDummyManagedCluster(defaultManagedClusterName)
+
+				if testCase.hasLabel {
+					mcl.Labels = map[string]string{"test": ""}
+				}
+
+				runtimeObjects = append(runtimeObjects, mcl)
 			}
 
-			runtimeObjects = append(runtimeObjects, mcl)
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects: runtimeObjects,
+				SchemeAttachers: []clients.SchemeAttacher{
+					clusterv1.Install,
+				},
+			})
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: clusterTestSchemes,
+			var testBuilder *ManagedClusterBuilder
+			if testCase.valid {
+				testBuilder = buildValidManagedClusterTestBuilder(testSettings)
+			} else {
+				testBuilder = buildInvalidManagedClusterTestBuilder(testSettings)
+			}
+
+			_, err := testBuilder.WaitForLabel("test", time.Second)
+
+			switch testCase.name {
+			case "invalid builder":
+				require.Error(t, err)
+				assert.True(t, commonerrors.IsBuilderNameEmpty(err))
+			case "timeout waiting for label", "not exists":
+				assert.Equal(t, testCase.expectedError, err)
+			default:
+				assert.NoError(t, err)
+			}
 		})
-
-		if testCase.valid {
-			testBuilder = buildValidManagedClusterTestBuilder(testSettings)
-		} else {
-			testBuilder = buildInvalidManagedClusterTestBuilder(testSettings)
-		}
-
-		_, err := testBuilder.WaitForLabel("test", time.Second)
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
-func TestManagedClusterValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil      bool
-		definitionNil   bool
-		apiClientNil    bool
-		builderErrorMsg string
-		expectedError   error
-	}{
+func TestManagedClusterWaitForCondition(t *testing.T) {
+	t.Parallel()
+
+	testCases := []managedClusterWaitForConditionTestCase{
 		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   nil,
+			name:         "condition found",
+			exists:       true,
+			valid:        true,
+			hasCondition: true,
+			condition: metav1.Condition{
+				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
+			},
 		},
 		{
-			builderNil:      true,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("error: received nil managedCluster builder"),
+			name:         "not exists",
+			exists:       false,
+			valid:        true,
+			hasCondition: true,
+			condition: metav1.Condition{
+				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
+			},
+			expectedError: fmt.Errorf("cannot wait for non-existent ManagedCluster"),
 		},
 		{
-			builderNil:      false,
-			definitionNil:   true,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("can not redefine the undefined managedCluster"),
+			name:         "invalid builder",
+			exists:       true,
+			valid:        false,
+			hasCondition: true,
+			condition: metav1.Condition{
+				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
+			},
 		},
 		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    true,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("managedCluster builder cannot have nil apiClient"),
+			name:         "timeout waiting for condition",
+			exists:       true,
+			valid:        true,
+			hasCondition: false,
+			condition: metav1.Condition{
+				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
+			},
+			expectedError: context.DeadlineExceeded,
 		},
 		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "test error",
-			expectedError:   fmt.Errorf("test error"),
+			name:         "condition with reason and message",
+			exists:       true,
+			valid:        true,
+			hasCondition: true,
+			condition: metav1.Condition{
+				Type:    clusterv1.ManagedClusterConditionAvailable,
+				Status:  metav1.ConditionTrue,
+				Reason:  "TestReason",
+				Message: "Test message",
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		managedClusterBuilder := buildValidManagedClusterTestBuilder(buildTestClientWithManagedClusterScheme())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			runManagedClusterWaitForConditionTestCase(t, testCase)
+		})
+	}
+}
 
-		if testCase.builderNil {
-			managedClusterBuilder = nil
+type managedClusterWaitForConditionTestCase struct {
+	name          string
+	exists        bool
+	valid         bool
+	hasCondition  bool
+	condition     metav1.Condition
+	expectedError error
+}
+
+func runManagedClusterWaitForConditionTestCase(t *testing.T, testCase managedClusterWaitForConditionTestCase) {
+	t.Helper()
+
+	var runtimeObjects []runtime.Object
+
+	if testCase.exists {
+		mcl := buildDummyManagedCluster(defaultManagedClusterName)
+
+		if testCase.hasCondition {
+			mcl.Status.Conditions = []metav1.Condition{testCase.condition}
 		}
 
-		if testCase.definitionNil {
-			managedClusterBuilder.Definition = nil
-		}
+		runtimeObjects = append(runtimeObjects, mcl)
+	}
 
-		if testCase.apiClientNil {
-			managedClusterBuilder.apiClient = nil
-		}
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: runtimeObjects,
+		SchemeAttachers: []clients.SchemeAttacher{
+			clusterv1.Install,
+		},
+	})
 
-		if testCase.builderErrorMsg != "" {
-			managedClusterBuilder.errorMsg = testCase.builderErrorMsg
-		}
+	var testBuilder *ManagedClusterBuilder
+	if testCase.valid {
+		testBuilder = buildValidManagedClusterTestBuilder(testSettings)
+	} else {
+		testBuilder = buildInvalidManagedClusterTestBuilder(testSettings)
+	}
 
-		valid, err := managedClusterBuilder.validate()
+	_, err := testBuilder.WaitForCondition(testCase.condition, time.Second)
 
-		if testCase.expectedError != nil {
-			assert.False(t, valid)
-			assert.Equal(t, testCase.expectedError, err)
-		} else {
-			assert.True(t, valid)
-			assert.Nil(t, err)
-		}
+	switch testCase.name {
+	case "invalid builder":
+		require.Error(t, err)
+		assert.True(t, commonerrors.IsBuilderNameEmpty(err))
+	case "timeout waiting for condition", "not exists":
+		assert.Equal(t, testCase.expectedError, err)
+	default:
+		assert.NoError(t, err)
 	}
 }
 
@@ -529,14 +381,18 @@ func buildTestClientWithDummyManagedCluster() *clients.Settings {
 		K8sMockObjects: []runtime.Object{
 			buildDummyManagedCluster(defaultManagedClusterName),
 		},
-		SchemeAttachers: clusterTestSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{
+			clusterv1.Install,
+		},
 	})
 }
 
 // buildTestClientWithManagedClusterScheme returns a client with no objects but the ManagedCluster scheme.
 func buildTestClientWithManagedClusterScheme() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		SchemeAttachers: clusterTestSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{
+			clusterv1.Install,
+		},
 	})
 }
 
@@ -548,93 +404,4 @@ func buildValidManagedClusterTestBuilder(apiClient *clients.Settings) *ManagedCl
 // buildInvalidManagedClusterTestBuilder returns an invalid ManagedCluster for testing.
 func buildInvalidManagedClusterTestBuilder(apiClient *clients.Settings) *ManagedClusterBuilder {
 	return NewManagedClusterBuilder(apiClient, "")
-}
-
-func TestManagedClusterWaitForCondition(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		valid         bool
-		hasCondition  bool
-		condition     metav1.Condition
-		expectedError error
-	}{
-		{
-			exists:       true,
-			valid:        true,
-			hasCondition: true,
-			condition: metav1.Condition{
-				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
-			},
-			expectedError: nil,
-		},
-		{
-			exists:       false,
-			valid:        true,
-			hasCondition: true,
-			condition: metav1.Condition{
-				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
-			},
-			expectedError: fmt.Errorf("cannot wait for non-existent ManagedCluster"),
-		},
-		{
-			exists:       true,
-			valid:        false,
-			hasCondition: true,
-			condition: metav1.Condition{
-				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
-			},
-			expectedError: fmt.Errorf(errEmptyManagedClusterName),
-		},
-		{
-			exists:       true,
-			valid:        true,
-			hasCondition: false,
-			condition: metav1.Condition{
-				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
-			},
-			expectedError: context.DeadlineExceeded,
-		},
-		{
-			exists:       true,
-			valid:        true,
-			hasCondition: true,
-			condition: metav1.Condition{
-				Type: clusterv1.ManagedClusterConditionAvailable, Status: metav1.ConditionTrue,
-				Reason:  "TestReason",
-				Message: "Test message",
-			},
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testBuilder    *ManagedClusterBuilder
-		)
-
-		if testCase.exists {
-			mcl := buildDummyManagedCluster(defaultManagedClusterName)
-
-			if testCase.hasCondition {
-				mcl.Status.Conditions = []metav1.Condition{testCase.condition}
-			}
-
-			runtimeObjects = append(runtimeObjects, mcl)
-		}
-
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: clusterTestSchemes,
-		})
-
-		if testCase.valid {
-			testBuilder = buildValidManagedClusterTestBuilder(testSettings)
-		} else {
-			testBuilder = buildInvalidManagedClusterTestBuilder(testSettings)
-		}
-
-		_, err := testBuilder.WaitForCondition(testCase.condition, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
-	}
 }
