@@ -49,7 +49,7 @@ func TestMasterBondPluginWithXmitHashPolicy(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			cfg, err := NewMasterBondPlugin("bond0", "balance-xor").
+			cfg, err := NewMasterBondPlugin("bond0", bondModeBalanceXOR).
 				WithXmitHashPolicy(testCase.xmitHashPolicy).
 				GetMasterPluginConfig()
 
@@ -73,7 +73,7 @@ func TestMasterBondPluginWithXmitHashPolicy(t *testing.T) {
 }
 
 func TestMasterBondPluginWithXmitHashPolicyAcceptance(t *testing.T) {
-	cfg, err := NewMasterBondPlugin("bond0", "balance-xor").
+	cfg, err := NewMasterBondPlugin("bond0", bondModeBalanceXOR).
 		WithLinksInContainer(true).
 		WithFailOverMac(1).
 		WithMiimon(100).
