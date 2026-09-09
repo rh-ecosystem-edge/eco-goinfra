@@ -297,9 +297,107 @@ func TestSetTestSuite(t *testing.T) {
 		},
 	}
 	for _, testCase := range testCases {
-		testSuite := setTestSuite(testCase.report)
+		testSuite := setTestSuite(testCase.report, nil)
 		assert.NotNil(t, testSuite)
 	}
+}
+
+func TestWithSuiteProperties(t *testing.T) {
+	testCases := []struct {
+		name       string
+		properties map[string]string
+		expected   []Property
+	}{
+		{
+			name:       "nil map yields no properties",
+			properties: nil,
+			expected:   nil,
+		},
+		{
+			name:       "empty map yields no properties",
+			properties: map[string]string{},
+			expected:   nil,
+		},
+		{
+			name: "multiple entries sorted by name",
+			properties: map[string]string{
+				"sriov-interfaces": "ens3f0np0,ens3f1np1",
+				"features":         "sriov,ptp",
+				"ptp-interface":    "ens1f0",
+			},
+			expected: []Property{
+				{Name: "features", Value: "sriov,ptp"},
+				{Name: "ptp-interface", Value: "ens1f0"},
+				{Name: "sriov-interfaces", Value: "ens3f0np0,ens3f1np1"},
+			},
+		},
+		{
+			name: "empty name is skipped",
+			properties: map[string]string{
+				"":     "dropped",
+				"kept": "value",
+			},
+			expected: []Property{
+				{Name: "kept", Value: "value"},
+			},
+		},
+		{
+			name: "empty value is preserved",
+			properties: map[string]string{
+				"present-but-empty": "",
+			},
+			expected: []Property{
+				{Name: "present-but-empty", Value: ""},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			opts := &createOptions{}
+			WithSuiteProperties(testCase.properties)(opts)
+			assert.Equal(t, testCase.expected, opts.suiteProperties)
+		})
+	}
+}
+
+func TestSetTestSuiteWithProperties(t *testing.T) {
+	report := ginkgo.Report{
+		SuiteDescription: "test",
+		RunTime:          10 * time.Minute,
+		SpecReports:      types.SpecReports{},
+	}
+	props := []Property{
+		{Name: "features", Value: "sriov,ptp"},
+		{Name: "sriov-interfaces", Value: "ens3f0np0,ens3f1np1"},
+	}
+
+	testSuite := setTestSuite(report, props)
+	assert.NotNil(t, testSuite)
+	assert.Equal(t, props, testSuite.Properties.Property)
+}
+
+func TestCreateWithSuiteProperties(t *testing.T) {
+	destFile := "test-suite-props"
+	report := ginkgo.Report{
+		SuiteDescription: "test",
+		RunTime:          time.Minute,
+		SpecReports:      types.SpecReports{},
+	}
+
+	Create(report, destFile, "TAG", WithSuiteProperties(map[string]string{
+		"sriov-interfaces": "ens3f0np0,ens3f1np1",
+		"features":         "sriov",
+	}))
+
+	assert.FileExists(t, destFile)
+
+	content, err := os.ReadFile(destFile)
+	assert.Nil(t, err)
+	assert.Contains(t, string(content), `name="sriov-interfaces"`)
+	assert.Contains(t, string(content), `value="ens3f0np0,ens3f1np1"`)
+	assert.Contains(t, string(content), `name="features"`)
+	assert.Nil(t, os.RemoveAll(destFile))
 }
 
 func TestCreateNewReportFile(t *testing.T) {
