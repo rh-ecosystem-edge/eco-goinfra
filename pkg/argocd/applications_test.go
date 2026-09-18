@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	argocdtypes "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/argocd/argocdtypes/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,317 +27,163 @@ var (
 		Type:    argocdtypes.ApplicationConditionSyncError,
 		Message: "test-message",
 	}
-	appsTestSchemes = []clients.SchemeAttacher{
-		argocdtypes.AddToScheme,
-	}
+	applicationGVK = argocdtypes.ApplicationSchemaGroupVersionKind
 )
 
+func TestNewApplicationBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedBuilderTestConfig[argocdtypes.Application, ApplicationBuilder](
+		NewApplicationBuilder, argocdtypes.AddToScheme, applicationGVK,
+	).ExecuteTests(t)
+}
+
 func TestPullApplication(t *testing.T) {
-	generateApplication := func(name, namespace string) *argocdtypes.Application {
-		return &argocdtypes.Application{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: argocdtypes.ApplicationSpec{},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "applicationdtest",
-			namespace:           defaultArgoCdNSName,
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           defaultArgoCdNSName,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("application 'name' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "applicationtest",
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("application 'namespace' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "applicationtest",
-			namespace:           defaultArgoCdNSName,
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("application object applicationtest does not exist in namespace test-namespace"),
-			client:              true,
-		},
-		{
-			name:                "applicationtest",
-			namespace:           defaultArgoCdNSName,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("application 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testApplication := generateApplication(testCase.name, testCase.namespace)
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testApplication)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: appsTestSchemes,
-			})
-		}
-
-		builderResult, err := PullApplication(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Object.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Object.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig[argocdtypes.Application, ApplicationBuilder](
+		PullApplication, argocdtypes.AddToScheme, applicationGVK,
+	).ExecuteTests(t)
 }
 
-func TestApplicationExist(t *testing.T) {
-	testCases := []struct {
-		testApplicationBuilder *ApplicationBuilder
-		expectedStatus         bool
-	}{
-		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithDummyObject()),
-			expectedStatus:         true,
-		},
-		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithScheme()),
-			expectedStatus:         false,
-		},
-	}
+func TestApplicationBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exist := testCase.testApplicationBuilder.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
+	commonTestConfig := testhelper.NewCommonTestConfig[argocdtypes.Application, ApplicationBuilder](
+		argocdtypes.AddToScheme,
+		applicationGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-func TestApplicationGet(t *testing.T) {
-	testCases := []struct {
-		testApplicationBuilder *ApplicationBuilder
-		expectedError          error
-	}{
-		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithDummyObject()),
-			expectedError:          nil,
-		},
-		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithScheme()),
-			expectedError:          fmt.Errorf("applications.argoproj.io \"application-name\" not found"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		application, err := testCase.testApplicationBuilder.Get()
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, application.Name, testCase.testApplicationBuilder.Definition.Name)
-			assert.Equal(t, application.Namespace, testCase.testApplicationBuilder.Definition.Namespace)
-		}
-	}
-}
-
-func TestApplicationUpdate(t *testing.T) {
-	testCases := []struct {
-		testApplicationBuilder *ApplicationBuilder
-		expectedError          error
-	}{
-		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithDummyObject()),
-			expectedError:          nil,
-		},
-		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithScheme()),
-			expectedError:          fmt.Errorf("cannot update non-existent Application"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, testCase.testApplicationBuilder.Definition.Spec.Project, "")
-		testCase.testApplicationBuilder.Definition.Spec.Project = "test"
-
-		application, err := testCase.testApplicationBuilder.Update(false)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, application.Object.Spec.Project, "test")
-		}
-	}
-}
-
-func TestApplicationDelete(t *testing.T) {
-	testCases := []struct {
-		testApplicationBuilder *ApplicationBuilder
-		expectedError          error
-	}{
-		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithDummyObject()),
-			expectedError:          nil,
-		},
-		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithScheme()),
-			expectedError:          nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testApplicationBuilder.Delete()
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testCase.expectedError, err)
-		}
-
-		assert.Nil(t, testCase.testApplicationBuilder.Object)
-	}
-}
-
-func TestApplicationCreate(t *testing.T) {
-	testCases := []struct {
-		testApplicationBuilder *ApplicationBuilder
-		expectedError          error
-	}{
-		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithDummyObject()),
-			expectedError:          nil,
-		},
-		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithScheme()),
-			expectedError:          nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testApplicationBuilder.Create()
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testCase.expectedError, err)
-		}
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.testApplicationBuilder.Definition.Name, testCase.testApplicationBuilder.Object.Name)
-			assert.Equal(
-				t, testCase.testApplicationBuilder.Definition.Namespace, testCase.testApplicationBuilder.Object.Namespace)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestApplicationWithGitDetails(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testApplicationBuilder *ApplicationBuilder
-		gitRepo                string
-		gitBranch              string
-		gitPath                string
-		expectedError          string
+		name           string
+		testBuilder    *ApplicationBuilder
+		gitRepo        string
+		gitBranch      string
+		gitPath        string
+		expectedError  error
+		invalidBuilder bool
 	}{
 		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithDummyObject()),
-			gitRepo:                "http://test.git",
-			gitBranch:              "main",
-			gitPath:                "./dir/www/repo",
-			expectedError:          "",
+			name:          "valid-git-details",
+			testBuilder:   buildValidApplicationBuilder(getApplicationTestClient()),
+			gitRepo:       "http://test.git",
+			gitBranch:     "main",
+			gitPath:       "./dir/www/repo",
+			expectedError: nil,
 		},
 		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithDummyObject()),
-			gitRepo:                "",
-			gitBranch:              "main",
-			gitPath:                "./dir/www/repo",
-			expectedError:          "'gitRepo' parameter is empty",
+			name:          "empty-git-repo",
+			testBuilder:   buildValidApplicationBuilder(getApplicationTestClient()),
+			gitRepo:       "",
+			gitBranch:     "main",
+			gitPath:       "./dir/www/repo",
+			expectedError: fmt.Errorf("'gitRepo' parameter is empty"),
 		},
 		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithDummyObject()),
-			gitRepo:                "http://test.git",
-			gitBranch:              "",
-			gitPath:                "./dir/www/repo",
-			expectedError:          "'gitBranch' parameter is empty",
+			name:          "empty-git-branch",
+			testBuilder:   buildValidApplicationBuilder(getApplicationTestClient()),
+			gitRepo:       "http://test.git",
+			gitBranch:     "",
+			gitPath:       "./dir/www/repo",
+			expectedError: fmt.Errorf("'gitBranch' parameter is empty"),
 		},
 		{
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithDummyObject()),
-			gitRepo:                "http://test.git",
-			gitBranch:              "main",
-			gitPath:                "",
-			expectedError:          "'gitPath' parameter is empty",
+			name:          "empty-git-path",
+			testBuilder:   buildValidApplicationBuilder(getApplicationTestClient()),
+			gitRepo:       "http://test.git",
+			gitBranch:     "main",
+			gitPath:       "",
+			expectedError: fmt.Errorf("'gitPath' parameter is empty"),
+		},
+		{
+			name:           "invalid-builder",
+			testBuilder:    buildInvalidApplicationBuilder(getApplicationTestClient()),
+			gitRepo:        "http://test.git",
+			gitBranch:      "main",
+			gitPath:        "./dir/www/repo",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		applicationBuilder := testCase.testApplicationBuilder.WithGitDetails(
-			testCase.gitRepo, testCase.gitBranch, testCase.gitPath)
-		assert.Equal(t, testCase.expectedError, applicationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, applicationBuilder.Definition.Spec.Source.Path, testCase.gitPath)
-			assert.Equal(t, applicationBuilder.Definition.Spec.Source.RepoURL, testCase.gitRepo)
-			assert.Equal(t, applicationBuilder.Definition.Spec.Source.Path, testCase.gitPath)
-		}
+			applicationBuilder := testCase.testBuilder.WithGitDetails(
+				testCase.gitRepo, testCase.gitBranch, testCase.gitPath)
+
+			switch {
+			case testCase.invalidBuilder:
+				assert.True(t, commonerrors.IsBuilderNameEmpty(applicationBuilder.GetError()))
+			case testCase.expectedError != nil:
+				assert.Equal(t, testCase.expectedError, applicationBuilder.GetError())
+			default:
+				assert.NoError(t, applicationBuilder.GetError())
+				assert.Equal(t, testCase.gitPath, applicationBuilder.Definition.Spec.Source.Path)
+				assert.Equal(t, testCase.gitRepo, applicationBuilder.Definition.Spec.Source.RepoURL)
+				assert.Equal(t, testCase.gitBranch, applicationBuilder.Definition.Spec.Source.TargetRevision)
+			}
+		})
 	}
 }
 
 func TestApplicationWithGitPathAppended(t *testing.T) {
+	t.Parallel()
+
 	const testPath = "test/path"
 
 	testCases := []struct {
-		name                   string
-		testApplicationBuilder *ApplicationBuilder
-		hasSource              bool
-		elements               []string
-		expectedPath           string
-		expectedError          string
+		name           string
+		testBuilder    *ApplicationBuilder
+		hasSource      bool
+		elements       []string
+		expectedPath   string
+		expectedError  error
+		invalidBuilder bool
 	}{
 		{
-			name:                   "valid-builder-with-source",
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithScheme()),
-			hasSource:              true,
-			elements:               []string{"element1", "element2"},
-			expectedPath:           fmt.Sprintf("%s/%s/%s", testPath, "element1", "element2"),
-			expectedError:          "",
+			name:          "valid-builder-with-source",
+			testBuilder:   buildValidApplicationBuilder(getApplicationTestClient()),
+			hasSource:     true,
+			elements:      []string{"element1", "element2"},
+			expectedPath:  fmt.Sprintf("%s/%s/%s", testPath, "element1", "element2"),
+			expectedError: nil,
 		},
 		{
-			name:                   "no-source",
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithScheme()),
-			hasSource:              false,
-			elements:               []string{"element"},
-			expectedPath:           "",
-			expectedError:          "cannot append to git path because the source is nil",
+			name:          "no-source",
+			testBuilder:   buildValidApplicationBuilder(getApplicationTestClient()),
+			hasSource:     false,
+			elements:      []string{"element"},
+			expectedPath:  "",
+			expectedError: fmt.Errorf("cannot append to git path because the source is nil"),
 		},
 		{
-			name:                   "no-elements",
-			testApplicationBuilder: buildValidApplicationBuilder(buildApplicationTestClientWithScheme()),
-			hasSource:              true,
-			elements:               []string{},
-			expectedPath:           testPath,
-			expectedError:          "",
+			name:          "no-elements",
+			testBuilder:   buildValidApplicationBuilder(getApplicationTestClient()),
+			hasSource:     true,
+			elements:      []string{},
+			expectedPath:  testPath,
+			expectedError: nil,
+		},
+		{
+			name:           "invalid-builder",
+			testBuilder:    buildInvalidApplicationBuilder(getApplicationTestClient()),
+			hasSource:      true,
+			elements:       []string{"element"},
+			invalidBuilder: true,
 		},
 	}
 
@@ -344,18 +192,22 @@ func TestApplicationWithGitPathAppended(t *testing.T) {
 			t.Parallel()
 
 			if testCase.hasSource {
-				testCase.testApplicationBuilder.Definition.Spec.Source = &argocdtypes.ApplicationSource{
+				testCase.testBuilder.Definition.Spec.Source = &argocdtypes.ApplicationSource{
 					Path: testPath,
 				}
 			} else {
-				// buildDummyAppplication already sets the source so we must reset it to nil.
-				testCase.testApplicationBuilder.Definition.Spec.Source = nil
+				testCase.testBuilder.Definition.Spec.Source = nil
 			}
 
-			applicationBuilder := testCase.testApplicationBuilder.WithGitPathAppended(testCase.elements...)
-			assert.Equal(t, testCase.expectedError, applicationBuilder.errorMsg)
+			applicationBuilder := testCase.testBuilder.WithGitPathAppended(testCase.elements...)
 
-			if testCase.expectedError == "" {
+			switch {
+			case testCase.invalidBuilder:
+				assert.True(t, commonerrors.IsBuilderNameEmpty(applicationBuilder.GetError()))
+			case testCase.expectedError != nil:
+				assert.Equal(t, testCase.expectedError, applicationBuilder.GetError())
+			default:
+				assert.NoError(t, applicationBuilder.GetError())
 				assert.Equal(t, testCase.expectedPath, applicationBuilder.Definition.Spec.Source.Path)
 			}
 		})
@@ -363,23 +215,29 @@ func TestApplicationWithGitPathAppended(t *testing.T) {
 }
 
 func TestApplicationWaitForCondition(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		exists        bool
 		conditionMet  bool
 		expectedError error
 	}{
 		{
+			name:          "condition-met",
 			exists:        true,
 			conditionMet:  true,
 			expectedError: nil,
 		},
 		{
+			name:         "application-does-not-exist",
 			exists:       false,
 			conditionMet: true,
 			expectedError: fmt.Errorf(
 				"application object %s in namespace %s does not exist", defaultApplicationName, defaultApplicationNsName),
 		},
 		{
+			name:          "condition-not-met",
 			exists:        true,
 			conditionMet:  false,
 			expectedError: context.DeadlineExceeded,
@@ -387,31 +245,37 @@ func TestApplicationWaitForCondition(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			application := buildDummyApplication(defaultApplicationName, defaultApplicationNsName)
+			var runtimeObjects []runtime.Object
 
-			if testCase.conditionMet {
-				application.Status.Conditions = append(application.Status.Conditions, defaultApplicationCondition)
+			if testCase.exists {
+				application := buildDummyApplication(defaultApplicationName, defaultApplicationNsName)
+
+				if testCase.conditionMet {
+					application.Status.Conditions = append(application.Status.Conditions, defaultApplicationCondition)
+				}
+
+				runtimeObjects = append(runtimeObjects, application)
 			}
 
-			runtimeObjects = append(runtimeObjects, application)
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  runtimeObjects,
+				SchemeAttachers: []clients.SchemeAttacher{argocdtypes.AddToScheme},
+			})
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: appsTestSchemes,
+			testBuilder := buildValidApplicationBuilder(testSettings)
+
+			_, err := testBuilder.WaitForCondition(defaultApplicationCondition, time.Second)
+			assert.Equal(t, testCase.expectedError, err)
 		})
-
-		testBuilder := buildValidApplicationBuilder(testSettings)
-
-		_, err := testBuilder.WaitForCondition(defaultApplicationCondition, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
 func TestApplicationDoesGitPathExist(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name      string
 		hasSource bool
@@ -475,7 +339,7 @@ func TestApplicationDoesGitPathExist(t *testing.T) {
 				serverURL = "invalid-url"
 			}
 
-			testBuilder := buildValidApplicationBuilder(buildApplicationTestClientWithScheme())
+			testBuilder := buildValidApplicationBuilder(getApplicationTestClient())
 
 			if testCase.hasSource {
 				testBuilder.Definition.Spec.Source = &argocdtypes.ApplicationSource{
@@ -500,6 +364,8 @@ func TestApplicationDoesGitPathExist(t *testing.T) {
 }
 
 func TestApplicationWaitForSourceUpdate(t *testing.T) {
+	t.Parallel()
+
 	var expectedSource = argocdtypes.ApplicationSource{
 		TargetRevision: "main",
 	}
@@ -576,7 +442,7 @@ func TestApplicationWaitForSourceUpdate(t *testing.T) {
 
 			testBuilder := buildValidApplicationBuilder(clients.GetTestClients(clients.TestClientParams{
 				K8sMockObjects:  []runtime.Object{testApp},
-				SchemeAttachers: appsTestSchemes,
+				SchemeAttachers: []clients.SchemeAttacher{argocdtypes.AddToScheme},
 			}))
 
 			err := testBuilder.WaitForSourceUpdate(testCase.expectSynced, time.Second)
@@ -586,33 +452,19 @@ func TestApplicationWaitForSourceUpdate(t *testing.T) {
 }
 
 func buildValidApplicationBuilder(apiClient *clients.Settings) *ApplicationBuilder {
-	return &ApplicationBuilder{
-		apiClient:  apiClient.Client,
-		Definition: buildDummyApplication(defaultApplicationName, defaultApplicationNsName),
-	}
+	builder := NewApplicationBuilder(apiClient, defaultApplicationName, defaultApplicationNsName)
+	builder.Definition.Spec.Source = &argocdtypes.ApplicationSource{}
+
+	return builder
 }
 
-func buildApplicationTestClientWithDummyObject() *clients.Settings {
+func buildInvalidApplicationBuilder(apiClient *clients.Settings) *ApplicationBuilder {
+	return NewApplicationBuilder(apiClient, "", defaultApplicationNsName)
+}
+
+func getApplicationTestClient() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyApplicationRuntime(),
-		SchemeAttachers: appsTestSchemes,
-	})
-}
-
-func buildApplicationTestClientWithScheme() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		SchemeAttachers: appsTestSchemes,
-	})
-}
-
-func buildDummyApplicationRuntime() []runtime.Object {
-	return append([]runtime.Object{}, &argocdtypes.Application{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultApplicationName,
-			Namespace: defaultApplicationNsName,
-		},
-
-		Spec: argocdtypes.ApplicationSpec{},
+		SchemeAttachers: []clients.SchemeAttacher{argocdtypes.AddToScheme},
 	})
 }
 
