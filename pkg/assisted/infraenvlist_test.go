@@ -1,6 +1,8 @@
 package assisted
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 const (
@@ -18,18 +21,22 @@ const (
 	testInfraEnvNamespace2 = "test-infraenv-namespace-2"
 )
 
-var infraEnvTestSchemes = []clients.SchemeAttacher{
-	agentInstallV1Beta1.AddToScheme,
-}
+var (
+	infraEnvTestSchemes = []clients.SchemeAttacher{
+		agentInstallV1Beta1.AddToScheme,
+	}
+	errSimulatedInfraEnvList = errors.New("simulated list failure")
+)
 
 func TestListInfraEnvsInAllNamespaces(t *testing.T) {
 	testCases := []struct {
-		name          string
-		infraEnvs     []*agentInstallV1Beta1.InfraEnv
-		listOptions   []runtimeclient.ListOption
-		client        bool
-		expectedError error
-		expectedNames []string
+		name             string
+		infraEnvs        []*agentInstallV1Beta1.InfraEnv
+		listOptions      []runtimeclient.ListOption
+		client           bool
+		interceptorFuncs interceptor.Funcs
+		expectedError    error
+		expectedNames    []string
 	}{
 		{
 			name: "lists all infraenvs",
@@ -63,6 +70,25 @@ func TestListInfraEnvsInAllNamespaces(t *testing.T) {
 			expectedError: fmt.Errorf("the apiClient is nil"),
 			expectedNames: nil,
 		},
+		{
+			name: "propagates list errors",
+			infraEnvs: []*agentInstallV1Beta1.InfraEnv{
+				buildDummyInfraEnv(testInfraEnvName, testInfraEnvNamespace),
+			},
+			client: true,
+			interceptorFuncs: interceptor.Funcs{
+				List: func(
+					_ context.Context,
+					_ runtimeclient.WithWatch,
+					_ runtimeclient.ObjectList,
+					_ ...runtimeclient.ListOption,
+				) error {
+					return errSimulatedInfraEnvList
+				},
+			},
+			expectedError: errSimulatedInfraEnvList,
+			expectedNames: nil,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -70,7 +96,7 @@ func TestListInfraEnvsInAllNamespaces(t *testing.T) {
 			var testSettings *clients.Settings
 
 			if testCase.client {
-				testSettings = buildTestClientWithInfraEnvs(testCase.infraEnvs...)
+				testSettings = buildTestClientWithInfraEnvs(testCase.interceptorFuncs, testCase.infraEnvs...)
 			}
 
 			builders, err := ListInfraEnvsInAllNamespaces(testSettings, testCase.listOptions...)
@@ -94,12 +120,13 @@ func TestListInfraEnvsInAllNamespaces(t *testing.T) {
 
 func TestListInfraEnvs(t *testing.T) {
 	testCases := []struct {
-		name          string
-		namespace     string
-		infraEnvs     []*agentInstallV1Beta1.InfraEnv
-		client        bool
-		expectedError error
-		expectedNames []string
+		name             string
+		namespace        string
+		infraEnvs        []*agentInstallV1Beta1.InfraEnv
+		client           bool
+		interceptorFuncs interceptor.Funcs
+		expectedError    error
+		expectedNames    []string
 	}{
 		{
 			name:      "lists infraenvs in namespace",
@@ -129,6 +156,26 @@ func TestListInfraEnvs(t *testing.T) {
 			expectedError: fmt.Errorf("the apiClient is nil"),
 			expectedNames: nil,
 		},
+		{
+			name:      "propagates list errors",
+			namespace: testInfraEnvNamespace,
+			infraEnvs: []*agentInstallV1Beta1.InfraEnv{
+				buildDummyInfraEnv(testInfraEnvName, testInfraEnvNamespace),
+			},
+			client: true,
+			interceptorFuncs: interceptor.Funcs{
+				List: func(
+					_ context.Context,
+					_ runtimeclient.WithWatch,
+					_ runtimeclient.ObjectList,
+					_ ...runtimeclient.ListOption,
+				) error {
+					return errSimulatedInfraEnvList
+				},
+			},
+			expectedError: errSimulatedInfraEnvList,
+			expectedNames: nil,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -136,7 +183,7 @@ func TestListInfraEnvs(t *testing.T) {
 			var testSettings *clients.Settings
 
 			if testCase.client {
-				testSettings = buildTestClientWithInfraEnvs(testCase.infraEnvs...)
+				testSettings = buildTestClientWithInfraEnvs(testCase.interceptorFuncs, testCase.infraEnvs...)
 			}
 
 			builders, err := ListInfraEnvs(testSettings, testCase.namespace)
@@ -167,14 +214,16 @@ func buildDummyInfraEnv(name, namespace string) *agentInstallV1Beta1.InfraEnv {
 	}
 }
 
-func buildTestClientWithInfraEnvs(infraEnvs ...*agentInstallV1Beta1.InfraEnv) *clients.Settings {
+func buildTestClientWithInfraEnvs(
+	interceptorFuncs interceptor.Funcs, infraEnvs ...*agentInstallV1Beta1.InfraEnv) *clients.Settings {
 	runtimeObjects := make([]runtime.Object, 0, len(infraEnvs))
 	for _, infraEnv := range infraEnvs {
 		runtimeObjects = append(runtimeObjects, infraEnv)
 	}
 
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  runtimeObjects,
-		SchemeAttachers: infraEnvTestSchemes,
+		K8sMockObjects:   runtimeObjects,
+		SchemeAttachers:  infraEnvTestSchemes,
+		InterceptorFuncs: interceptorFuncs,
 	})
 }
