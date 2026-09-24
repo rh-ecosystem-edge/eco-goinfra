@@ -7,126 +7,84 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/apimachinery/pkg/labels"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	policiesv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
-	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestListPoliciesInAllNamespaces(t *testing.T) {
-	testCases := []struct {
-		policies      []*PolicyBuilder
-		listOptions   []runtimeclient.ListOptions
-		expectedError error
-		client        bool
-	}{
-		{
-			policies: []*PolicyBuilder{
-				buildValidPolicyTestBuilder(buildTestClientWithDummyPolicy()),
-			},
-			listOptions:   nil,
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			policies: []*PolicyBuilder{
-				buildValidPolicyTestBuilder(buildTestClientWithDummyPolicy()),
-			},
-			listOptions:   []runtimeclient.ListOptions{{LabelSelector: labels.NewSelector()}},
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			policies: []*PolicyBuilder{
-				buildValidPolicyTestBuilder(buildTestClientWithDummyPolicy()),
-			},
-			listOptions: []runtimeclient.ListOptions{
-				{LabelSelector: labels.NewSelector()},
-				{LabelSelector: labels.NewSelector()},
-			},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
-		},
-		{
-			policies: []*PolicyBuilder{
-				buildValidPolicyTestBuilder(buildTestClientWithDummyPolicy()),
-			},
-			listOptions:   []runtimeclient.ListOptions{{LabelSelector: labels.NewSelector()}},
-			expectedError: fmt.Errorf("failed to list policies, 'apiClient' parameter is nil"),
-			client:        false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = buildTestClientWithDummyPolicy()
-		}
-
-		builders, err := ListPoliciesInAllNamespaces(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.policies), len(builders))
-		}
-	}
+	testhelper.NewListTestConfig(
+		ListPoliciesInAllNamespaces,
+		policiesv1.AddToScheme,
+		policyGVK,
+	).ExecuteTests(t)
 }
 
 func TestWaitForAllPoliciesComplianceState(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		compliant     bool
 		client        bool
-		listOptions   []runtimeclient.ListOptions
 		expectedError error
 	}{
 		{
-			compliant:     true,
-			client:        true,
-			listOptions:   nil,
-			expectedError: nil,
+			name:      "all compliant",
+			compliant: true,
+			client:    true,
 		},
 		{
+			name:          "not compliant",
 			compliant:     false,
 			client:        true,
-			listOptions:   nil,
 			expectedError: context.DeadlineExceeded,
 		},
 		{
-			compliant:     true,
+			name:          "nil client",
 			client:        false,
-			listOptions:   nil,
-			expectedError: fmt.Errorf("failed to wait for policies compliance state, 'apiClient' parameter is nil"),
-		},
-		{
-			compliant: true,
-			client:    true,
-			listOptions: []runtimeclient.ListOptions{
-				{LabelSelector: labels.NewSelector()},
-				{LabelSelector: labels.NewSelector()},
-			},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
+			expectedError: fmt.Errorf("apiClient for Policy is nil"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			policy := buildDummyPolicy(defaultPolicyName, defaultPolicyNsName)
+			var testSettings *clients.Settings
 
-			if testCase.compliant {
-				policy.Status.ComplianceState = policiesv1.Compliant
+			if testCase.client {
+				policy := buildDummyPolicy()
+
+				if testCase.compliant {
+					policy.Status.ComplianceState = policiesv1.Compliant
+				}
+
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects: []runtime.Object{policy},
+					SchemeAttachers: []clients.SchemeAttacher{
+						policiesv1.AddToScheme,
+					},
+				})
 			}
 
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  []runtime.Object{policy},
-				SchemeAttachers: policyTestSchemes,
-			})
-		}
+			err := WaitForAllPoliciesComplianceState(
+				testSettings, policiesv1.Compliant, time.Second)
 
-		err := WaitForAllPoliciesComplianceState(testSettings, policiesv1.Compliant, time.Second, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+			switch testCase.name {
+			case "nil client":
+				require.Error(t, err)
+				assert.True(t, commonerrors.IsAPIClientNil(err))
+			case "not compliant":
+				assert.Equal(t, testCase.expectedError, err)
+			default:
+				assert.NoError(t, err)
+			}
+		})
 	}
 }
