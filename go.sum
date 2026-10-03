@@ -527,8 +527,8 @@ github.com/openshift/elasticsearch-operator v0.0.0-20250923121540-138a709613fd h
 github.com/openshift/elasticsearch-operator v0.0.0-20250923121540-138a709613fd/go.mod h1:4XJJi5/IyM3C5ebS3YXu8ejyjBuRbxTCf8Sex+0pPg8=
 github.com/openshift/local-storage-operator v0.0.0-20260630133617-4d174e9c9eff h1:DDzSgEAy/WSK3G+N4YkLFL1+te3DAzRjy7FkbhOjo0g=
 github.com/openshift/local-storage-operator v0.0.0-20260630133617-4d174e9c9eff/go.mod h1:I2/41SXcv9YY4ka47+i1/ohX7CpcPBb7HY/qCrIDgZU=
-github.com/openshift/sriov-network-operator v0.0.0-20260526181104-0626dd1a7086 h1:zoKKF2TzTWQDbiOPz2FdJssiZfQMY5GNTO7RlgXY3MY=
-github.com/openshift/sriov-network-operator v0.0.0-20260526181104-0626dd1a7086/go.mod h1:clgLhWVwTSNqLOPe48jl4vDXyT7+/FXTIgyPXpST82I=
+github.com/openshift/sriov-network-operator v0.0.0-20261001085738-abb119c9b63c h1:BytgFr2ZbI+lPe4UEK6MHjajZsqpZ/FIpZUR7uPiIf8=
+github.com/openshift/sriov-network-operator v0.0.0-20261001085738-abb119c9b63c/go.mod h1:5rfP4tpDhtRH1NnKhfVEWvQX+WpaeYaILOlvPY+P+10=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde/go.mod h1:nZgzbfBr3hhjoZnS66nKrHmduYNpc34ny7RK4z5/HM0=
 github.com/ovn-kubernetes/ovn-kubernetes/go-controller v0.0.0-20260707145430-b93b6a72bc15 h1:P0/Wr0j9+xJeTuolEm5HpYU+pCdkYkPCQ37X6dUDV5M=
 github.com/ovn-kubernetes/ovn-kubernetes/go-controller v0.0.0-20260707145430-b93b6a72bc15/go.mod h1:wo6ufoQGE10LFZu5O2flTpYQJdRwidjAAEyv4PXUIck=

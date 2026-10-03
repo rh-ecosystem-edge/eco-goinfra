@@ -3,6 +3,7 @@ package sriov
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/stretchr/testify/assert"
@@ -338,6 +339,158 @@ func TestPullPoolConfig(t *testing.T) {
 	}
 }
 
+func TestPoolConfigWaitUntilStable(t *testing.T) {
+	testCases := []struct {
+		name         string
+		pool         *srIovV1.SriovNetworkPoolConfig
+		expectStable bool
+	}{
+		{
+			name:         "stable Ready True without Progressing or Degraded",
+			pool:         buildStablePoolConfig(),
+			expectStable: true,
+		},
+		{
+			name:         "missing Ready does not pass",
+			pool:         buildDummyPoolConfig(defaultPoolConfigName, defaultPoolConfigNsName),
+			expectStable: false,
+		},
+		{
+			name: "stale observedGeneration does not pass",
+			pool: buildPoolConfigWithConditions(
+				2, metav1.ConditionTrue, nil, nil),
+			expectStable: false,
+		},
+		{
+			name: "Progressing True is not stable",
+			pool: buildPoolConfigWithConditions(
+				1, metav1.ConditionTrue, condStatusPtr(metav1.ConditionTrue), nil),
+			expectStable: false,
+		},
+		{
+			name: "Degraded True is not stable",
+			pool: buildPoolConfigWithConditions(
+				1, metav1.ConditionTrue, nil, condStatusPtr(metav1.ConditionTrue)),
+			expectStable: false,
+		},
+		{
+			name: "Ready False is not stable",
+			pool: buildPoolConfigWithConditions(
+				1, metav1.ConditionFalse, nil, nil),
+			expectStable: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  []runtime.Object{testCase.pool},
+				SchemeAttachers: testSchemes,
+			})
+			builder := NewPoolConfigBuilder(testSettings, defaultPoolConfigName, defaultPoolConfigNsName)
+			timeout := 2 * time.Second
+			err := builder.WaitUntilStable(timeout)
+
+			if testCase.expectStable {
+				assert.NoError(t, err)
+				assert.Equal(t, metav1.ConditionTrue, builder.GetCondition(srIovV1.ConditionReady).Status)
+
+				return
+			}
+
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestPoolConfigWaitForCondition(t *testing.T) {
+	pool := buildStablePoolConfig()
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects:  []runtime.Object{pool},
+		SchemeAttachers: testSchemes,
+	})
+	builder := NewPoolConfigBuilder(testSettings, defaultPoolConfigName, defaultPoolConfigNsName)
+
+	err := builder.WaitForCondition(metav1.Condition{
+		Type:   srIovV1.ConditionReady,
+		Status: metav1.ConditionTrue,
+		Reason: srIovV1.ReasonPoolConfigReady,
+	}, 2*time.Second)
+	assert.NoError(t, err)
+
+	err = builder.WaitForCondition(metav1.Condition{
+		Type:   srIovV1.ConditionReady,
+		Status: metav1.ConditionFalse,
+	}, 2*time.Second)
+	assert.Error(t, err)
+
+	err = builder.WaitForCondition(metav1.Condition{
+		Type:               srIovV1.ConditionReady,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: 2,
+	}, 2*time.Second)
+	assert.Error(t, err)
+}
+
+func TestPoolConfigWaitInvalidBuilder(t *testing.T) {
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: testSchemes,
+	})
+	timeout := time.Second
+	emptyNameErr := errEmptyName
+	nilBuilderErr := "error: received nil SriovNetworkPoolConfig builder"
+
+	t.Run("empty name WaitUntilStable", func(t *testing.T) {
+		builder := NewPoolConfigBuilder(testSettings, "", defaultPoolConfigNsName)
+
+		err := builder.WaitUntilStable(timeout)
+		assert.EqualError(t, err, emptyNameErr)
+	})
+
+	t.Run("empty name WaitForCondition", func(t *testing.T) {
+		builder := NewPoolConfigBuilder(testSettings, "", defaultPoolConfigNsName)
+
+		err := builder.WaitForCondition(metav1.Condition{Type: srIovV1.ConditionReady}, timeout)
+		assert.EqualError(t, err, emptyNameErr)
+	})
+
+	t.Run("nil builder WaitUntilStable", func(t *testing.T) {
+		err := (*PoolConfigBuilder)(nil).WaitUntilStable(timeout)
+		assert.EqualError(t, err, nilBuilderErr)
+	})
+
+	t.Run("nil builder WaitForCondition", func(t *testing.T) {
+		err := (*PoolConfigBuilder)(nil).WaitForCondition(
+			metav1.Condition{Type: srIovV1.ConditionReady}, timeout)
+		assert.EqualError(t, err, nilBuilderErr)
+	})
+}
+
+func TestPoolConfigGetConditionAndCounts(t *testing.T) {
+	t.Run("nil builder", func(t *testing.T) {
+		assert.Nil(t, (*PoolConfigBuilder)(nil).GetCondition(srIovV1.ConditionReady))
+		assert.Nil(t, (*PoolConfigBuilder)(nil).GetMatchedNodeCount())
+		assert.Nil(t, (*PoolConfigBuilder)(nil).GetReadyNodeCount())
+	})
+
+	t.Run("returns matching condition and counts", func(t *testing.T) {
+		pool := buildStablePoolConfig()
+		builder := NewPoolConfigBuilder(
+			clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  []runtime.Object{pool},
+				SchemeAttachers: testSchemes,
+			}),
+			defaultPoolConfigName, defaultPoolConfigNsName)
+		assert.True(t, builder.Exists())
+
+		cond := builder.GetCondition(srIovV1.ConditionReady)
+		assert.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+		assert.Equal(t, int32(2), *builder.GetMatchedNodeCount())
+		assert.Equal(t, int32(2), *builder.GetReadyNodeCount())
+	})
+}
+
 // buildValidPoolConfigTestBuilder returns a valid Builder for testing purposes.
 func buildValidPoolConfigTestBuilder(apiClient *clients.Settings) *PoolConfigBuilder {
 	return NewPoolConfigBuilder(apiClient, defaultPoolConfigName, defaultPoolConfigNsName)
@@ -356,11 +509,64 @@ func buildTestPoolConfigClientWithDummyObject() *clients.Settings {
 }
 
 func buildDummyPoolConfigObject() []runtime.Object {
-	return append([]runtime.Object{}, &srIovV1.SriovNetworkPoolConfig{
+	return append([]runtime.Object{}, buildDummyPoolConfig(defaultPoolConfigName, defaultPoolConfigNsName))
+}
+
+func buildDummyPoolConfig(name, nsName string) *srIovV1.SriovNetworkPoolConfig {
+	return &srIovV1.SriovNetworkPoolConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultPoolConfigName,
-			Namespace: defaultPoolConfigNsName,
+			Name:      name,
+			Namespace: nsName,
 		},
 		Spec: srIovV1.SriovNetworkPoolConfigSpec{},
-	})
+	}
+}
+
+func buildStablePoolConfig() *srIovV1.SriovNetworkPoolConfig {
+	return buildPoolConfigWithConditions(1, metav1.ConditionTrue, nil, nil)
+}
+
+func condStatusPtr(status metav1.ConditionStatus) *metav1.ConditionStatus {
+	return &status
+}
+
+func buildPoolConfigWithConditions(
+	generation int64,
+	ready metav1.ConditionStatus,
+	progressing, degraded *metav1.ConditionStatus,
+) *srIovV1.SriovNetworkPoolConfig {
+	const observedGeneration int64 = 1
+
+	pool := buildDummyPoolConfig(defaultPoolConfigName, defaultPoolConfigNsName)
+	pool.Generation = generation
+	matched := int32(2)
+	readyCount := int32(2)
+	pool.Status.MatchedNodeCount = &matched
+	pool.Status.ReadyNodeCount = &readyCount
+	pool.Status.Conditions = []metav1.Condition{
+		{
+			Type:               srIovV1.ConditionReady,
+			Status:             ready,
+			Reason:             srIovV1.ReasonPoolConfigReady,
+			ObservedGeneration: observedGeneration,
+		},
+	}
+
+	if progressing != nil {
+		pool.Status.Conditions = append(pool.Status.Conditions, metav1.Condition{
+			Type:               srIovV1.ConditionProgressing,
+			Status:             *progressing,
+			ObservedGeneration: observedGeneration,
+		})
+	}
+
+	if degraded != nil {
+		pool.Status.Conditions = append(pool.Status.Conditions, metav1.Condition{
+			Type:               conditionDegraded,
+			Status:             *degraded,
+			ObservedGeneration: observedGeneration,
+		})
+	}
+
+	return pool
 }
