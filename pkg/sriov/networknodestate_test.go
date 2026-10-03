@@ -267,29 +267,240 @@ func TestNetworkNodeStateGetUpNICs(t *testing.T) {
 
 func TestNetworkNodeStateWaitUntilSyncStatus(t *testing.T) {
 	testCases := []struct {
+		name          string
 		syncStatus    string
-		expectedError error
+		nodeState     *srIovV1.SriovNetworkNodeState
+		timeout       time.Duration
+		expectedError bool
 	}{
 		{
-			syncStatus: "Succeeded",
+			name:          "empty syncStatus",
+			syncStatus:    "",
+			nodeState:     buildNodeNetworkStateSyncStatus(defaultNodeName, defaultNodeNsName, ""),
+			timeout:       2 * time.Second,
+			expectedError: true,
 		},
 		{
-			syncStatus:    "",
-			expectedError: fmt.Errorf("syncStatus cannot be empty"),
+			name:       "legacy InProgress ignores conditions",
+			syncStatus: "InProgress",
+			nodeState:  buildNodeNetworkStateSyncStatus(defaultNodeName, defaultNodeNsName, "InProgress"),
+			timeout:    2 * time.Second,
+		},
+		{
+			name:       "Succeeded matches syncStatus without conditions",
+			syncStatus: syncStatusSucceeded,
+			nodeState:  buildNodeNetworkStateSyncStatus(defaultNodeName, defaultNodeNsName, syncStatusSucceeded),
+			timeout:    2 * time.Second,
 		},
 	}
 	for _, testCase := range testCases {
-		networkNodeState := buildNodeNetworkStateSyncStatus(defaultNodeName, defaultNodeNsName, testCase.syncStatus)
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  []runtime.Object{networkNodeState},
-			SchemeAttachers: testSchemes,
+		t.Run(testCase.name, func(t *testing.T) {
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  []runtime.Object{testCase.nodeState},
+				SchemeAttachers: testSchemes,
+			})
+			networkNodeStateBuilder := NewNetworkNodeStateBuilder(testSettings, defaultNodeName, defaultNodeNsName)
+			err := networkNodeStateBuilder.Discover()
+			assert.Nil(t, err)
+			err = networkNodeStateBuilder.WaitUntilSyncStatus(testCase.syncStatus, testCase.timeout)
+
+			if testCase.expectedError {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
 		})
-		networkNodeStateBuilder := NewNetworkNodeStateBuilder(testSettings, defaultNodeName, defaultNodeNsName)
-		err := networkNodeStateBuilder.Discover()
-		assert.Nil(t, err)
-		err = networkNodeStateBuilder.WaitUntilSyncStatus(testCase.syncStatus, 30*time.Second)
-		assert.Equal(t, testCase.expectedError, err)
 	}
+}
+
+func TestNetworkNodeStateWaitUntilStable(t *testing.T) {
+	testCases := []struct {
+		name         string
+		nodeState    *srIovV1.SriovNetworkNodeState
+		expectStable bool
+	}{
+		{
+			name:         "stable Ready True Progressing False Draining False Succeeded",
+			nodeState:    buildStableNodeNetworkState(defaultNodeName, defaultNodeNsName, 1),
+			expectStable: true,
+		},
+		{
+			name:         "missing conditions do not pass",
+			nodeState:    buildNodeNetworkStateSyncStatus(defaultNodeName, defaultNodeNsName, syncStatusSucceeded),
+			expectStable: false,
+		},
+		{
+			name: "stale observedGeneration does not pass",
+			nodeState: buildNodeNetworkStateWithConditions(
+				defaultNodeName, defaultNodeNsName, 2, 1, syncStatusSucceeded,
+				metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionFalse),
+			expectStable: false,
+		},
+		{
+			name: "Ready True with syncStatus not Succeeded does not pass",
+			nodeState: buildNodeNetworkStateWithConditions(
+				defaultNodeName, defaultNodeNsName, 1, 1, "InProgress",
+				metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionFalse),
+			expectStable: false,
+		},
+		{
+			name: "Draining True is not stable",
+			nodeState: buildNodeNetworkStateWithConditions(
+				defaultNodeName, defaultNodeNsName, 1, 1, syncStatusSucceeded,
+				metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionTrue),
+			expectStable: false,
+		},
+		{
+			name: "Progressing True is not stable",
+			nodeState: buildNodeNetworkStateWithConditions(
+				defaultNodeName, defaultNodeNsName, 1, 1, syncStatusSucceeded,
+				metav1.ConditionTrue, metav1.ConditionTrue, metav1.ConditionFalse),
+			expectStable: false,
+		},
+		{
+			name: "Ready False is not stable",
+			nodeState: buildNodeNetworkStateWithConditions(
+				defaultNodeName, defaultNodeNsName, 1, 1, syncStatusSucceeded,
+				metav1.ConditionFalse, metav1.ConditionFalse, metav1.ConditionFalse),
+			expectStable: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  []runtime.Object{testCase.nodeState},
+				SchemeAttachers: testSchemes,
+			})
+			builder := NewNetworkNodeStateBuilder(testSettings, defaultNodeName, defaultNodeNsName)
+			timeout := 2 * time.Second
+			err := builder.WaitUntilStable(timeout)
+
+			if testCase.expectStable {
+				assert.NoError(t, err)
+				assert.Equal(t, metav1.ConditionTrue, builder.GetCondition(srIovV1.ConditionReady).Status)
+
+				return
+			}
+
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestNetworkNodeStateWaitForCondition(t *testing.T) {
+	nodeState := buildStableNodeNetworkState(defaultNodeName, defaultNodeNsName, 1)
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects:  []runtime.Object{nodeState},
+		SchemeAttachers: testSchemes,
+	})
+	builder := NewNetworkNodeStateBuilder(testSettings, defaultNodeName, defaultNodeNsName)
+
+	err := builder.WaitForCondition(metav1.Condition{
+		Type:   srIovV1.ConditionReady,
+		Status: metav1.ConditionTrue,
+		Reason: srIovV1.ReasonNodeReady,
+	}, 2*time.Second)
+	assert.NoError(t, err)
+
+	err = builder.WaitForCondition(metav1.Condition{
+		Type:   srIovV1.ConditionDraining,
+		Status: metav1.ConditionTrue,
+	}, 2*time.Second)
+	assert.Error(t, err)
+
+	// Generation-1 Ready must not satisfy an explicit request for ObservedGeneration 2.
+	err = builder.WaitForCondition(metav1.Condition{
+		Type:               srIovV1.ConditionReady,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: 2,
+	}, 2*time.Second)
+	assert.Error(t, err)
+}
+
+func TestNetworkNodeStateWaitInvalidBuilder(t *testing.T) {
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: testSchemes,
+	})
+	timeout := time.Second
+	emptyNameErr := "SriovNetworkNodeState 'nodeName' is empty"
+	nilBuilderErr := "error: received nil SriovNetworkNodeState builder"
+
+	t.Run("empty nodeName WaitUntilSyncStatus", func(t *testing.T) {
+		builder := NewNetworkNodeStateBuilder(testSettings, "", defaultNodeNsName)
+		err := builder.WaitUntilSyncStatus(syncStatusSucceeded, timeout)
+		assert.EqualError(t, err, emptyNameErr)
+	})
+
+	t.Run("empty nodeName WaitUntilStable", func(t *testing.T) {
+		builder := NewNetworkNodeStateBuilder(testSettings, "", defaultNodeNsName)
+		err := builder.WaitUntilStable(timeout)
+		assert.EqualError(t, err, emptyNameErr)
+	})
+
+	t.Run("empty nodeName WaitForCondition", func(t *testing.T) {
+		builder := NewNetworkNodeStateBuilder(testSettings, "", defaultNodeNsName)
+		err := builder.WaitForCondition(metav1.Condition{Type: srIovV1.ConditionReady}, timeout)
+		assert.EqualError(t, err, emptyNameErr)
+	})
+
+	t.Run("nil builder WaitUntilSyncStatus", func(t *testing.T) {
+		err := (*NetworkNodeStateBuilder)(nil).WaitUntilSyncStatus(syncStatusSucceeded, timeout)
+		assert.EqualError(t, err, nilBuilderErr)
+	})
+
+	t.Run("nil builder WaitUntilStable", func(t *testing.T) {
+		err := (*NetworkNodeStateBuilder)(nil).WaitUntilStable(timeout)
+		assert.EqualError(t, err, nilBuilderErr)
+	})
+
+	t.Run("nil builder WaitForCondition", func(t *testing.T) {
+		err := (*NetworkNodeStateBuilder)(nil).WaitForCondition(
+			metav1.Condition{Type: srIovV1.ConditionReady}, timeout)
+		assert.EqualError(t, err, nilBuilderErr)
+	})
+}
+
+func TestNetworkNodeStateGetCondition(t *testing.T) {
+	t.Run("nil builder", func(t *testing.T) {
+		assert.Nil(t, (*NetworkNodeStateBuilder)(nil).GetCondition(srIovV1.ConditionReady))
+	})
+
+	t.Run("no discovered object", func(t *testing.T) {
+		builder := NewNetworkNodeStateBuilder(
+			clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes}),
+			defaultNodeName, defaultNodeNsName)
+		assert.Nil(t, builder.GetCondition(srIovV1.ConditionReady))
+	})
+
+	t.Run("missing condition type", func(t *testing.T) {
+		nodeState := buildStableNodeNetworkState(defaultNodeName, defaultNodeNsName, 1)
+		builder := NewNetworkNodeStateBuilder(
+			clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  []runtime.Object{nodeState},
+				SchemeAttachers: testSchemes,
+			}),
+			defaultNodeName, defaultNodeNsName)
+		assert.Nil(t, builder.Discover())
+		assert.Nil(t, builder.GetCondition("NotARealCondition"))
+	})
+
+	t.Run("returns matching condition", func(t *testing.T) {
+		nodeState := buildStableNodeNetworkState(defaultNodeName, defaultNodeNsName, 1)
+		builder := NewNetworkNodeStateBuilder(
+			clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  []runtime.Object{nodeState},
+				SchemeAttachers: testSchemes,
+			}),
+			defaultNodeName, defaultNodeNsName)
+		assert.Nil(t, builder.Discover())
+
+		cond := builder.GetCondition(srIovV1.ConditionReady)
+		assert.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	})
 }
 
 func TestNetworkNodeStateGetNumVFs(t *testing.T) {
@@ -449,6 +660,42 @@ func buildNodeNetworkStateSyncStatus(name, nsName, syncStatus string) *srIovV1.S
 	nodeNetworkState := buildNodeNetworkState(name, nsName)
 
 	nodeNetworkState.Status.SyncStatus = syncStatus
+
+	return nodeNetworkState
+}
+
+func buildStableNodeNetworkState(name, nsName string, generation int64) *srIovV1.SriovNetworkNodeState {
+	return buildNodeNetworkStateWithConditions(
+		name, nsName, generation, generation, syncStatusSucceeded,
+		metav1.ConditionTrue, metav1.ConditionFalse, metav1.ConditionFalse)
+}
+
+func buildNodeNetworkStateWithConditions(
+	name, nsName string, generation, observedGeneration int64, syncStatus string,
+	ready, progressing, draining metav1.ConditionStatus) *srIovV1.SriovNetworkNodeState {
+	nodeNetworkState := buildNodeNetworkState(name, nsName)
+	nodeNetworkState.Generation = generation
+	nodeNetworkState.Status.SyncStatus = syncStatus
+	nodeNetworkState.Status.Conditions = []metav1.Condition{
+		{
+			Type:               srIovV1.ConditionReady,
+			Status:             ready,
+			Reason:             srIovV1.ReasonNodeReady,
+			ObservedGeneration: observedGeneration,
+		},
+		{
+			Type:               srIovV1.ConditionProgressing,
+			Status:             progressing,
+			Reason:             srIovV1.ReasonNotProgressing,
+			ObservedGeneration: observedGeneration,
+		},
+		{
+			Type:               srIovV1.ConditionDraining,
+			Status:             draining,
+			Reason:             srIovV1.ReasonDrainNotNeeded,
+			ObservedGeneration: observedGeneration,
+		},
+	}
 
 	return nodeNetworkState
 }

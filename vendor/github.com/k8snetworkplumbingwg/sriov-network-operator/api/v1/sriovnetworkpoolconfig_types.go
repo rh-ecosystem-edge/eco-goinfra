@@ -2,6 +2,7 @@ package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
@@ -34,6 +35,9 @@ type OvsHardwareOffloadConfig struct {
 	// On OpenShift:
 	// Name is the name of MachineConfigPool to be enabled with OVS hardware offload
 	Name string `json:"name,omitempty"`
+	// OVS config. It will be provided for ovs-vswitchd service as other_config option
+	// +kubebuilder:default:={hw-offload: "true"}
+	OvsConfig map[string]string `json:"otherConfig,omitempty"`
 }
 
 // SriovNetworkPoolConfigStatus defines the observed state of SriovNetworkPoolConfig
@@ -62,5 +66,8 @@ type SriovNetworkPoolConfigList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&SriovNetworkPoolConfig{}, &SriovNetworkPoolConfigList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &SriovNetworkPoolConfig{}, &SriovNetworkPoolConfigList{})
+		return nil
+	})
 }
