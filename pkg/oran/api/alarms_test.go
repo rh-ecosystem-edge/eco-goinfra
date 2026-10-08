@@ -25,7 +25,7 @@ var (
 		ResourceTypeID:     uuid.New(),
 		PerceivedSeverity:  alarms.CRITICAL,
 		AlarmAcknowledged:  false,
-		Extensions:         map[string]string{"key1": "value1"},
+		Extensions:         map[string]any{"key1": "value1"},
 	}
 
 	// dummyAlarmEventRecordModifications is test modifications for use in tests.
@@ -37,7 +37,7 @@ var (
 	// dummyAlarmServiceConfiguration is test configuration for use in tests.
 	dummyAlarmServiceConfiguration = AlarmServiceConfiguration{
 		RetentionPeriod: 30,
-		Extensions:      map[string]string{"config1": "value1"},
+		Extensions:      map[string]any{"config1": "value1"},
 	}
 
 	// dummyAlarmServiceConfigurationPatch is test patch for use in tests.
@@ -126,7 +126,7 @@ func TestListAlarms(t *testing.T) {
 			}
 
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureMonitoring/v1/alarms", queryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureMonitoring/v1/alarms", queryParams)
 		})
 	}
 }
@@ -183,7 +183,7 @@ func TestGetAlarm(t *testing.T) {
 			assert.Equal(t, dummyAlarmEventRecord.ProbableCauseID, result.ProbableCauseID)
 			assert.Equal(t, dummyAlarmEventRecord.PerceivedSeverity, result.PerceivedSeverity)
 
-			expectedPath := fmt.Sprintf("/o2ims-infrastructureMonitoring/v1/alarms/%s", testCase.alarmID.String())
+			expectedPath := fmt.Sprintf("/O2ims_infrastructureMonitoring/v1/alarms/%s", testCase.alarmID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -243,7 +243,7 @@ func TestPatchAlarm(t *testing.T) {
 			assert.Equal(t, dummyAlarmEventRecordModifications.AlarmAcknowledged, result.AlarmAcknowledged)
 			assert.Equal(t, dummyAlarmEventRecordModifications.PerceivedSeverity, result.PerceivedSeverity)
 
-			expectedPath := fmt.Sprintf("/o2ims-infrastructureMonitoring/v1/alarms/%s", testCase.alarmID.String())
+			expectedPath := fmt.Sprintf("/O2ims_infrastructureMonitoring/v1/alarms/%s", testCase.alarmID.String())
 			validateHTTPRequest(t, capturedRequest, "PATCH", expectedPath, nil, "application/merge-patch+json")
 		})
 	}
@@ -298,7 +298,7 @@ func TestGetServiceConfiguration(t *testing.T) {
 			assert.Equal(t, dummyAlarmServiceConfiguration.RetentionPeriod, result.RetentionPeriod)
 			assert.Equal(t, dummyAlarmServiceConfiguration.Extensions, result.Extensions)
 
-			validateHTTPRequest(t, capturedRequest, "GET", "/o2ims-infrastructureMonitoring/v1/alarmServiceConfiguration", nil)
+			validateHTTPRequest(t, capturedRequest, "GET", "/O2ims_infrastructureMonitoring/v1/alarmServiceConfiguration", nil)
 		})
 	}
 }
@@ -354,7 +354,7 @@ func TestUpdateAlarmServiceConfiguration(t *testing.T) {
 			assert.Equal(t, dummyAlarmServiceConfiguration.RetentionPeriod, result.RetentionPeriod)
 			assert.Equal(t, dummyAlarmServiceConfiguration.Extensions, result.Extensions)
 
-			validateHTTPRequest(t, capturedRequest, "PUT", "/o2ims-infrastructureMonitoring/v1/alarmServiceConfiguration", nil)
+			validateHTTPRequest(t, capturedRequest, "PUT", "/O2ims_infrastructureMonitoring/v1/alarmServiceConfiguration", nil)
 		})
 	}
 }
@@ -410,7 +410,7 @@ func TestPatchAlarmServiceConfiguration(t *testing.T) {
 			assert.Equal(t, dummyAlarmServiceConfiguration.RetentionPeriod, result.RetentionPeriod)
 			assert.Equal(t, dummyAlarmServiceConfiguration.Extensions, result.Extensions)
 
-			expectedPath := "/o2ims-infrastructureMonitoring/v1/alarmServiceConfiguration"
+			expectedPath := "/O2ims_infrastructureMonitoring/v1/alarmServiceConfiguration"
 			validateHTTPRequest(t, capturedRequest, "PATCH", expectedPath, nil, "application/merge-patch+json")
 		})
 	}
@@ -482,7 +482,7 @@ func TestListSubscriptions(t *testing.T) {
 			}
 
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureMonitoring/v1/alarmSubscriptions", queryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureMonitoring/v1/alarmSubscriptions", queryParams)
 		})
 	}
 }
@@ -539,7 +539,7 @@ func TestCreateSubscription(t *testing.T) {
 			assert.Equal(t, dummyAlarmSubscriptionInfo.Callback, result.Callback)
 			assert.Equal(t, dummyAlarmSubscriptionInfo.Filter, result.Filter)
 
-			validateHTTPRequest(t, capturedRequest, "POST", "/o2ims-infrastructureMonitoring/v1/alarmSubscriptions", nil)
+			validateHTTPRequest(t, capturedRequest, "POST", "/O2ims_infrastructureMonitoring/v1/alarmSubscriptions", nil)
 		})
 	}
 }
@@ -597,7 +597,7 @@ func TestGetSubscription(t *testing.T) {
 			assert.Equal(t, dummyAlarmSubscriptionInfo.Filter, result.Filter)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureMonitoring/v1/alarmSubscriptions/%s", testCase.subscriptionID.String())
+				"/O2ims_infrastructureMonitoring/v1/alarmSubscriptions/%s", testCase.subscriptionID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -653,7 +653,7 @@ func TestDeleteSubscription(t *testing.T) {
 			assert.NoError(t, err)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureMonitoring/v1/alarmSubscriptions/%s", testCase.subscriptionID.String())
+				"/O2ims_infrastructureMonitoring/v1/alarmSubscriptions/%s", testCase.subscriptionID.String())
 			validateHTTPRequest(t, capturedRequest, "DELETE", expectedPath, nil)
 		})
 	}
