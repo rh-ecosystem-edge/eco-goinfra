@@ -7,117 +7,42 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+var kubeAPIServerGVK = operatorv1.GroupVersion.WithKind("KubeAPIServer")
+
 func TestPullKubeAPIServer(t *testing.T) {
-	generateKubeAPIServer := func() *operatorv1.KubeAPIServer {
-		return &operatorv1.KubeAPIServer{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: kubeAPIServerObjName,
-			},
-			Spec: operatorv1.KubeAPIServerSpec{},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("kubeApiServer 'apiClient' cannot be empty"),
-			client:              false,
-		},
-		{
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("kubeAPIServer object cluster does not exist"),
-			client:              true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		kubeAPIServer := generateKubeAPIServer()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, kubeAPIServer)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{K8sMockObjects: runtimeObjects})
-		}
-
-		builderResult, err := PullKubeAPIServer(testSettings)
-
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, "cluster", builderResult.Object.Name)
-		}
-	}
+	testhelper.NewSingletonClusterScopedPullTestConfig(
+		PullKubeAPIServer,
+		operatorv1.Install,
+		kubeAPIServerGVK,
+		kubeAPIServerObjName,
+	).ExecuteTests(t)
 }
 
-func TestKubeAPIServerGet(t *testing.T) {
-	testCases := []struct {
-		testKubeAPIServerBuilder *KubeAPIServerBuilder
-		expectedError            error
-	}{
-		{
-			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(buildKubeAPIServerWithDummyObject()),
-			expectedError:            nil,
-		},
-		{
-			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:            fmt.Errorf("kubeapiservers.operator.openshift.io \"cluster\" not found"),
-		},
-	}
+func TestKubeAPIServerBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testKubeAPIServer, err := testCase.testKubeAPIServerBuilder.Get()
+	commonConfig := testhelper.NewCommonTestConfig[operatorv1.KubeAPIServer, KubeAPIServerBuilder](
+		operatorv1.Install, kubeAPIServerGVK, testhelper.ResourceScopeClusterScoped)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testKubeAPIServer.Name, testCase.testKubeAPIServerBuilder.Definition.Name)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestKubeAPIServerExist(t *testing.T) {
-	testCases := []struct {
-		testKubeAPIServerBuilder *KubeAPIServerBuilder
-		expectedStatus           bool
-	}{
-		{
-			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(buildKubeAPIServerWithDummyObject()),
-			expectedStatus:           true,
-		},
-		{
-			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:           false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		status := testCase.testKubeAPIServerBuilder.Exists()
-		assert.Equal(t, testCase.expectedStatus, status)
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		Run(t)
 }
 
 func TestKubeAPIServerGetCondition(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testKubeAPIServerBuilder *KubeAPIServerBuilder
 		condition                string
@@ -145,170 +70,125 @@ func TestKubeAPIServerGetCondition(t *testing.T) {
 		{
 			condition:                conditionTypeNodeInstallerProgressing,
 			conditionStatus:          operatorv1.ConditionTrue,
-			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(newKubeAPIServerTestClient()),
 			expectedError:            fmt.Errorf("cluster kubeAPIServer not found"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		status, msg, err := testCase.testKubeAPIServerBuilder.GetCondition(testCase.condition)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.condition, func(t *testing.T) {
+			t.Parallel()
 
-		if err == nil {
-			assert.Equal(t, *status, testCase.conditionStatus)
-		} else {
-			assert.Nil(t, status)
-			assert.Equal(t, "", msg)
-		}
+			status, msg, err := testCase.testKubeAPIServerBuilder.GetCondition(testCase.condition)
+			assert.Equal(t, testCase.expectedError, err)
+
+			if err == nil {
+				assert.Equal(t, *status, testCase.conditionStatus)
+			} else {
+				assert.Nil(t, status)
+				assert.Equal(t, "", msg)
+			}
+		})
 	}
 }
 
 func TestKubeAPIServerWaitUntilConditionTrue(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name                     string
 		testKubeAPIServerBuilder *KubeAPIServerBuilder
 		condition                string
 		expectedError            error
 	}{
 		{
+			name:                     "condition becomes true",
 			condition:                conditionTypeNodeInstallerProgressing,
 			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(buildKubeAPIServerWithDummyObject()),
 			expectedError:            nil,
 		},
 		{
+			name:                     "unknown condition times out",
 			condition:                "unavailable",
 			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(buildKubeAPIServerWithDummyObject()),
 			expectedError:            fmt.Errorf("the unavailable condition not found exists: context deadline exceeded"),
 		},
 		{
+			name:                     "empty condition type",
 			condition:                "",
 			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(buildKubeAPIServerWithDummyObject()),
 			expectedError:            fmt.Errorf("kubeAPIServer 'conditionType' cannot be empty"),
 		},
 		{
+			name:                     "resource not found",
 			condition:                conditionTypeNodeInstallerProgressing,
-			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(newKubeAPIServerTestClient()),
 			expectedError:            fmt.Errorf("cluster kubeAPIServer not found"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testKubeAPIServerBuilder.WaitUntilConditionTrue(testCase.condition, 1*time.Second)
-		if err != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := testCase.testKubeAPIServerBuilder.WaitUntilConditionTrue(testCase.condition, 1*time.Second)
+			if testCase.expectedError != nil {
+				require.EqualError(t, err, testCase.expectedError.Error())
+			} else {
+				assert.NoError(t, err)
+			}
+		})
 	}
 }
 
 func TestKubeAPIServerWaitAllNodesAtTheLatestRevision(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name                     string
 		testKubeAPIServerBuilder *KubeAPIServerBuilder
 		expectedError            error
 	}{
 		{
+			name:                     "all nodes at latest revision",
 			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(buildKubeAPIServerWithDummyObject()),
 			expectedError:            nil,
 		},
 		{
-			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(buildKubeAPIServerWithDummyObject()),
-			expectedError:            fmt.Errorf("the unavailable condition not found exists: context deadline exceeded"),
-		},
-		{
-			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(buildKubeAPIServerWithDummyObject()),
-			expectedError:            fmt.Errorf("kubeAPIServer 'conditionType' cannot be empty"),
-		},
-		{
-			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			name:                     "resource not found",
+			testKubeAPIServerBuilder: buildValidKubeAPIServerBuilder(newKubeAPIServerTestClient()),
 			expectedError:            fmt.Errorf("cluster kubeAPIServer not found"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testKubeAPIServerBuilder.WaitAllNodesAtTheLatestRevision(1 * time.Second)
-		if err != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := testCase.testKubeAPIServerBuilder.WaitAllNodesAtTheLatestRevision(1 * time.Second)
+			if testCase.expectedError != nil {
+				require.EqualError(t, err, testCase.expectedError.Error())
+			} else {
+				assert.NoError(t, err)
+			}
+		})
 	}
 }
 
-func TestKubeAPIServerBuilderValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		expectedError string
-		builderErrMsg string
-	}{
-		{
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "error: received nil KubeAPIServer builder",
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: "can not redefine the undefined KubeAPIServer",
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: "KubeAPIServer builder cannot have nil apiClient",
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "test error",
-			builderErrMsg: "test error",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidKubeAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		if testCase.builderErrMsg != "" {
-			testBuilder.errorMsg = testCase.builderErrMsg
-		}
-
-		valid, err := testBuilder.validate()
-		if testCase.expectedError != "" {
-			assert.False(t, valid)
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.True(t, valid)
-			assert.Nil(t, err)
-		}
-	}
+func newKubeAPIServerTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{operatorv1.Install},
+	})
 }
 
 func buildValidKubeAPIServerBuilder(apiClient *clients.Settings) *KubeAPIServerBuilder {
-	return &KubeAPIServerBuilder{
-		apiClient: apiClient.Client,
-		Definition: &operatorv1.KubeAPIServer{
+	return common.NewClusterScopedBuilder[operatorv1.KubeAPIServer, KubeAPIServerBuilder](
+		apiClient, operatorv1.Install, kubeAPIServerObjName)
+}
+
+func buildKubeAPIServerWithDummyObject() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: append([]runtime.Object{}, &operatorv1.KubeAPIServer{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:            kubeAPIServerObjName,
 				ResourceVersion: "999",
@@ -322,29 +202,7 @@ func buildValidKubeAPIServerBuilder(apiClient *clients.Settings) *KubeAPIServerB
 					},
 				},
 			},
-		},
-	}
-}
-
-func buildKubeAPIServerWithDummyObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: buildDummyKubeAPIServerObject()})
-}
-
-func buildDummyKubeAPIServerObject() []runtime.Object {
-	return append([]runtime.Object{}, &operatorv1.KubeAPIServer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            kubeAPIServerObjName,
-			ResourceVersion: "999",
-		},
-		Spec: operatorv1.KubeAPIServerSpec{},
-		Status: operatorv1.KubeAPIServerStatus{
-			StaticPodOperatorStatus: operatorv1.StaticPodOperatorStatus{
-				OperatorStatus: operatorv1.OperatorStatus{
-					Conditions: []operatorv1.OperatorCondition{
-						{Type: conditionTypeNodeInstallerProgressing, Status: operatorv1.ConditionTrue, Reason: conditionReasonAllNodesAtLatestRevision}},
-				},
-			},
-		},
+		}),
+		SchemeAttachers: []clients.SchemeAttacher{operatorv1.Install},
 	})
 }
