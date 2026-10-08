@@ -3,8 +3,10 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,8 +14,9 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/namespace"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
 	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/tools/remotecommand"
 )
-
 
 func TestPodCreate(t *testing.T) {
 	t.Parallel()
@@ -141,6 +144,82 @@ func TestPodExecCommand(t *testing.T) {
 	buffer, err := podBuilder.ExecCommand([]string{"sh", "-c", "echo f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2"})
 	assert.Nil(t, err)
 	assert.Equal(t, "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2\r\n", buffer.String())
+}
+
+func TestPodExecCommandWithContext(t *testing.T) {
+	t.Parallel()
+	client := clients.New("")
+	assert.NotNil(t, client)
+
+	testNamespace := CreateRandomNamespace()
+	namespaceBuilder, err := namespace.NewBuilder(client, testNamespace).Create()
+	assert.NoError(t, err)
+	defer func() {
+		assert.NoError(t, namespaceBuilder.DeleteAndWait(timeoutDuration))
+	}()
+
+	containerDefinition, err := CreateTestContainerDefinition(
+		"test-container", containerImage, []string{"sleep", "3600"})
+	assert.NoError(t, err)
+
+	podBuilder := pod.NewBuilder(client, "exec-context-test", testNamespace, containerImage).
+		RedefineDefaultContainer(*containerDefinition)
+	podBuilder, err = podBuilder.CreateAndWaitUntilRunning(timeoutDuration)
+	assert.NoError(t, err)
+	defer func() {
+		_, err := podBuilder.DeleteAndWait(timeoutDuration)
+		assert.NoError(t, err)
+	}()
+
+	t.Run("streams stdout and stderr separately", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := podBuilder.ExecCommandWithContext(context.Background(), corev1.PodExecOptions{
+			Container: "test-container",
+			Command:   []string{"/bin/sh", "-c", "printf stdout-marker; printf stderr-marker >&2"},
+			Stdout:    true,
+			Stderr:    true,
+		}, remotecommand.StreamOptions{
+			Stdout: &stdout,
+			Stderr: &stderr,
+		})
+
+		assert.NoError(t, err)
+		assert.Equal(t, "stdout-marker", stdout.String())
+		assert.Equal(t, "stderr-marker", stderr.String())
+	})
+
+	t.Run("forwards stdin", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := podBuilder.ExecCommandWithContext(context.Background(), corev1.PodExecOptions{
+			Container: "test-container",
+			Command:   []string{"/bin/sh", "-c", "read value; printf 'received:%s' \"$value\""},
+			Stdin:     true,
+			Stdout:    true,
+		}, remotecommand.StreamOptions{
+			Stdin:  strings.NewReader("input-marker\n"),
+			Stdout: &stdout,
+		})
+
+		assert.NoError(t, err)
+		assert.Equal(t, "received:input-marker", stdout.String())
+	})
+
+	t.Run("cancels a running command when its context deadline expires", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		err := podBuilder.ExecCommandWithContext(ctx, corev1.PodExecOptions{
+			Container: "test-container",
+			Command:   []string{"/bin/sh", "-c", "sleep 30"},
+			Stdout:    true,
+			Stderr:    true,
+		}, remotecommand.StreamOptions{
+			Stdout: &bytes.Buffer{},
+			Stderr: &bytes.Buffer{},
+		})
+
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	})
 }
 
 // TestExecCommandWithTimeoutEnforcement tests that ExecCommandWithTimeout
