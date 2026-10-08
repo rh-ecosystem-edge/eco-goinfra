@@ -14,7 +14,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/stmcginnis/gofish/redfish"
+	"github.com/stmcginnis/gofish/schemas"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -538,18 +538,18 @@ func TestBMCSecureBootDisable(t *testing.T) {
 }
 
 func TestBMCSystemResetAction(t *testing.T) {
-	resetActions := []redfish.ResetType{
-		redfish.OnResetType,
-		redfish.ForceOnResetType,
-		redfish.ForceOffResetType,
-		redfish.ForceRestartResetType,
-		redfish.GracefulRestartResetType,
-		redfish.GracefulShutdownResetType,
-		redfish.PushPowerButtonResetType,
-		redfish.NmiResetType,
-		redfish.PauseResetType,
-		redfish.ResumeResetType,
-		redfish.SuspendResetType,
+	resetActions := []schemas.ResetType{
+		schemas.OnResetType,
+		schemas.ForceOnResetType,
+		schemas.ForceOffResetType,
+		schemas.ForceRestartResetType,
+		schemas.GracefulRestartResetType,
+		schemas.GracefulShutdownResetType,
+		schemas.PushPowerButtonResetType,
+		schemas.NmiResetType,
+		schemas.PauseResetType,
+		schemas.ResumeResetType,
+		schemas.SuspendResetType,
 	}
 
 	for _, resetAction := range resetActions {
@@ -613,10 +613,10 @@ func TestBMCWaitForSystemPowerState(t *testing.T) {
 	bmc := New(host).WithRedfishUser(defaultUsername, defaultPassword)
 
 	// The fake endpoint should be On, so will succeed when waiting till On and time out waiting for Off.
-	err := bmc.WaitForSystemPowerState(redfish.OnPowerState, time.Second)
+	err := bmc.WaitForSystemPowerState(schemas.OnPowerState, time.Second)
 	assert.NoError(t, err)
 
-	err = bmc.WaitForSystemPowerState(redfish.OffPowerState, time.Second)
+	err = bmc.WaitForSystemPowerState(schemas.OffPowerState, time.Second)
 	assert.Equal(t, context.DeadlineExceeded, err)
 }
 
@@ -783,7 +783,7 @@ func TestBMCBootFromCD(t *testing.T) {
 		{
 			imageURL:       "isoImage",
 			virtualMediaID: "2",
-			expectedError:  fmt.Errorf("redfish service does not support VirtualMedia.InsertMedia calls"),
+			expectedError:  nil,
 		},
 	}
 
