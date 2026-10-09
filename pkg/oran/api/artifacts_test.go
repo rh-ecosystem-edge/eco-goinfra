@@ -21,7 +21,7 @@ var (
 		Description:        "Test template description",
 		Version:            "v1.0.0",
 		ParameterSchema:    map[string]any{"param1": "string"},
-		Extensions:         &map[string]string{"key1": "value1"},
+		Extensions:         &map[string]any{"key1": "value1"},
 	}
 
 	// dummyManagedInfrastructureTemplateDefaults is test defaults for use in tests.
@@ -99,7 +99,7 @@ func TestListManagedInfrastructureTemplates(t *testing.T) {
 			}
 
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureArtifacts/v1/managedInfrastructureTemplates", queryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureArtifacts/v1/managedInfrastructureTemplates", queryParams)
 		})
 	}
 }
@@ -158,7 +158,7 @@ func TestGetManagedInfrastructureTemplate(t *testing.T) {
 			assert.Equal(t, dummyManagedInfrastructureTemplate.Description, result.Description)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureArtifacts/v1/managedInfrastructureTemplates/%s", testCase.templateID)
+				"/O2ims_infrastructureArtifacts/v1/managedInfrastructureTemplates/%s", testCase.templateID)
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -222,7 +222,7 @@ func TestGetManagedInfrastructureTemplateDefaults(t *testing.T) {
 			assert.Equal(t, dummyManagedInfrastructureTemplateDefaults.PolicyTemplateDefaults, result.PolicyTemplateDefaults)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureArtifacts/v1/managedInfrastructureTemplates/%s/defaults", testCase.templateID)
+				"/O2ims_infrastructureArtifacts/v1/managedInfrastructureTemplates/%s/defaults", testCase.templateID)
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}

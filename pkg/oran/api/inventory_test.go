@@ -112,12 +112,12 @@ var (
 
 	// dummyInventoryAllAPIVersions is a test API versions response for use in tests.
 	dummyInventoryAllAPIVersions = APIVersions{
-		UriPrefix: new("/o2ims-infrastructureInventory"),
+		UriPrefix: new("/O2ims_infrastructureInventory"),
 	}
 
 	// dummyInventoryMinorAPIVersions is a test minor API versions response for use in tests.
 	dummyInventoryMinorAPIVersions = APIVersions{
-		UriPrefix: new("/o2ims-infrastructureInventory/v2"),
+		UriPrefix: new("/O2ims_infrastructureInventory/v2"),
 	}
 
 	// defaultDeploymentManagerID is the ID from dummyDeploymentManager for use in tests.
@@ -184,7 +184,7 @@ func TestInventoryGetAllVersions(t *testing.T) {
 
 			assert.NoError(t, err)
 			assert.Equal(t, dummyInventoryAllAPIVersions.UriPrefix, result.UriPrefix)
-			validateHTTPRequest(t, capturedRequest, "GET", "/o2ims-infrastructureInventory/api_versions", nil)
+			validateHTTPRequest(t, capturedRequest, "GET", "/O2ims_infrastructureInventory/api_versions", nil)
 		})
 	}
 }
@@ -250,7 +250,7 @@ func TestInventoryGetCloudInfo(t *testing.T) {
 
 			assert.NoError(t, err)
 			assert.Equal(t, dummyOCloudInfo.Name, result.Name)
-			validateHTTPRequest(t, capturedRequest, "GET", "/o2ims-infrastructureInventory/v2", testCase.expectedQueryParams)
+			validateHTTPRequest(t, capturedRequest, "GET", "/O2ims_infrastructureInventory/v2", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -301,7 +301,7 @@ func TestInventoryGetMinorVersions(t *testing.T) {
 
 			assert.NoError(t, err)
 			assert.Equal(t, dummyInventoryMinorAPIVersions.UriPrefix, result.UriPrefix)
-			validateHTTPRequest(t, capturedRequest, "GET", "/o2ims-infrastructureInventory/v2/api_versions", nil)
+			validateHTTPRequest(t, capturedRequest, "GET", "/O2ims_infrastructureInventory/v2/api_versions", nil)
 		})
 	}
 }
@@ -413,7 +413,7 @@ func TestInventoryListResourceTypes(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, dummyResourceType.ResourceTypeId, result[0].ResourceTypeId)
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureInventory/v2/resourceTypes", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureInventory/v2/resourceTypes", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -482,7 +482,7 @@ func TestInventoryListDeploymentManagers(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, dummyDeploymentManager.DeploymentManagerId, result[0].DeploymentManagerId)
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureInventory/v2/deploymentManagers", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureInventory/v2/deploymentManagers", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -538,7 +538,7 @@ func TestInventoryGetDeploymentManager(t *testing.T) {
 			assert.Equal(t, dummyDeploymentManager.DeploymentManagerId, result.DeploymentManagerId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/deploymentManagers/%s", testCase.managerID.String())
+				"/O2ims_infrastructureInventory/v2/deploymentManagers/%s", testCase.managerID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -595,7 +595,7 @@ func TestInventoryGetResourceType(t *testing.T) {
 			assert.Equal(t, dummyResourceType.ResourceTypeId, result.ResourceTypeId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/resourceTypes/%s", testCase.typeID.String())
+				"/O2ims_infrastructureInventory/v2/resourceTypes/%s", testCase.typeID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -652,7 +652,7 @@ func TestInventoryGetResourceTypeAlarmDictionary(t *testing.T) {
 			assert.Equal(t, dummyInventoryAlarmDictionary.AlarmDictionaryId, result.AlarmDictionaryId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/resourceTypes/%s/alarmDictionary", testCase.typeID.String())
+				"/O2ims_infrastructureInventory/v2/resourceTypes/%s/alarmDictionary", testCase.typeID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -722,7 +722,7 @@ func TestInventoryListResourcePools(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, dummyResourcePool.ResourcePoolId, result[0].ResourcePoolId)
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureInventory/v2/resourcePools", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureInventory/v2/resourcePools", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -778,7 +778,7 @@ func TestInventoryGetResourcePool(t *testing.T) {
 			assert.Equal(t, dummyResourcePool.ResourcePoolId, result.ResourcePoolId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/resourcePools/%s", testCase.poolID.String())
+				"/O2ims_infrastructureInventory/v2/resourcePools/%s", testCase.poolID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -853,7 +853,7 @@ func TestInventoryListResources(t *testing.T) {
 			assert.Equal(t, dummyResource.ResourceId, result[0].ResourceId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/resourcePools/%s/resources", testCase.poolID.String())
+				"/O2ims_infrastructureInventory/v2/resourcePools/%s/resources", testCase.poolID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, testCase.expectedQueryParams)
 		})
 	}
@@ -913,7 +913,7 @@ func TestInventoryGetResource(t *testing.T) {
 			assert.Equal(t, dummyResource.ResourceId, result.ResourceId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/resourcePools/%s/resources/%s",
+				"/O2ims_infrastructureInventory/v2/resourcePools/%s/resources/%s",
 				testCase.poolID.String(), testCase.resourceID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
@@ -984,7 +984,7 @@ func TestInventoryListInventorySubscriptions(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, dummyInventorySubscription.SubscriptionId, result[0].SubscriptionId)
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureInventory/v2/subscriptions", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureInventory/v2/subscriptions", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -1040,7 +1040,7 @@ func TestInventoryCreateInventorySubscription(t *testing.T) {
 			assert.Equal(t, dummyInventorySubscription.SubscriptionId, result.SubscriptionId)
 			assert.Equal(t, dummyInventorySubscription.Callback, result.Callback)
 			validateHTTPRequest(
-				t, capturedRequest, "POST", "/o2ims-infrastructureInventory/v2/subscriptions", nil, "application/json")
+				t, capturedRequest, "POST", "/O2ims_infrastructureInventory/v2/subscriptions", nil, "application/json")
 		})
 	}
 }
@@ -1096,7 +1096,7 @@ func TestInventoryGetInventorySubscription(t *testing.T) {
 			assert.Equal(t, dummyInventorySubscription.SubscriptionId, result.SubscriptionId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/subscriptions/%s", testCase.subscriptionID.String())
+				"/O2ims_infrastructureInventory/v2/subscriptions/%s", testCase.subscriptionID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -1152,7 +1152,7 @@ func TestInventoryDeleteInventorySubscription(t *testing.T) {
 			assert.NoError(t, err)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/subscriptions/%s", testCase.subscriptionID.String())
+				"/O2ims_infrastructureInventory/v2/subscriptions/%s", testCase.subscriptionID.String())
 			validateHTTPRequest(t, capturedRequest, "DELETE", expectedPath, nil)
 		})
 	}
@@ -1222,7 +1222,7 @@ func TestInventoryListInventoryAlarmDictionaries(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, dummyInventoryAlarmDictionary.AlarmDictionaryId, result[0].AlarmDictionaryId)
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureInventory/v2/alarmDictionaries", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureInventory/v2/alarmDictionaries", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -1278,7 +1278,7 @@ func TestInventoryGetInventoryAlarmDictionary(t *testing.T) {
 			assert.Equal(t, dummyInventoryAlarmDictionary.AlarmDictionaryId, result.AlarmDictionaryId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/alarmDictionaries/%s", testCase.dictionaryID.String())
+				"/O2ims_infrastructureInventory/v2/alarmDictionaries/%s", testCase.dictionaryID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -1348,7 +1348,7 @@ func TestInventoryListLocations(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, dummyLocationInfo.GlobalLocationId, result[0].GlobalLocationId)
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureInventory/v2/locations", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureInventory/v2/locations", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -1404,7 +1404,7 @@ func TestInventoryGetLocation(t *testing.T) {
 			assert.Equal(t, dummyLocationInfo.GlobalLocationId, result.GlobalLocationId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/locations/%s", testCase.globalLocationID)
+				"/O2ims_infrastructureInventory/v2/locations/%s", testCase.globalLocationID)
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -1474,7 +1474,7 @@ func TestInventoryListOCloudSites(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, dummyOCloudSiteInfo.OCloudSiteId, result[0].OCloudSiteId)
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureInventory/v2/oCloudSites", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureInventory/v2/oCloudSites", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -1530,7 +1530,7 @@ func TestInventoryGetOCloudSite(t *testing.T) {
 			assert.Equal(t, dummyOCloudSiteInfo.OCloudSiteId, result.OCloudSiteId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureInventory/v2/oCloudSites/%s", testCase.siteID.String())
+				"/O2ims_infrastructureInventory/v2/oCloudSites/%s", testCase.siteID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}

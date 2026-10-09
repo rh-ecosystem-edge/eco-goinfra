@@ -72,7 +72,7 @@ var (
 
 	// dummyAPIVersions is a test API versions response for use in tests.
 	dummyAPIVersions = APIVersions{
-		UriPrefix: new("/o2ims-infrastructureCluster"),
+		UriPrefix: new("/O2ims_infrastructureCluster"),
 	}
 
 	// defaultNodeClusterTypeID is the ID from dummyNodeClusterType for use in tests.
@@ -135,7 +135,7 @@ func TestGetAllVersions(t *testing.T) {
 
 			assert.NoError(t, err)
 			assert.Equal(t, dummyAPIVersions.UriPrefix, result.UriPrefix)
-			validateHTTPRequest(t, capturedRequest, "GET", "/o2ims-infrastructureCluster/api_versions", nil)
+			validateHTTPRequest(t, capturedRequest, "GET", "/O2ims_infrastructureCluster/api_versions", nil)
 		})
 	}
 }
@@ -186,7 +186,7 @@ func TestGetMinorVersions(t *testing.T) {
 
 			assert.NoError(t, err)
 			assert.Equal(t, dummyAPIVersions.UriPrefix, result.UriPrefix)
-			validateHTTPRequest(t, capturedRequest, "GET", "/o2ims-infrastructureCluster/v1/api_versions", nil)
+			validateHTTPRequest(t, capturedRequest, "GET", "/O2ims_infrastructureCluster/v1/api_versions", nil)
 		})
 	}
 }
@@ -266,7 +266,7 @@ func TestListNodeClusterTypes(t *testing.T) {
 			assert.Equal(t, dummyNodeClusterType.NodeClusterTypeId, result[0].NodeClusterTypeId)
 
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureCluster/v1/nodeClusterTypes", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureCluster/v1/nodeClusterTypes", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -323,7 +323,7 @@ func TestGetNodeClusterType(t *testing.T) {
 			assert.Equal(t, dummyNodeClusterType.Name, result.Name)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureCluster/v1/nodeClusterTypes/%s", testCase.typeID.String())
+				"/O2ims_infrastructureCluster/v1/nodeClusterTypes/%s", testCase.typeID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -380,7 +380,7 @@ func TestGetNodeClusterTypeAlarmDictionary(t *testing.T) {
 			assert.Equal(t, dummyAlarmDictionary.AlarmDictionaryId, result.AlarmDictionaryId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureCluster/v1/nodeClusterTypes/%s/alarmDictionary", testCase.typeID.String())
+				"/O2ims_infrastructureCluster/v1/nodeClusterTypes/%s/alarmDictionary", testCase.typeID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -494,7 +494,7 @@ func TestListNodeClusters(t *testing.T) {
 			assert.Equal(t, dummyNodeCluster.NodeClusterId, result[0].NodeClusterId)
 
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureCluster/v1/nodeClusters", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureCluster/v1/nodeClusters", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -551,7 +551,7 @@ func TestGetNodeCluster(t *testing.T) {
 			assert.Equal(t, dummyNodeCluster.Name, result.Name)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureCluster/v1/nodeClusters/%s", testCase.clusterID.String())
+				"/O2ims_infrastructureCluster/v1/nodeClusters/%s", testCase.clusterID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -622,7 +622,7 @@ func TestListClusterResourceTypes(t *testing.T) {
 			assert.Equal(t, dummyClusterResourceType.ClusterResourceTypeId, result[0].ClusterResourceTypeId)
 
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureCluster/v1/clusterResourceTypes", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureCluster/v1/clusterResourceTypes", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -678,7 +678,7 @@ func TestGetClusterResourceType(t *testing.T) {
 			assert.Equal(t, dummyClusterResourceType.ClusterResourceTypeId, result.ClusterResourceTypeId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureCluster/v1/clusterResourceTypes/%s", testCase.typeID.String())
+				"/O2ims_infrastructureCluster/v1/clusterResourceTypes/%s", testCase.typeID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -749,7 +749,7 @@ func TestListClusterResources(t *testing.T) {
 			assert.Equal(t, dummyClusterResource.ClusterResourceId, result[0].ClusterResourceId)
 
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureCluster/v1/clusterResources", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureCluster/v1/clusterResources", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -805,7 +805,7 @@ func TestGetClusterResource(t *testing.T) {
 			assert.Equal(t, dummyClusterResource.ClusterResourceId, result.ClusterResourceId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureCluster/v1/clusterResources/%s", testCase.resourceID.String())
+				"/O2ims_infrastructureCluster/v1/clusterResources/%s", testCase.resourceID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -876,7 +876,7 @@ func TestListClusterSubscriptions(t *testing.T) {
 			assert.Equal(t, dummyClusterSubscription.SubscriptionId, result[0].SubscriptionId)
 
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureCluster/v1/subscriptions", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureCluster/v1/subscriptions", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -933,7 +933,7 @@ func TestCreateClusterSubscription(t *testing.T) {
 			assert.Equal(t, dummyClusterSubscription.Callback, result.Callback)
 
 			validateHTTPRequest(
-				t, capturedRequest, "POST", "/o2ims-infrastructureCluster/v1/subscriptions", nil, "application/json")
+				t, capturedRequest, "POST", "/O2ims_infrastructureCluster/v1/subscriptions", nil, "application/json")
 		})
 	}
 }
@@ -990,7 +990,7 @@ func TestGetClusterSubscription(t *testing.T) {
 			assert.Equal(t, dummyClusterSubscription.Callback, result.Callback)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureCluster/v1/subscriptions/%s", testCase.subscriptionID.String())
+				"/O2ims_infrastructureCluster/v1/subscriptions/%s", testCase.subscriptionID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
@@ -1046,7 +1046,7 @@ func TestDeleteClusterSubscription(t *testing.T) {
 			assert.NoError(t, err)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureCluster/v1/subscriptions/%s", testCase.subscriptionID.String())
+				"/O2ims_infrastructureCluster/v1/subscriptions/%s", testCase.subscriptionID.String())
 			validateHTTPRequest(t, capturedRequest, "DELETE", expectedPath, nil)
 		})
 	}
@@ -1117,7 +1117,7 @@ func TestListAlarmDictionaries(t *testing.T) {
 			assert.Equal(t, dummyAlarmDictionary.AlarmDictionaryId, result[0].AlarmDictionaryId)
 
 			validateHTTPRequest(
-				t, capturedRequest, "GET", "/o2ims-infrastructureCluster/v1/alarmDictionaries", testCase.expectedQueryParams)
+				t, capturedRequest, "GET", "/O2ims_infrastructureCluster/v1/alarmDictionaries", testCase.expectedQueryParams)
 		})
 	}
 }
@@ -1173,7 +1173,7 @@ func TestGetAlarmDictionary(t *testing.T) {
 			assert.Equal(t, dummyAlarmDictionary.AlarmDictionaryId, result.AlarmDictionaryId)
 
 			expectedPath := fmt.Sprintf(
-				"/o2ims-infrastructureCluster/v1/alarmDictionaries/%s", testCase.dictionaryID.String())
+				"/O2ims_infrastructureCluster/v1/alarmDictionaries/%s", testCase.dictionaryID.String())
 			validateHTTPRequest(t, capturedRequest, "GET", expectedPath, nil)
 		})
 	}
