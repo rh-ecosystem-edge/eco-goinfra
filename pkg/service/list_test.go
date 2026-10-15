@@ -1,89 +1,91 @@
 package service
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestList(t *testing.T) {
-	generateService := func(name, namespace string) *corev1.Service {
-		return &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-				Labels:    map[string]string{"demo": name},
-			},
-			Spec: corev1.ServiceSpec{
-				Selector: map[string]string{
-					"app": name,
-				},
-			},
-		}
-	}
+	t.Parallel()
+
+	testhelper.NewNamespacedListTestConfig(
+		func(apiClient *clients.Settings, nsname string, _ ...runtimeclient.ListOptions) ([]*Builder, error) {
+			return List(apiClient, nsname)
+		},
+		corev1.AddToScheme,
+		serviceGVK,
+	).ExecuteTests(t)
+}
+
+func TestListWithOptions(t *testing.T) {
+	t.Parallel()
 
 	testCases := []struct {
-		serviceExists       bool
-		testNamespace       string
-		listOptions         []metav1.ListOptions
-		expetedError        error
-		expectedNumServices int
+		name          string
+		options       []metav1.ListOptions
+		assertError   func(error) bool
+		expectedNames []string
 	}{
-		{ // Service does exist
-			serviceExists:       true,
-			testNamespace:       "test-namespace",
-			expetedError:        nil,
-			listOptions:         []metav1.ListOptions{},
-			expectedNumServices: 1,
+		{
+			name:          "label selector filters services",
+			options:       []metav1.ListOptions{{LabelSelector: "demo=first"}},
+			assertError:   func(err error) bool { return err == nil },
+			expectedNames: []string{"first"},
 		},
-		{ // Service does not exist
-			serviceExists:       false,
-			testNamespace:       "test-namespace",
-			expetedError:        nil,
-			listOptions:         []metav1.ListOptions{},
-			expectedNumServices: 0,
+		{
+			name:          "non-matching label selector returns no services",
+			options:       []metav1.ListOptions{{LabelSelector: "demo=missing"}},
+			assertError:   func(err error) bool { return err == nil },
+			expectedNames: nil,
 		},
-		{ // Missing namespace parameter
-			serviceExists:       true,
-			testNamespace:       "",
-			expetedError:        errors.New("failed to list services, 'nsname' parameter is empty"),
-			listOptions:         []metav1.ListOptions{},
-			expectedNumServices: 0,
-		},
-		{ // More than one ListOptions was passed
-			serviceExists:       true,
-			testNamespace:       "test-namespace",
-			expetedError:        errors.New("error: more than one ListOptions was passed"),
-			listOptions:         []metav1.ListOptions{{}, {}},
-			expectedNumServices: 0,
-		},
-		{ // Valid number of list options
-			serviceExists:       true,
-			testNamespace:       "test-namespace",
-			expetedError:        nil,
-			listOptions:         []metav1.ListOptions{{}},
-			expectedNumServices: 1,
+		{
+			name:        "invalid label selector returns error",
+			options:     []metav1.ListOptions{{LabelSelector: "demo in (("}},
+			assertError: func(err error) bool { return err != nil },
 		},
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		testCase := testCase
 
-		if testCase.serviceExists {
-			runtimeObjects = append(runtimeObjects, generateService("test-service", "test-namespace"))
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
+			apiClient := newServiceTestClient(
+				buildLabeledService("first", defaultServiceNamespace),
+				buildLabeledService("second", defaultServiceNamespace),
+				buildLabeledService("first", "other-namespace"),
+			)
+
+			builders, err := List(apiClient, defaultServiceNamespace, testCase.options...)
+			require.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
+
+			var names []string
+
+			for _, builder := range builders {
+				assert.Equal(t, defaultServiceNamespace, builder.Definition.Namespace)
+
+				names = append(names, builder.Definition.Name)
+			}
+
+			assert.Equal(t, testCase.expectedNames, names)
 		})
+	}
+}
 
-		networkPolicyList, err := List(testSettings, testCase.testNamespace, testCase.listOptions...)
-		assert.Equal(t, testCase.expetedError, err)
-		assert.Equal(t, testCase.expectedNumServices, len(networkPolicyList))
+func buildLabeledService(name, nsname string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: nsname,
+			Labels:    map[string]string{"demo": name},
+		},
 	}
 }
