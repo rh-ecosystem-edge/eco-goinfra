@@ -3,6 +3,7 @@ package sriov
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -10,8 +11,15 @@ import (
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+)
+
+const (
+	nodeStatePollInterval = time.Second
+	syncStatusSucceeded   = "Succeeded"
 )
 
 // NetworkNodeStateBuilder provides struct for SriovNetworkNodeState object which contains connection to cluster and
@@ -141,15 +149,14 @@ func (builder *NetworkNodeStateBuilder) GetNICs() (srIovV1.InterfaceExts, error)
 	return builder.Objects.Status.Interfaces, nil
 }
 
-// WaitUntilSyncStatus waits for the duration of the defined timeout or until the
-// SriovNetworkNodeState gets to a specific syncStatus.
+// WaitUntilSyncStatus waits until timeout or until the requested syncStatus is reported.
 func (builder *NetworkNodeStateBuilder) WaitUntilSyncStatus(syncStatus string, timeout time.Duration) error {
 	if valid, err := builder.validate(); !valid {
 		return err
 	}
 
-	klog.V(100).Infof("Waiting for the defined period until SriovNetworkNodeState %s has syncStatus %s",
-		builder.Objects.Name, syncStatus)
+	klog.V(100).Infof("Waiting up to %s until SriovNetworkNodeState %s/%s has syncStatus %s",
+		timeout, builder.nsName, builder.nodeName, syncStatus)
 
 	if syncStatus == "" {
 		klog.V(100).Info("The syncStatus parameter is empty")
@@ -157,16 +164,75 @@ func (builder *NetworkNodeStateBuilder) WaitUntilSyncStatus(syncStatus string, t
 		return fmt.Errorf("syncStatus cannot be empty")
 	}
 
-	// Polls every retryInterval to determine if SriovNetworkNodeState is in desired syncStatus.
 	return wait.PollUntilContextTimeout(
-		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+		context.TODO(), nodeStatePollInterval, timeout, true, func(ctx context.Context) (bool, error) {
 			err := builder.Discover()
 			if err != nil {
+				klog.V(100).Infof("Failed to get SriovNetworkNodeState %s/%s: %v",
+					builder.nsName, builder.nodeName, err)
+
 				return false, nil
 			}
 
 			return builder.Objects.Status.SyncStatus == syncStatus, nil
 		})
+}
+
+// WaitUntilStable waits until timeout or until the SriovNetworkNodeState is generation-fresh and stable:
+// Ready=True, Progressing!=True, Draining!=True, then syncStatus=Succeeded.
+func (builder *NetworkNodeStateBuilder) WaitUntilStable(timeout time.Duration) error {
+	if valid, err := builder.validate(); !valid {
+		return err
+	}
+
+	klog.V(100).Infof("Waiting up to %s until SriovNetworkNodeState %s/%s is stable",
+		timeout, builder.nsName, builder.nodeName)
+
+	return wait.PollUntilContextTimeout(
+		context.TODO(), nodeStatePollInterval, timeout, true, func(ctx context.Context) (bool, error) {
+			err := builder.Discover()
+			if err != nil {
+				klog.V(100).Infof("Failed to get SriovNetworkNodeState %s/%s: %v",
+					builder.nsName, builder.nodeName, err)
+
+				return false, nil
+			}
+
+			return isNodeStateStable(builder.Objects), nil
+		})
+}
+
+// WaitForCondition waits until timeout for a generation-fresh condition matching expected.
+// Zero fields are ignored; Message matches by substring.
+func (builder *NetworkNodeStateBuilder) WaitForCondition(expected metav1.Condition, timeout time.Duration) error {
+	if valid, err := builder.validate(); !valid {
+		return err
+	}
+
+	klog.V(100).Infof("Waiting up to %s until SriovNetworkNodeState %s/%s has condition %v",
+		timeout, builder.nsName, builder.nodeName, expected)
+
+	return wait.PollUntilContextTimeout(
+		context.TODO(), nodeStatePollInterval, timeout, true, func(ctx context.Context) (bool, error) {
+			err := builder.Discover()
+			if err != nil {
+				klog.V(100).Infof("Failed to get SriovNetworkNodeState %s/%s: %v",
+					builder.nsName, builder.nodeName, err)
+
+				return false, nil
+			}
+
+			return nodeStateConditionMatches(builder.Objects, expected), nil
+		})
+}
+
+// GetCondition returns the named condition from the last discovered object, or nil if missing.
+func (builder *NetworkNodeStateBuilder) GetCondition(conditionType string) *metav1.Condition {
+	if builder == nil || builder.Objects == nil {
+		return nil
+	}
+
+	return meta.FindStatusCondition(builder.Objects.Status.Conditions, conditionType)
 }
 
 // GetNumVFs returns num-vfs under the given interface.
@@ -249,6 +315,96 @@ func (builder *NetworkNodeStateBuilder) findInterfaceByName(sriovInterfaceName s
 	}
 
 	return nil, fmt.Errorf("interface %s was not found", sriovInterfaceName)
+}
+
+func isNodeStateStable(nodeState *srIovV1.SriovNetworkNodeState) bool {
+	if nodeState == nil {
+		return false
+	}
+
+	ready := meta.FindStatusCondition(nodeState.Status.Conditions, srIovV1.ConditionReady)
+	progressing := meta.FindStatusCondition(nodeState.Status.Conditions, srIovV1.ConditionProgressing)
+	draining := meta.FindStatusCondition(nodeState.Status.Conditions, srIovV1.ConditionDraining)
+
+	if !isConditionCurrent(nodeState, ready) || ready.Status != metav1.ConditionTrue {
+		logUnstableNodeState(nodeState, "Ready is missing, stale, or not True")
+
+		return false
+	}
+
+	if !isConditionCurrent(nodeState, progressing) || progressing.Status == metav1.ConditionTrue {
+		logUnstableNodeState(nodeState, "Progressing is missing, stale, or True")
+
+		return false
+	}
+
+	if !isConditionCurrent(nodeState, draining) || draining.Status == metav1.ConditionTrue {
+		logUnstableNodeState(nodeState, "Draining is missing, stale, or True")
+
+		return false
+	}
+
+	if nodeState.Status.SyncStatus != syncStatusSucceeded {
+		logUnstableNodeState(nodeState, "conditions are stable but syncStatus is not Succeeded")
+
+		return false
+	}
+
+	return true
+}
+
+func nodeStateConditionMatches(nodeState *srIovV1.SriovNetworkNodeState, expected metav1.Condition) bool {
+	if nodeState == nil {
+		return false
+	}
+
+	for _, condition := range nodeState.Status.Conditions {
+		if !isConditionCurrent(nodeState, &condition) {
+			continue
+		}
+
+		if expected.Type != "" && condition.Type != expected.Type {
+			continue
+		}
+
+		if expected.Status != "" && condition.Status != expected.Status {
+			continue
+		}
+
+		if expected.Reason != "" && condition.Reason != expected.Reason {
+			continue
+		}
+
+		if expected.Message != "" && !strings.Contains(condition.Message, expected.Message) {
+			continue
+		}
+
+		if expected.ObservedGeneration != 0 &&
+			condition.ObservedGeneration != expected.ObservedGeneration {
+			continue
+		}
+
+		return true
+	}
+
+	return false
+}
+
+func isConditionCurrent(nodeState *srIovV1.SriovNetworkNodeState, condition *metav1.Condition) bool {
+	if nodeState == nil || condition == nil {
+		return false
+	}
+
+	return condition.ObservedGeneration == nodeState.GetGeneration()
+}
+
+func logUnstableNodeState(nodeState *srIovV1.SriovNetworkNodeState, reason string) {
+	if nodeState == nil {
+		return
+	}
+
+	klog.V(100).Infof("SriovNetworkNodeState %s/%s is not stable: %s; syncStatus=%q lastSyncError=%q",
+		nodeState.Namespace, nodeState.Name, reason, nodeState.Status.SyncStatus, nodeState.Status.LastSyncError)
 }
 
 // validate will check that the builder and builder definition are properly initialized before
