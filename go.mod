@@ -49,7 +49,7 @@ require (
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.91.0 // aligned with k8s v0.35
 	github.com/red-hat-storage/odf-operator v0.0.0-20260226164309-08c71191d483 // release-4.21, api/v1alpha1 was deprecated in 4.19 and removed in 4.22
 	github.com/sirupsen/logrus v1.9.4
-	github.com/stmcginnis/gofish v0.20.0 // v0.21.0 contains many breaking changes. Should be upgraded separately.
+	github.com/stmcginnis/gofish v0.27.0
 	github.com/stretchr/testify v1.11.1
 	github.com/thoas/go-funk v0.9.3
 	github.com/vmware-tanzu/velero v1.18.0
