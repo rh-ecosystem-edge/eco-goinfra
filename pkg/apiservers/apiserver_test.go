@@ -1,291 +1,192 @@
 package apiservers
 
 import (
-	"fmt"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-var apiServerTestSchemes = []clients.SchemeAttacher{
-	configv1.Install,
-}
+var apiServerGVK = configv1.GroupVersion.WithKind("APIServer")
 
 func TestPullAPIServer(t *testing.T) {
-	testCases := []struct {
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("apiserver object %s does not exist", apiServerName),
-		},
-		{
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("apiserver 'apiClient' cannot be nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testAPIServer := buildDummyAPIServer()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testAPIServer)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: apiServerTestSchemes,
-			})
-		}
-
-		testBuilder, err := PullAPIServer(testSettings)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, apiServerName, testBuilder.Definition.Name)
-		}
-	}
+	testhelper.NewSingletonClusterScopedPullTestConfig(
+		PullAPIServer,
+		configv1.Install,
+		apiServerGVK,
+		apiServerName,
+	).ExecuteTests(t)
 }
 
-func TestAPIServerGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *APIServerBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   newAPIServerBuilder(buildTestClientWithDummyAPIServer()),
-			expectedError: "",
-		},
-		{
-			testBuilder: newAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{
-				SchemeAttachers: apiServerTestSchemes,
-			})),
-			expectedError: "apiservers.config.openshift.io \"cluster\" not found",
-		},
-	}
+func TestAPIServerBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		apiServerObject, err := testCase.testBuilder.Get()
+	commonConfig := testhelper.NewCommonTestConfig[configv1.APIServer, APIServerBuilder](
+		configv1.Install, apiServerGVK, testhelper.ResourceScopeClusterScoped)
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.testBuilder.Definition.Name, apiServerObject.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestAPIServerExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *APIServerBuilder
-		exists      bool
-	}{
-		{
-			testBuilder: newAPIServerBuilder(buildTestClientWithDummyAPIServer()),
-			exists:      true,
-		},
-		{
-			testBuilder: newAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{
-				SchemeAttachers: apiServerTestSchemes,
-			})),
-			exists: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
-}
-
-func TestAPIServerUpdate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *APIServerBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   newAPIServerBuilder(buildTestClientWithDummyAPIServer()),
-			expectedError: nil,
-		},
-		{
-			testBuilder: newAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{
-				SchemeAttachers: apiServerTestSchemes,
-			})),
-			expectedError: fmt.Errorf("apiserver object %s does not exist", apiServerName),
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Nil(t, testCase.testBuilder.Definition.Spec.TLSSecurityProfile)
-
-		testCase.testBuilder.Definition.Spec.TLSSecurityProfile = &configv1.TLSSecurityProfile{
-			Type: configv1.TLSProfileOldType,
-		}
-
-		testBuilder, err := testCase.testBuilder.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, configv1.TLSProfileOldType, testBuilder.Object.Spec.TLSSecurityProfile.Type)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		With(testhelper.NewUpdateTestConfig(commonConfig)).
+		Run(t)
 }
 
 func TestAPIServerWithTLSAdherence(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name     string
 		policy   configv1.TLSAdherencePolicy
 		expected configv1.TLSAdherencePolicy
+		builder  func() *APIServerBuilder
 	}{
 		{
+			name:     "sets strict policy on valid builder",
 			policy:   configv1.TLSAdherencePolicyStrictAllComponents,
 			expected: configv1.TLSAdherencePolicyStrictAllComponents,
+			builder: func() *APIServerBuilder {
+				return buildValidAPIServerBuilder(buildTestClientWithDummyAPIServer())
+			},
 		},
 		{
+			name:     "sets legacy policy on valid builder",
 			policy:   configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly,
 			expected: configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly,
+			builder: func() *APIServerBuilder {
+				return buildValidAPIServerBuilder(buildTestClientWithDummyAPIServer())
+			},
+		},
+		{
+			name:   "invalid builder short circuits",
+			policy: configv1.TLSAdherencePolicyStrictAllComponents,
+			builder: func() *APIServerBuilder {
+				return buildInvalidAPIServerBuilder(newAPIServerTestClient())
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := newAPIServerBuilder(buildTestClientWithDummyAPIServer())
-		result := testBuilder.WithTLSAdherence(testCase.policy)
+		testCase := testCase
 
-		assert.Equal(t, testBuilder, result)
-		assert.Equal(t, testCase.expected, result.Definition.Spec.TLSAdherence)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			testBuilder := testCase.builder()
+			require.NotNil(t, testBuilder)
+
+			result := testBuilder.WithTLSAdherence(testCase.policy)
+			require.Same(t, testBuilder, result)
+
+			if testCase.expected != "" {
+				require.Nil(t, result.GetError())
+				assert.Equal(t, testCase.expected, result.Definition.Spec.TLSAdherence)
+			} else {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+			}
+		})
 	}
 }
 
 func TestAPIServerWithTLSSecurityProfile(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		profile       *configv1.TLSSecurityProfile
-		expectedError string
+		name        string
+		profile     *configv1.TLSSecurityProfile
+		assertError func(error) bool
+		expectNil   bool
+		builder     func() *APIServerBuilder
 	}{
 		{
+			name: "sets profile on valid builder",
 			profile: &configv1.TLSSecurityProfile{
 				Type: configv1.TLSProfileIntermediateType,
 			},
-			expectedError: "",
+			assertError: func(err error) bool { return err == nil },
+			builder: func() *APIServerBuilder {
+				return buildValidAPIServerBuilder(buildTestClientWithDummyAPIServer())
+			},
 		},
 		{
-			profile:       nil,
-			expectedError: "apiserver TLS security profile cannot be nil",
+			name:    "nil profile sets builder error",
+			profile: nil,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "apiserver TLS security profile cannot be nil"
+			},
+			expectNil: true,
+			builder: func() *APIServerBuilder {
+				return buildValidAPIServerBuilder(buildTestClientWithDummyAPIServer())
+			},
+		},
+		{
+			name: "invalid builder short circuits",
+			profile: &configv1.TLSSecurityProfile{
+				Type: configv1.TLSProfileIntermediateType,
+			},
+			assertError: commonerrors.IsBuilderNameEmpty,
+			expectNil:   true,
+			builder: func() *APIServerBuilder {
+				return buildInvalidAPIServerBuilder(newAPIServerTestClient())
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := newAPIServerBuilder(buildTestClientWithDummyAPIServer())
-		result := testBuilder.WithTLSSecurityProfile(testCase.profile)
+		testCase := testCase
 
-		assert.Equal(t, testBuilder, result)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.profile, result.Definition.Spec.TLSSecurityProfile)
-		} else {
-			assert.Equal(t, testCase.expectedError, result.errorMsg)
-		}
+			testBuilder := testCase.builder()
+			require.NotNil(t, testBuilder)
+
+			result := testBuilder.WithTLSSecurityProfile(testCase.profile)
+			require.Same(t, testBuilder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if testCase.expectNil {
+				assert.Nil(t, result.Definition.Spec.TLSSecurityProfile)
+			} else {
+				assert.Equal(t, testCase.profile, result.Definition.Spec.TLSSecurityProfile)
+			}
+		})
 	}
 }
 
-func TestAPIServerBuilderValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		builderErrMsg string
-		expectedError string
-	}{
-		{
-			builderNil:    true,
-			expectedError: "error: received nil apiservers.config.openshift.io builder",
-		},
-		{
-			definitionNil: true,
-			expectedError: "can not redefine the undefined apiservers.config.openshift.io",
-		},
-		{
-			apiClientNil:  true,
-			expectedError: "apiservers.config.openshift.io builder cannot have nil apiClient",
-		},
-		{
-			expectedError: "",
-		},
-		{
-			builderErrMsg: "test error",
-			expectedError: "test error",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := newAPIServerBuilder(clients.GetTestClients(clients.TestClientParams{
-			SchemeAttachers: apiServerTestSchemes,
-		}))
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		if testCase.builderErrMsg != "" {
-			testBuilder.errorMsg = testCase.builderErrMsg
-		}
-
-		valid, err := testBuilder.validate()
-
-		if testCase.expectedError != "" {
-			assert.False(t, valid)
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.True(t, valid)
-			assert.Nil(t, err)
-		}
-	}
+func newAPIServerTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{configv1.Install},
+	})
 }
 
-func buildDummyAPIServer() *configv1.APIServer {
-	return &configv1.APIServer{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: apiServerName,
-		},
-	}
+func buildValidAPIServerBuilder(apiClient *clients.Settings) *APIServerBuilder {
+	return common.NewClusterScopedBuilder[configv1.APIServer, APIServerBuilder](
+		apiClient, configv1.Install, apiServerName)
+}
+
+func buildInvalidAPIServerBuilder(apiClient *clients.Settings) *APIServerBuilder {
+	return common.NewClusterScopedBuilder[configv1.APIServer, APIServerBuilder](
+		apiClient, configv1.Install, "")
 }
 
 func buildTestClientWithDummyAPIServer() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  []runtime.Object{buildDummyAPIServer()},
-		SchemeAttachers: apiServerTestSchemes,
+		K8sMockObjects: []runtime.Object{
+			&configv1.APIServer{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: apiServerName,
+				},
+			},
+		},
+		SchemeAttachers: []clients.SchemeAttacher{configv1.Install},
 	})
-}
-
-func newAPIServerBuilder(apiClient *clients.Settings) *APIServerBuilder {
-	return &APIServerBuilder{
-		apiClient:  apiClient.Client,
-		Definition: buildDummyAPIServer(),
-	}
 }
