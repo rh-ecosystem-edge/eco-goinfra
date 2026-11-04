@@ -63,6 +63,10 @@ const (
 	ReasonDrainPending   = "DrainPending"
 	ReasonDrainFailed    = "DrainFailed"
 
+	// Reasons for policy
+	ReasonPolicyReady   = "PolicyReady"
+	ReasonPolicyIgnored = "PolicyIgnored"
+
 	// Reasons for pool
 	ReasonPoolConfigReady           = "PoolConfigReady"
 	ReasonPoolConfigSyncFailed      = "PoolConfigSyncFailed"
@@ -70,7 +74,23 @@ const (
 	ReasonMachineConfigPoolNotFound = "MachineConfigPoolNotFound"
 	ReasonMachineConfigPoolUpdating = "MachineConfigPoolUpdating"
 	ReasonMachineConfigPoolDegraded = "MachineConfigPoolDegraded"
+
+	// Reasons for node
+	ReasonNoMatchingNodes      = "NoMatchingNodes"
+	ReasonNoMatchingInterfaces = "NoMatchingInterfaces"
+	ReasonNodeSyncFailed       = "NodeSyncFailed"
+
+	ReasonStatusUnknown = "StatusUnknown"
 )
+
+// AggregateReasonPriority orders readiness blockers from highest to lowest priority.
+var AggregateReasonPriority = []string{
+	ReasonPoolConflict,
+	ReasonNoMatchingInterfaces,
+	ReasonNodeSyncFailed,
+	ReasonWaitingForDrain,
+	ReasonApplyingConfiguration,
+}
 
 // ConditionStatus defines the common observed state for SR-IOV operator CRDs
 type ConditionStatus struct {
