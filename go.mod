@@ -9,10 +9,10 @@ require (
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
 	github.com/blang/semver/v4 v4.0.0
 	github.com/containernetworking/cni v1.3.0
-	github.com/go-logr/logr v1.4.3
+	github.com/go-logr/logr v1.4.4
 	github.com/go-openapi/errors v0.22.8
 	github.com/go-openapi/strfmt v0.26.4
-	github.com/go-openapi/swag v0.27.0
+	github.com/go-openapi/swag v0.27.1
 	github.com/go-openapi/validate v0.26.0
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
@@ -22,7 +22,7 @@ require (
 	github.com/hashicorp/vault/api/auth/kubernetes v0.12.0
 	github.com/k8snetworkplumbingwg/multi-networkpolicy v1.0.1
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.7
-	github.com/k8snetworkplumbingwg/sriov-network-operator v1.6.0
+	github.com/k8snetworkplumbingwg/sriov-network-operator v1.6.1-0.20261103162833-bdfb5a610920
 	github.com/kedacore/keda-olm-operator v0.0.0-20260618141108-6814218d455e // aligned with k8s v0.35
 	github.com/kedacore/keda/v2 v2.19.0 // aligned with k8s v0.35
 	github.com/kelseyhightower/envconfig v1.4.0
@@ -36,8 +36,8 @@ require (
 	github.com/openshift-kni/lifecycle-agent v0.0.0-20260707161814-ec769a366476 // release-4.22
 	github.com/openshift-kni/numaresources-operator v0.4.18-0.2024100201.0.20260707092512-254b162fcd0f // release-4.22
 	github.com/openshift-kni/oran-o2ims v0.0.0-20260707122918-22ed0a55833b // release-4.22
-	github.com/openshift/api v0.0.0-20260521125114-09730f85d883 // release-4.22
-	github.com/openshift/client-go v0.0.0-20260330134249-7e1499aaacd7 // release-4.22
+	github.com/openshift/api v0.0.0-20260610192510-1b2a074e0bd6 // release-4.22
+	github.com/openshift/client-go v0.0.0-20260512113608-deb4dc54551a // release-4.22
 	github.com/openshift/cluster-logging-operator/api/observability v0.0.0-20260623121619-2db215f31af4
 	github.com/openshift/cluster-nfd-operator v0.0.0-20260629131115-e53505ffcb61 // release-4.22
 	github.com/openshift/cluster-node-tuning-operator v0.0.0-20260209053755-f5fe4460e852 // release-4.22, prior to controller-runtime v0.23
@@ -46,7 +46,7 @@ require (
 	github.com/openshift/local-storage-operator v0.0.0-20260630133617-4d174e9c9eff // release-4.22
 	github.com/ovn-kubernetes/ovn-kubernetes/go-controller v0.0.0-20260707145430-b93b6a72bc15
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.91.0 // aligned with k8s v0.35
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.93.0 // aligned with k8s v0.35
 	github.com/red-hat-storage/odf-operator v0.0.0-20260226164309-08c71191d483 // release-4.21, api/v1alpha1 was deprecated in 4.19 and removed in 4.22
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stmcginnis/gofish v0.20.0 // v0.21.0 contains many breaking changes. Should be upgraded separately.
@@ -57,12 +57,12 @@ require (
 	gopkg.in/k8snetworkplumbingwg/multus-cni.v4 v4.3.0
 	gopkg.in/yaml.v2 v2.4.0
 	gorm.io/gorm v1.31.2
-	k8s.io/api v0.35.6
-	k8s.io/apiextensions-apiserver v0.35.6
-	k8s.io/apimachinery v0.35.6
+	k8s.io/api v0.37.1
+	k8s.io/apiextensions-apiserver v0.37.1
+	k8s.io/apimachinery v0.37.1
 	k8s.io/client-go v12.0.0+incompatible
 	k8s.io/klog/v2 v2.140.0
-	k8s.io/kubectl v0.35.6
+	k8s.io/kubectl v0.37.1
 	k8s.io/kubelet v0.35.6
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3
 	maistra.io/api v0.0.0-20240319144440-ffa91c765143
@@ -70,7 +70,7 @@ require (
 	open-cluster-management.io/governance-policy-propagator v0.18.1-0.20260302212915-815d063a291a // prior to controller-runtime v0.23
 	open-cluster-management.io/multicloud-operators-subscription v0.16.0
 	sigs.k8s.io/container-object-storage-interface-api v0.1.0
-	sigs.k8s.io/controller-runtime v0.23.3
+	sigs.k8s.io/controller-runtime v0.25.1
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -105,21 +105,21 @@ require (
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-openapi/analysis v0.25.3 // indirect
-	github.com/go-openapi/jsonpointer v0.24.0 // indirect
-	github.com/go-openapi/jsonreference v0.21.6 // indirect
+	github.com/go-openapi/jsonpointer v1.0.0 // indirect
+	github.com/go-openapi/jsonreference v1.0.0 // indirect
 	github.com/go-openapi/loads v0.24.0 // indirect
 	github.com/go-openapi/spec v0.22.6 // indirect
-	github.com/go-openapi/swag/cmdutils v0.27.0 // indirect
-	github.com/go-openapi/swag/conv v0.27.0 // indirect
-	github.com/go-openapi/swag/fileutils v0.27.0 // indirect
+	github.com/go-openapi/swag/cmdutils v0.27.1 // indirect
+	github.com/go-openapi/swag/conv v0.27.1 // indirect
+	github.com/go-openapi/swag/fileutils v0.27.1 // indirect
 	github.com/go-openapi/swag/jsonname v0.27.0 // indirect
-	github.com/go-openapi/swag/jsonutils v0.27.0 // indirect
-	github.com/go-openapi/swag/loading v0.27.0 // indirect
-	github.com/go-openapi/swag/mangling v0.27.0 // indirect
-	github.com/go-openapi/swag/netutils v0.27.0 // indirect
-	github.com/go-openapi/swag/stringutils v0.27.0 // indirect
-	github.com/go-openapi/swag/typeutils v0.27.0 // indirect
-	github.com/go-openapi/swag/yamlutils v0.27.0 // indirect
+	github.com/go-openapi/swag/jsonutils v0.27.1 // indirect
+	github.com/go-openapi/swag/loading v0.27.1 // indirect
+	github.com/go-openapi/swag/mangling v0.27.1 // indirect
+	github.com/go-openapi/swag/netutils v0.27.1 // indirect
+	github.com/go-openapi/swag/stringutils v0.27.1 // indirect
+	github.com/go-openapi/swag/typeutils v0.27.1 // indirect
+	github.com/go-openapi/swag/yamlutils v0.27.1 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
@@ -163,10 +163,10 @@ require (
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_golang v1.23.2 // indirect
+	github.com/prometheus/client_golang v1.24.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v1.20.99 // indirect
-	github.com/prometheus/procfs v0.20.1 // indirect
+	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/r3labs/diff/v3 v3.0.2 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
@@ -206,9 +206,9 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiserver v0.35.6 // indirect
-	k8s.io/cli-runtime v0.35.6 // indirect
-	k8s.io/component-base v0.35.6 // indirect
+	k8s.io/apiserver v0.37.1 // indirect
+	k8s.io/cli-runtime v0.37.1 // indirect
+	k8s.io/component-base v0.37.1 // indirect
 	k8s.io/klog v1.0.0 // indirect
 	k8s.io/kube-openapi v0.35.1 // indirect
 	knative.dev/pkg v0.0.0-20260120122510-4a022ed9999a // indirect
@@ -216,16 +216,49 @@ require (
 	sigs.k8s.io/kustomize/api v0.21.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.21.1 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
-	sigs.k8s.io/structured-merge-diff/v6 v6.4.1 // indirect
+	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
 
 replace (
+	// Keep the rest of eco-goinfra on the k8s 0.35 / 4.22 stack. The operator module
+	// requires 0.37; these replaces stop that from leaking into vendor.
+	github.com/go-logr/logr => github.com/go-logr/logr v1.4.3
+	github.com/go-openapi/jsonpointer => github.com/go-openapi/jsonpointer v0.24.0
+	github.com/go-openapi/jsonreference => github.com/go-openapi/jsonreference v0.21.6
+	github.com/go-openapi/swag => github.com/go-openapi/swag v0.27.0
+	github.com/go-openapi/swag/cmdutils => github.com/go-openapi/swag/cmdutils v0.27.0
+	github.com/go-openapi/swag/conv => github.com/go-openapi/swag/conv v0.27.0
+	github.com/go-openapi/swag/fileutils => github.com/go-openapi/swag/fileutils v0.27.0
+	github.com/go-openapi/swag/jsonname => github.com/go-openapi/swag/jsonname v0.27.0
+	github.com/go-openapi/swag/jsonutils => github.com/go-openapi/swag/jsonutils v0.27.0
+	github.com/go-openapi/swag/loading => github.com/go-openapi/swag/loading v0.27.0
+	github.com/go-openapi/swag/mangling => github.com/go-openapi/swag/mangling v0.27.0
+	github.com/go-openapi/swag/netutils => github.com/go-openapi/swag/netutils v0.27.0
+	github.com/go-openapi/swag/stringutils => github.com/go-openapi/swag/stringutils v0.27.0
+	github.com/go-openapi/swag/typeutils => github.com/go-openapi/swag/typeutils v0.27.0
+	github.com/go-openapi/swag/yamlutils => github.com/go-openapi/swag/yamlutils v0.27.0
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
-	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20261001085738-abb119c9b63c // main (NodeState conditions)
+	// master @ #1161 PoolConfig conditions. Switch back to openshift/sriov-network-operator
+	// when downstream main/release-5.1 includes that API (OpenShift still at 0bddefab / 2026-10-28).
+	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/k8snetworkplumbingwg/sriov-network-operator v1.6.1-0.20261103162833-bdfb5a610920
+	github.com/openshift/api => github.com/openshift/api v0.0.0-20260521125114-09730f85d883
+	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20260330134249-7e1499aaacd7
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring => github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.91.0
+	github.com/prometheus/client_golang => github.com/prometheus/client_golang v1.23.2
+	github.com/prometheus/procfs => github.com/prometheus/procfs v0.20.1
+	k8s.io/api => k8s.io/api v0.35.6
+	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.35.6
+	k8s.io/apimachinery => k8s.io/apimachinery v0.35.6
+	k8s.io/apiserver => k8s.io/apiserver v0.35.6
+	k8s.io/cli-runtime => k8s.io/cli-runtime v0.35.6
 	k8s.io/client-go => k8s.io/client-go v0.35.6
+	k8s.io/component-base => k8s.io/component-base v0.35.6
 	// The cluster-node-tuning-operator release-4.22 uses version k8s.io/kube-openapi v0.35.1, which does not exist.
 	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20260127142750-a19766b6e2d4
+	k8s.io/kubectl => k8s.io/kubectl v0.35.6
+	k8s.io/kubelet => k8s.io/kubelet v0.35.6
 	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.22.5
+	sigs.k8s.io/structured-merge-diff/v6 => sigs.k8s.io/structured-merge-diff/v6 v6.4.1
 )
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
