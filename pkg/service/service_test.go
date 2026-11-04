@@ -1,702 +1,437 @@
 package service
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+const invalidBuilderShortCirc = "invalid builder short circuits"
+
 var (
+	serviceGVK              = corev1.SchemeGroupVersion.WithKind("Service")
 	defaultServiceName      = "test-service-name"
 	defaultServiceNamespace = "test-service-namespace"
 	defaultServiceSelector  = map[string]string{"testLabel": "testLabelValue"}
 	defaultServicePort      = corev1.ServicePort{
 		Name:     "http",
-		Protocol: "TCP",
+		Protocol: corev1.ProtocolTCP,
 		Port:     80,
 		TargetPort: intstr.IntOrString{
 			Type:   intstr.Int,
 			IntVal: int32(8080),
 		},
 	}
-	defaultServiceAnnotation = map[string]string{"service-test/annotation": "true"}
 )
 
-func TestPullService(t *testing.T) {
-	generateServiceObject := func(name, namespace string) *corev1.Service {
-		return &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: corev1.ServiceSpec{
-				Selector: defaultServiceSelector,
-				Ports:    []corev1.ServicePort{defaultServicePort},
-			},
-		}
-	}
+func TestNewBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedBuilderTestConfig[corev1.Service, Builder](
+		func(apiClient *clients.Settings, name, nsname string) *Builder {
+			return NewBuilder(apiClient, name, nsname, defaultServiceSelector, defaultServicePort)
+		},
+		corev1.AddToScheme,
+		serviceGVK,
+	).ExecuteTests(t)
+}
+
+func TestNewBuilderSetsSpec(t *testing.T) {
+	t.Parallel()
+
+	builder := buildValidServiceBuilder()
+	require.NoError(t, builder.GetError())
+	assert.Equal(t, defaultServiceSelector, builder.Definition.Spec.Selector)
+	assert.Equal(t, []corev1.ServicePort{defaultServicePort}, builder.Definition.Spec.Ports)
+}
+
+func TestPull(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig[corev1.Service, Builder](Pull, corev1.AddToScheme, serviceGVK).
+		ExecuteTests(t)
+}
+
+func TestBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonConfig := newServiceCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		With(testhelper.NewCreateTestConfig(commonConfig)).
+		With(testhelper.NewDeleterTestConfig(commonConfig)).
+		With(testhelper.NewUpdateTestConfig(commonConfig)).
+		Run(t)
+}
+
+func TestWithOptions(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewWithOptionsTestConfig(newServiceCommonTestConfig()).ExecuteTests(t)
+}
+
+func TestWithNodePort(t *testing.T) {
+	t.Parallel()
 
 	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
+		name        string
+		builder     func() *Builder
+		assertError func(error) bool
 	}{
 		{
-			name:                defaultServiceName,
-			namespace:           defaultServiceNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
+			name:        "sets NodePort type and port",
+			builder:     buildValidServiceBuilder,
+			assertError: func(err error) bool { return err == nil },
 		},
 		{
-			name:                "",
-			namespace:           defaultServiceNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("service 'name' cannot be empty"),
-			client:              true,
+			name: "no ports sets builder error",
+			builder: func() *Builder {
+				builder := buildValidServiceBuilder()
+				builder.Definition.Spec.Ports = nil
+
+				return builder
+			},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "service does not have the available ports"
+			},
 		},
 		{
-			name:                defaultServiceName,
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("service 'namespace' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "servicetesttest",
-			namespace:           defaultServiceNamespace,
-			addToRuntimeObjects: false,
-			expectedError: fmt.Errorf("service object servicetesttest does not exist " +
-				"in namespace test-service-namespace"),
-			client: true,
-		},
-		{
-			name:                "servicetesttest",
-			namespace:           defaultServiceNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("service 'apiClient' cannot be empty"),
-			client:              false,
+			name:        invalidBuilderShortCirc,
+			builder:     buildInvalidServiceBuilder,
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
+		testCase := testCase
 
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testService := generateServiceObject(testCase.name, testCase.namespace)
+			builder := testCase.builder()
+			result := builder.WithNodePort()
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testService)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
-
-		builderResult, err := Pull(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testService.Name, builderResult.Object.Name)
-			assert.Equal(t, testService.Namespace, builderResult.Object.Namespace)
-			assert.Nil(t, err)
-		}
+			if result.GetError() == nil {
+				assert.Equal(t, corev1.ServiceTypeNodePort, result.Definition.Spec.Type)
+				assert.Equal(t, defaultServicePort.Port, result.Definition.Spec.Ports[0].NodePort)
+			}
+		})
 	}
 }
 
-func TestNewServiceBuilder(t *testing.T) {
+//nolint:staticcheck // Removing deprecated types would break consumers of eco-goinfra
+func TestWithExternalTrafficPolicy(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		builder     func() *Builder
+		policyType  corev1.ServiceExternalTrafficPolicyType
+		assertError func(error) bool
+	}{
+		{
+			name:        "local policy",
+			builder:     buildValidServiceBuilder,
+			policyType:  corev1.ServiceExternalTrafficPolicyTypeLocal,
+			assertError: func(err error) bool { return err == nil },
+		},
+		{
+			name:        "cluster policy",
+			builder:     buildValidServiceBuilder,
+			policyType:  corev1.ServiceExternalTrafficPolicyTypeCluster,
+			assertError: func(err error) bool { return err == nil },
+		},
+		{
+			name:       "empty policy sets builder error",
+			builder:    buildValidServiceBuilder,
+			policyType: "",
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "ExternalTrafficPolicy can not be empty"
+			},
+		},
+		{
+			name:        invalidBuilderShortCirc,
+			builder:     buildInvalidServiceBuilder,
+			policyType:  corev1.ServiceExternalTrafficPolicyTypeLocal,
+			assertError: commonerrors.IsBuilderNameEmpty,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := testCase.builder()
+			result := builder.WithExternalTrafficPolicy(testCase.policyType)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, corev1.ServiceTypeLoadBalancer, result.Definition.Spec.Type)
+				assert.Equal(t, testCase.policyType, result.Definition.Spec.ExternalTrafficPolicy)
+			} else {
+				assert.Empty(t, result.Definition.Spec.ExternalTrafficPolicy)
+			}
+		})
+	}
+}
+
+func TestWithSelector(t *testing.T) {
+	t.Parallel()
+
+	testMapSetter(t, "selector", "can not apply a selector with an empty key", "selector can not be empty",
+		(*Builder).WithSelector,
+		func(builder *Builder) map[string]string { return builder.Definition.Spec.Selector },
+		defaultServiceSelector)
+}
+
+func TestWithLabels(t *testing.T) {
+	t.Parallel()
+
+	testMapSetter(t, "labels", "can not apply a labels with an empty key", "labels can not be empty",
+		(*Builder).WithLabels,
+		func(builder *Builder) map[string]string { return builder.Definition.Labels },
+		nil)
+}
+
+func TestWithAnnotation(t *testing.T) {
+	t.Parallel()
+
+	testMapSetter(t, "annotation", "can not apply a annotation with an empty key", errEmptyAnnotation,
+		(*Builder).WithAnnotation,
+		func(builder *Builder) map[string]string { return builder.Definition.Annotations },
+		nil)
+}
+
+//nolint:staticcheck // Removing deprecated types would break consumers of eco-goinfra
+func TestWithIPFamily(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
-		namespace     string
-		selectors     map[string]string
-		servicePort   corev1.ServicePort
-		expectedError string
-		apiClient     bool
+		builder       func() *Builder
+		ipFamily      []corev1.IPFamily
+		ipStackPolicy corev1.IPFamilyPolicyType
+		assertError   func(error) bool
 	}{
 		{
-			name:          defaultServiceName,
-			namespace:     defaultServiceNamespace,
-			selectors:     defaultServiceSelector,
-			servicePort:   defaultServicePort,
-			expectedError: "",
-			apiClient:     true,
+			name:          "single stack IPv4",
+			builder:       buildValidServiceBuilder,
+			ipFamily:      []corev1.IPFamily{corev1.IPv4Protocol},
+			ipStackPolicy: corev1.IPFamilyPolicySingleStack,
+			assertError:   func(err error) bool { return err == nil },
 		},
 		{
-			name:          "",
-			namespace:     defaultServiceNamespace,
-			selectors:     defaultServiceSelector,
-			servicePort:   defaultServicePort,
-			expectedError: errEmptyName,
-			apiClient:     true,
+			name:          "require dual stack",
+			builder:       buildValidServiceBuilder,
+			ipFamily:      []corev1.IPFamily{corev1.IPv6Protocol, corev1.IPv4Protocol},
+			ipStackPolicy: corev1.IPFamilyPolicyRequireDualStack,
+			assertError:   func(err error) bool { return err == nil },
 		},
 		{
-			name:          defaultServiceName,
-			namespace:     "",
-			selectors:     defaultServiceSelector,
-			servicePort:   defaultServicePort,
-			expectedError: "Service 'nsname' cannot be empty",
-			apiClient:     true,
+			name:          "nil ipFamily sets builder error",
+			builder:       buildValidServiceBuilder,
+			ipFamily:      nil,
+			ipStackPolicy: corev1.IPFamilyPolicySingleStack,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "failed to set empty ipFamily"
+			},
 		},
 		{
-			name:          defaultServiceName,
-			namespace:     defaultServiceNamespace,
-			selectors:     map[string]string{},
-			servicePort:   defaultServicePort,
-			expectedError: "",
-			apiClient:     true,
+			name:          "empty ipStackPolicy sets builder error",
+			builder:       buildValidServiceBuilder,
+			ipFamily:      []corev1.IPFamily{corev1.IPv4Protocol},
+			ipStackPolicy: "",
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == failedToSetEmptyIpstackpolicy
+			},
 		},
 		{
-			name:          defaultServiceName,
-			namespace:     defaultServiceNamespace,
-			selectors:     defaultServiceSelector,
-			servicePort:   corev1.ServicePort{},
-			expectedError: "",
-			apiClient:     true,
+			name:          invalidBuilderShortCirc,
+			builder:       buildInvalidServiceBuilder,
+			ipFamily:      []corev1.IPFamily{corev1.IPv4Protocol},
+			ipStackPolicy: corev1.IPFamilyPolicySingleStack,
+			assertError:   commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		testCase := testCase
 
-		if testCase.apiClient {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testReplicaSetBuilder := NewBuilder(testSettings,
-			testCase.name,
-			testCase.namespace,
-			testCase.selectors,
-			testCase.servicePort)
+			builder := testCase.builder()
+			result := builder.WithIPFamily(testCase.ipFamily, testCase.ipStackPolicy)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
 
-		if testCase.expectedError == "" {
-			if testCase.apiClient {
-				assert.NotNil(t, testReplicaSetBuilder.Definition)
-				assert.Equal(t, testCase.name, testReplicaSetBuilder.Definition.Name)
-				assert.Equal(t, testCase.namespace, testReplicaSetBuilder.Definition.Namespace)
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.ipFamily, result.Definition.Spec.IPFamilies)
+				require.NotNil(t, result.Definition.Spec.IPFamilyPolicy)
+				assert.Equal(t, testCase.ipStackPolicy, *result.Definition.Spec.IPFamilyPolicy)
+			} else {
+				assert.Nil(t, result.Definition.Spec.IPFamilyPolicy)
 			}
-		} else {
-			assert.Equal(t, testCase.expectedError, testReplicaSetBuilder.errorMsg)
-		}
+		})
 	}
 }
 
-func TestServiceExists(t *testing.T) {
-	testCases := []struct {
-		testService    *Builder
-		expectedStatus bool
-	}{
-		{
-			testService:    buildValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testService:    buildInValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedStatus: false,
-		},
-		{
-			testService:    buildValidServiceBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-	}
+func TestDefineServicePort(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exist := testCase.testService.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
-
-func TestServiceCreate(t *testing.T) {
 	testCases := []struct {
-		testService   *Builder
+		name          string
+		port          int32
+		targetPort    int32
+		protocol      corev1.Protocol
 		expectedError string
 	}{
-		{
-			testService:   buildValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedError: "",
-		},
-		{
-			testService:   buildInValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedError: errEmptyName,
-		},
-		{
-			testService:   buildValidServiceBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "",
-		},
+		{name: "TCP", port: 80, targetPort: 8080, protocol: corev1.ProtocolTCP},
+		{name: "UDP", port: 80, targetPort: 8080, protocol: corev1.ProtocolUDP},
+		{name: "empty protocol", port: 80, targetPort: 8080, protocol: ""},
+		{name: "zero port", port: 0, targetPort: 8080, protocol: corev1.ProtocolSCTP,
+			expectedError: "invalid port number"},
+		{name: "port too large", port: 655350, targetPort: 8080, protocol: corev1.ProtocolSCTP,
+			expectedError: "invalid port number"},
+		{name: "zero target port", port: 80, targetPort: 0, protocol: corev1.ProtocolSCTP,
+			expectedError: "invalid target port number"},
+		{name: "target port too large", port: 80, targetPort: 655350, protocol: corev1.ProtocolSCTP,
+			expectedError: "invalid target port number"},
 	}
 
 	for _, testCase := range testCases {
-		testServiceBuilder, err := testCase.testService.Create()
+		testCase := testCase
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testServiceBuilder.Definition.Name, testServiceBuilder.Object.Name)
-			assert.Equal(t, testServiceBuilder.Definition.Namespace, testServiceBuilder.Object.Namespace)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
-}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestServiceDelete(t *testing.T) {
-	testCases := []struct {
-		testService   *Builder
-		expectedError error
-	}{
-		{
-			testService:   buildValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testService:   buildInValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyName),
-		},
-		{
-			testService:   buildValidServiceBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
+			servicePort, err := DefineServicePort(testCase.port, testCase.targetPort, testCase.protocol)
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+				assert.Nil(t, servicePort)
 
-	for _, testCase := range testCases {
-		err := testCase.testService.Delete()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testService.Object)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestServiceUpdate(t *testing.T) {
-	testCases := []struct {
-		testService    *Builder
-		expectedError  string
-		testAnnotation map[string]string
-	}{
-		{
-			testService:    buildValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedError:  "",
-			testAnnotation: defaultServiceAnnotation,
-		},
-		{
-			testService:    buildValidServiceBuilder(buildServiceClientWithDummyObject()),
-			expectedError:  errEmptyAnnotation,
-			testAnnotation: map[string]string{},
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Nil(t, map[string]string(nil), testCase.testService.Object)
-		testCase.testService.WithAnnotation(testCase.testAnnotation)
-		_, err := testCase.testService.Update()
-
-		if testCase.expectedError != "" {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.Equal(t, testCase.testAnnotation,
-				testCase.testService.Definition.Annotations)
-		}
-	}
-}
-
-func TestServiceWithNodePort(t *testing.T) {
-	testCases := []struct {
-		expectedErrorText string
-	}{
-		{
-			expectedErrorText: "",
-		},
-		{
-			expectedErrorText: "service does not have the available ports",
-		},
-	}
-
-	for _, testCase := range testCases {
-		if testCase.expectedErrorText != "" {
-			testBuilder := buildInValidPortServiceBuilder(buildServiceClientWithDummyObject())
-
-			result := testBuilder.WithNodePort()
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+				return
 			}
-		} else {
-			testBuilder := buildValidServiceBuilder(buildServiceClientWithDummyObject())
 
-			result := testBuilder.WithNodePort()
-
-			assert.NotNil(t, result)
-			assert.Equal(t, defaultServicePort.Port, result.Definition.Spec.Ports[0].NodePort)
-		}
+			require.NoError(t, err)
+			assert.Equal(t, testCase.port, servicePort.Port)
+			assert.Equal(t, testCase.targetPort, servicePort.TargetPort.IntVal)
+			assert.Equal(t, testCase.protocol, servicePort.Protocol)
+		})
 	}
 }
 
-//nolint:staticcheck // Removing deprecated types would break consumers of eco-goinfra
-func TestServiceWithExternalTrafficPolicy(t *testing.T) {
+func TestGetGVR(t *testing.T) {
+	t.Parallel()
+
+	testGVR := GetGVR()
+	assert.Equal(t, "services", testGVR.Resource)
+	assert.Equal(t, "v1", testGVR.Version)
+	assert.Equal(t, "", testGVR.Group)
+}
+
+// testMapSetter runs the shared cases for setters that validate and assign a string map: WithSelector, WithLabels and
+// WithAnnotation. initial is the value the getter returns before the setter is applied.
+func testMapSetter(
+	t *testing.T,
+	field, emptyKeyErr, emptyMapErr string,
+	setter func(*Builder, map[string]string) *Builder,
+	getter func(*Builder) map[string]string,
+	initial map[string]string,
+) {
+	t.Helper()
+
 	testCases := []struct {
-		policyType        corev1.ServiceExternalTrafficPolicyType
-		expectedErrorText string
+		name        string
+		builder     func() *Builder
+		value       map[string]string
+		assertError func(error) bool
 	}{
 		{
-			policyType:        corev1.ServiceExternalTrafficPolicyTypeLocal,
-			expectedErrorText: "",
+			name:        "sets " + field,
+			builder:     buildValidServiceBuilder,
+			value:       map[string]string{"key1": "value1", "key2": "value2"},
+			assertError: func(err error) bool { return err == nil },
 		},
 		{
-			policyType:        corev1.ServiceExternalTrafficPolicyTypeCluster,
-			expectedErrorText: "",
+			name:        "empty value is allowed",
+			builder:     buildValidServiceBuilder,
+			value:       map[string]string{"key": ""},
+			assertError: func(err error) bool { return err == nil },
 		},
 		{
-			policyType:        "",
-			expectedErrorText: "ExternalTrafficPolicy can not be empty",
+			name:        "empty key sets builder error",
+			builder:     buildValidServiceBuilder,
+			value:       map[string]string{"": "value"},
+			assertError: func(err error) bool { return err != nil && err.Error() == emptyKeyErr },
+		},
+		{
+			name:        "empty map sets builder error",
+			builder:     buildValidServiceBuilder,
+			value:       map[string]string{},
+			assertError: func(err error) bool { return err != nil && err.Error() == emptyMapErr },
+		},
+		{
+			name:        invalidBuilderShortCirc,
+			builder:     buildInvalidServiceBuilder,
+			value:       map[string]string{"key": "value"},
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidServiceBuilder(buildServiceClientWithDummyObject())
+		testCase := testCase
 
-		result := testBuilder.WithExternalTrafficPolicy(testCase.policyType)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText != "" {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			builder := testCase.builder()
+			result := setter(builder, testCase.value)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.value, getter(result))
+			} else {
+				assert.Equal(t, initial, getter(result))
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, corev1.ServiceType("LoadBalancer"), result.Definition.Spec.Type)
-			assert.Equal(t, testCase.policyType, result.Definition.Spec.ExternalTrafficPolicy)
-		}
+		})
 	}
 }
 
-func TestServiceWithSelector(t *testing.T) {
-	testCases := []struct {
-		testSelector   map[string]string
-		expectedErrMsg string
-	}{
-		{
-			testSelector:   map[string]string{"test-selector-key": "test-selector-value"},
-			expectedErrMsg: "",
-		},
-		{
-			testSelector:   map[string]string{"test-selector-key": ""},
-			expectedErrMsg: "",
-		},
-		{
-			testSelector:   map[string]string{"": "test-selector-value"},
-			expectedErrMsg: "can not apply a selector with an empty key",
-		},
-		{
-			testSelector:   map[string]string{},
-			expectedErrMsg: "selector can not be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidServiceBuilder(buildServiceClientWithDummyObject())
-
-		testBuilder.WithSelector(testCase.testSelector)
-
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.testSelector, testBuilder.Definition.Spec.Selector)
-		}
-	}
+func buildValidServiceBuilder() *Builder {
+	return NewBuilder(
+		newServiceTestClient(), defaultServiceName, defaultServiceNamespace, defaultServiceSelector, defaultServicePort)
 }
 
-func TestServiceWithLabel(t *testing.T) {
-	testCases := []struct {
-		testLabel      map[string]string
-		expectedErrMsg string
-	}{
-		{
-			testLabel:      map[string]string{"test-label-key": "test-label-value"},
-			expectedErrMsg: "",
-		},
-		{
-			testLabel: map[string]string{"test-label1-key": "test-label1-value",
-				"test-label2-key": "test-label2-value",
-				"test-label3-key": "test-label3-value",
-			},
-			expectedErrMsg: "",
-		},
-		{
-			testLabel:      map[string]string{"test-label-key": ""},
-			expectedErrMsg: "",
-		},
-		{
-			testLabel:      map[string]string{"": "test-label-value"},
-			expectedErrMsg: "can not apply a labels with an empty key",
-		},
-		{
-			testLabel:      map[string]string{},
-			expectedErrMsg: "labels can not be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidServiceBuilder(buildServiceClientWithDummyObject())
-
-		testBuilder.WithLabels(testCase.testLabel)
-
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.testLabel, testBuilder.Definition.Labels)
-		}
-	}
+func buildInvalidServiceBuilder() *Builder {
+	return NewBuilder(newServiceTestClient(), "", defaultServiceNamespace, defaultServiceSelector, defaultServicePort)
 }
 
-func TestServiceWithAnnotation(t *testing.T) {
-	testCases := []struct {
-		testAnnotation map[string]string
-		expectedErrMsg string
-	}{
-		{
-			testAnnotation: map[string]string{"test-annotation-key": "test-annotation-value"},
-			expectedErrMsg: "",
-		},
-		{
-			testAnnotation: map[string]string{"test-annotation1-key": "test-annotation1-value",
-				"test-annotation2-key": "test-annotation2-value",
-				"test-annotation3-key": "test-annotation3-value",
-			},
-			expectedErrMsg: "",
-		},
-		{
-			testAnnotation: map[string]string{"test-annotation-key": ""},
-			expectedErrMsg: "",
-		},
-		{
-			testAnnotation: map[string]string{"": "test-annotation-value"},
-			expectedErrMsg: "can not apply a annotation with an empty key",
-		},
-		{
-			testAnnotation: map[string]string{},
-			expectedErrMsg: errEmptyAnnotation,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidServiceBuilder(buildServiceClientWithDummyObject())
-
-		testBuilder.WithAnnotation(testCase.testAnnotation)
-
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.testAnnotation, testBuilder.Definition.Annotations)
-		}
-	}
+// newServiceCommonTestConfig returns the shared testhelper configuration for service builder tests.
+func newServiceCommonTestConfig() testhelper.CommonTestConfig[corev1.Service, Builder, *corev1.Service, *Builder] {
+	return testhelper.NewCommonTestConfig[corev1.Service, Builder](
+		corev1.AddToScheme, serviceGVK, testhelper.ResourceScopeNamespaced)
 }
 
-//nolint:staticcheck // Removing deprecated types would break consumers of eco-goinfra
-func TestServiceWithIPFamily(t *testing.T) {
-	testCases := []struct {
-		testIPFamily      []corev1.IPFamily
-		testIPStackPolicy corev1.IPFamilyPolicyType
-		expectedErrorText string
-	}{
-		{
-			testIPFamily:      []corev1.IPFamily{corev1.IPv4Protocol},
-			testIPStackPolicy: corev1.IPFamilyPolicySingleStack,
-			expectedErrorText: "",
-		},
-		{
-			testIPFamily:      []corev1.IPFamily{corev1.IPv6Protocol},
-			testIPStackPolicy: corev1.IPFamilyPolicySingleStack,
-			expectedErrorText: "",
-		},
-		{
-			testIPFamily:      []corev1.IPFamily{corev1.IPv6Protocol, corev1.IPv4Protocol},
-			testIPStackPolicy: corev1.IPFamilyPolicySingleStack,
-			expectedErrorText: "",
-		},
-		{
-			testIPFamily:      []corev1.IPFamily{corev1.IPv6Protocol, corev1.IPv4Protocol},
-			testIPStackPolicy: corev1.IPFamilyPolicyPreferDualStack,
-			expectedErrorText: "",
-		},
-		{
-			testIPFamily:      []corev1.IPFamily{corev1.IPv6Protocol, corev1.IPv4Protocol},
-			testIPStackPolicy: corev1.IPFamilyPolicyRequireDualStack,
-			expectedErrorText: "",
-		},
-		{
-			testIPFamily:      []corev1.IPFamily{corev1.IPv6Protocol},
-			testIPStackPolicy: corev1.IPFamilyPolicyRequireDualStack,
-			expectedErrorText: "",
-		},
-		{
-			testIPFamily:      []corev1.IPFamily{corev1.IPv4Protocol},
-			testIPStackPolicy: corev1.IPFamilyPolicyRequireDualStack,
-			expectedErrorText: "",
-		},
-		{
-			testIPFamily:      []corev1.IPFamily{corev1.IPFamilyUnknown},
-			testIPStackPolicy: "",
-			expectedErrorText: failedToSetEmptyIpstackpolicy,
-		},
-		{
-			testIPFamily:      []corev1.IPFamily{},
-			testIPStackPolicy: "",
-			expectedErrorText: failedToSetEmptyIpstackpolicy,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidServiceBuilder(buildServiceClientWithDummyObject())
-
-		result := testBuilder.WithIPFamily(testCase.testIPFamily, testCase.testIPStackPolicy)
-
-		if testCase.expectedErrorText != "" {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testIPFamily, result.Definition.Spec.IPFamilies)
-			assert.Equal(t, &testCase.testIPStackPolicy, result.Definition.Spec.IPFamilyPolicy)
-		}
-	}
-}
-
-func TestServiceDefineServicePort(t *testing.T) {
-	testCases := []struct {
-		testPort       int32
-		testTargetPort int32
-		testProtocol   corev1.Protocol
-		expectedError  string
-	}{
-		{
-			testPort:       int32(80),
-			testTargetPort: int32(8080),
-			testProtocol:   corev1.ProtocolTCP,
-			expectedError:  "",
-		},
-		{
-			testPort:       int32(80),
-			testTargetPort: int32(8080),
-			testProtocol:   corev1.ProtocolUDP,
-			expectedError:  "",
-		},
-		{
-			testPort:       int32(80),
-			testTargetPort: int32(8080),
-			testProtocol:   corev1.ProtocolSCTP,
-			expectedError:  "",
-		},
-		{
-			testPort:       int32(0),
-			testTargetPort: int32(8080),
-			testProtocol:   corev1.ProtocolSCTP,
-			expectedError:  "invalid port number",
-		},
-		{
-			testPort:       int32(655350),
-			testTargetPort: int32(8080),
-			testProtocol:   corev1.ProtocolSCTP,
-			expectedError:  "invalid port number",
-		},
-		{
-			testPort:       int32(80),
-			testTargetPort: int32(0),
-			testProtocol:   corev1.ProtocolSCTP,
-			expectedError:  "invalid target port number",
-		},
-		{
-			testPort:       int32(80),
-			testTargetPort: int32(655350),
-			testProtocol:   corev1.ProtocolSCTP,
-			expectedError:  "invalid target port number",
-		},
-		{
-			testPort:       int32(80),
-			testTargetPort: int32(8080),
-			testProtocol:   "",
-			expectedError:  "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testServicePort, err := DefineServicePort(testCase.testPort, testCase.testTargetPort, testCase.testProtocol)
-		if testCase.expectedError != "" {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.Equal(t, testCase.testPort, testServicePort.Port)
-			assert.Equal(t, testCase.testTargetPort, testServicePort.TargetPort.IntVal)
-			assert.Equal(t, testCase.testProtocol, testServicePort.Protocol)
-			assert.Nil(t, err)
-		}
-	}
-}
-
-func buildValidServiceBuilder(apiClient *clients.Settings) *Builder {
-	serviceBuilder := NewBuilder(
-		apiClient,
-		defaultServiceName,
-		defaultServiceNamespace,
-		defaultServiceSelector,
-		defaultServicePort)
-
-	return serviceBuilder
-}
-
-func buildInValidServiceBuilder(apiClient *clients.Settings) *Builder {
-	serviceBuilder := NewBuilder(
-		apiClient,
-		"",
-		defaultServiceNamespace,
-		defaultServiceSelector,
-		corev1.ServicePort{})
-
-	return serviceBuilder
-}
-
-func buildInValidPortServiceBuilder(apiClient *clients.Settings) *Builder {
-	serviceBuilder := &Builder{
-		apiClient: apiClient.CoreV1Interface,
-		Definition: &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      defaultServiceName,
-				Namespace: defaultServiceNamespace,
-			},
-		},
-	}
-
-	return serviceBuilder
-}
-
-func buildServiceClientWithDummyObject() *clients.Settings {
+// newServiceTestClient returns a fake client configured with the Service scheme.
+func newServiceTestClient(objects ...runtime.Object) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: buildDummyService(),
-	})
-}
-
-func buildDummyService() []runtime.Object {
-	return append([]runtime.Object{}, &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultServiceName,
-			Namespace: defaultServiceNamespace,
-		},
-		Spec: corev1.ServiceSpec{
-			Selector: defaultServiceSelector,
-			Ports:    []corev1.ServicePort{defaultServicePort},
-		},
+		K8sMockObjects:  objects,
+		SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
 	})
 }
