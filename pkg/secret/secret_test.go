@@ -2,500 +2,337 @@ package secret
 
 import (
 	"fmt"
-
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+)
+
+const (
+	testDataKey             = "key"
+	testDataValue           = "value"
+	invalidBuilderShortCirc = "invalid builder short circuits"
 )
 
 var (
+	secretGVK              = corev1.SchemeGroupVersion.WithKind("Secret")
 	defaultSecretName      = "test-name"
 	defaultSecretNamespace = "test-namespace"
-	defaultSecretType      = "test-secretType"
+	defaultSecretType      = corev1.SecretType("test-secretType")
 )
 
-func TestSecretPull(t *testing.T) {
+func TestNewBuilder(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		secretName          string
-		secretNamespace     string
-		addToRuntimeObjects bool
-		client              bool
-		expectedErrorText   string
+		name        string
+		namespace   string
+		secretType  corev1.SecretType
+		nilClient   bool
+		assertError func(error) bool
 	}{
 		{
-			secretName:          defaultSecretName,
-			secretNamespace:     defaultSecretNamespace,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedErrorText:   "",
+			name:        defaultSecretName,
+			namespace:   defaultSecretNamespace,
+			secretType:  defaultSecretType,
+			assertError: func(err error) bool { return err == nil },
 		},
 		{
-			secretName:          defaultSecretName,
-			secretNamespace:     defaultSecretNamespace,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedErrorText:   "secret object test-name does not exist in namespace test-namespace",
+			name:        "",
+			namespace:   defaultSecretNamespace,
+			secretType:  defaultSecretType,
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 		{
-			secretName:          "",
-			secretNamespace:     defaultSecretNamespace,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedErrorText:   errEmptyName,
+			name:        defaultSecretName,
+			namespace:   "",
+			secretType:  defaultSecretType,
+			assertError: commonerrors.IsBuilderNamespaceEmpty,
 		},
 		{
-			secretName:          defaultSecretName,
-			secretNamespace:     "",
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedErrorText:   errEmptyNsname,
+			name:       defaultSecretName,
+			namespace:  defaultSecretNamespace,
+			secretType: "",
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "secret 'secretType' cannot be empty"
+			},
 		},
 		{
-			secretName:          defaultSecretName,
-			secretNamespace:     defaultSecretNamespace,
-			addToRuntimeObjects: false,
-			client:              false,
-			expectedErrorText:   "secret 'apiClient' cannot be empty",
+			name:        defaultSecretName,
+			namespace:   defaultSecretNamespace,
+			secretType:  defaultSecretType,
+			nilClient:   true,
+			assertError: commonerrors.IsAPIClientNil,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		testCase := testCase
 
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testCase.secretName,
-					Namespace: testCase.secretNamespace,
-				},
-			})
-		}
+			var apiClient *clients.Settings
+			if !testCase.nilClient {
+				apiClient = newSecretTestClient()
+			}
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
+			builder := NewBuilder(apiClient, testCase.name, testCase.namespace, testCase.secretType)
+			require.NotNil(t, builder)
+			require.Truef(t, testCase.assertError(builder.GetError()),
+				"unexpected error: %v", builder.GetError())
 
-		builderResult, err := Pull(testSettings, testCase.secretName, testCase.secretNamespace)
-
-		if testCase.expectedErrorText != "" {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedErrorText, err.Error())
-			assert.Nil(t, builderResult)
-		} else {
-			assert.Nil(t, err)
-			assert.NotNil(t, builderResult)
-		}
+			if builder.GetError() == nil {
+				assert.Equal(t, testCase.name, builder.Definition.Name)
+				assert.Equal(t, testCase.namespace, builder.Definition.Namespace)
+				assert.Equal(t, testCase.secretType, builder.Definition.Type)
+			}
+		})
 	}
 }
 
-func TestSecretNewBuilder(t *testing.T) {
+func TestPull(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig[corev1.Secret, Builder](Pull, corev1.AddToScheme, secretGVK).
+		ExecuteTests(t)
+}
+
+func TestBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonConfig := newSecretCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		With(testhelper.NewCreateTestConfig(commonConfig)).
+		With(testhelper.NewDeleterTestConfig(commonConfig)).
+		With(testhelper.NewUpdateTestConfig(commonConfig)).
+		Run(t)
+}
+
+func TestWithOptions(t *testing.T) {
+	t.Parallel()
+
+	builder := NewBuilder(newSecretTestClient(), defaultSecretName, defaultSecretNamespace, defaultSecretType)
+	require.NotNil(t, builder)
+
+	result := builder.WithOptions(func(b *Builder) (*Builder, error) {
+		return b, nil
+	})
+	assert.Nil(t, result.GetError())
+
+	result = builder.WithOptions(func(b *Builder) (*Builder, error) {
+		return b, fmt.Errorf("option error")
+	})
+	assert.EqualError(t, result.GetError(), "option error")
+}
+
+func TestWithData(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
-		namespace     string
-		secretType    string
-		expectedError string
+		builder       func() *Builder
+		data          map[string][]byte
+		assertError   func(error) bool
+		expectedData  map[string][]byte
+		expectDataNil bool
 	}{
 		{
-			name:          defaultSecretName,
-			namespace:     defaultSecretNamespace,
-			secretType:    defaultSecretType,
-			expectedError: "",
-		},
-		{
-			name:          "",
-			namespace:     defaultSecretNamespace,
-			secretType:    defaultSecretType,
-			expectedError: errEmptyName,
-		},
-		{
-			name:          defaultSecretName,
-			namespace:     "",
-			secretType:    defaultSecretType,
-			expectedError: errEmptyNsname,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		testSecretBuilder := NewBuilder(
-			testSettings,
-			testCase.name,
-			testCase.namespace,
-			corev1.SecretType(testCase.secretType),
-		)
-		assert.Equal(t, testCase.expectedError, testSecretBuilder.errorMsg)
-		assert.NotNil(t, testSecretBuilder.Definition)
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testSecretBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testSecretBuilder.Definition.Namespace)
-		}
-	}
-}
-
-func TestSecretCreate(t *testing.T) {
-	testCases := []struct {
-		testSecret    *Builder
-		expectedError error
-	}{
-		{
-			testSecret:    buildValidSecretBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testSecret:    buildInvalidSecretBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyName),
-		},
-		{
-			testSecret:    buildValidSecretBuilder(nil), // Pass nil client to simulate no client
-			expectedError: fmt.Errorf("error: received nil Secret builder"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		Builder, err := testCase.testSecret.Create()
-
-		if testCase.expectedError != nil {
-			assert.NotNil(t, err)
-			assert.EqualError(t, err, testCase.expectedError.Error())
-		} else {
-			assert.NoError(t, err)
-			assert.NotNil(t, Builder)
-			assert.Equal(t, Builder.Definition, Builder.Object)
-		}
-	}
-}
-
-func TestSecretDelete(t *testing.T) {
-	testCases := []struct {
-		secretExistsAlready bool
-		name                string
-		namespace           string
-	}{
-		{
-			secretExistsAlready: true,
-			name:                defaultSecretName,
-			namespace:           defaultSecretNamespace,
-		},
-		{
-			secretExistsAlready: false,
-			name:                defaultSecretName,
-			namespace:           defaultSecretNamespace,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.secretExistsAlready {
-			runtimeObjects = append(runtimeObjects, &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testCase.name,
-					Namespace: testCase.namespace,
-				},
-			})
-		}
-
-		testBuilder, client := buildTestBuilderWithFakeObjects(runtimeObjects, testCase.name, testCase.namespace)
-
-		err := testBuilder.Delete()
-		assert.Nil(t, err)
-
-		// Assert that the object actually does not exist
-		_, err = Pull(client, testCase.name, testCase.namespace)
-		assert.NotNil(t, err)
-	}
-}
-
-func TestSecretExists(t *testing.T) {
-	testCases := []struct {
-		secretExistsAlready bool
-		name                string
-		namespace           string
-	}{
-		{
-			secretExistsAlready: true,
-			name:                defaultSecretName,
-			namespace:           defaultSecretNamespace,
-		},
-		{
-			secretExistsAlready: false,
-			name:                defaultSecretName,
-			namespace:           defaultSecretNamespace,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.secretExistsAlready {
-			runtimeObjects = append(runtimeObjects, &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      testCase.name,
-					Namespace: testCase.namespace,
-				},
-			})
-		}
-
-		testBuilder, _ := buildTestBuilderWithFakeObjects(runtimeObjects, testCase.name, testCase.namespace)
-
-		assert.Equal(t, testCase.secretExistsAlready, testBuilder.Exists())
-	}
-}
-func TestSecretWithOptions(t *testing.T) {
-	testSettings := buildTestClientWithDummyObject()
-	testBuilder := buildValidSecretBuilder(testSettings).WithOptions(
-		func(builder *Builder) (*Builder, error) {
-			return builder, nil
-		})
-
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidSecretBuilder(testSettings).WithOptions(
-		func(builder *Builder) (*Builder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
-}
-
-func TestSecretWithData(t *testing.T) {
-	testCases := []struct {
-		data        map[string][]byte
-		expectedErr string
-	}{
-		{
-			data: map[string][]byte{
-				"key": []byte("value"),
+			name: "sets data on valid builder",
+			builder: func() *Builder {
+				return NewBuilder(newSecretTestClient(), defaultSecretName, defaultSecretNamespace, defaultSecretType)
 			},
-			expectedErr: "",
+			data:         map[string][]byte{testDataKey: []byte(testDataValue)},
+			assertError:  func(err error) bool { return err == nil },
+			expectedData: map[string][]byte{testDataKey: []byte(testDataValue)},
 		},
 		{
-			data:        map[string][]byte{},
-			expectedErr: "'data' cannot be empty",
+			name: "empty data sets builder error",
+			builder: func() *Builder {
+				return NewBuilder(newSecretTestClient(), defaultSecretName, defaultSecretNamespace, defaultSecretType)
+			},
+			data:          map[string][]byte{},
+			assertError:   func(err error) bool { return err != nil && err.Error() == "'data' cannot be empty" },
+			expectDataNil: true,
+		},
+		{
+			name: invalidBuilderShortCirc,
+			builder: func() *Builder {
+				return NewBuilder(newSecretTestClient(), "", defaultSecretNamespace, defaultSecretType)
+			},
+			data:          map[string][]byte{testDataKey: []byte(testDataValue)},
+			assertError:   commonerrors.IsBuilderNameEmpty,
+			expectDataNil: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		testCase := testCase
 
-		testBuilder, _ := buildTestBuilderWithFakeObjects(runtimeObjects, defaultSecretName, defaultSecretNamespace)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithData(testCase.data)
-		assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			builder := testCase.builder()
+			require.NotNil(t, builder)
 
-		if testCase.expectedErr == "" {
-			for key, value := range testCase.data {
-				assert.Equal(t, value, testBuilder.Definition.Data[key])
+			result := builder.WithData(testCase.data)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if testCase.expectDataNil {
+				assert.Nil(t, result.Definition.Data)
+			} else {
+				assert.Equal(t, testCase.expectedData, result.Definition.Data)
 			}
-		}
+		})
 	}
 }
 
-func TestSecretWithAnnotations(t *testing.T) {
+func TestWithStringData(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testAnnotations   map[string]string
-		expectedErrorText string
+		name               string
+		builder            func() *Builder
+		data               map[string]string
+		assertError        func(error) bool
+		expectedStringData map[string]string
+		expectDataNil      bool
 	}{
 		{
-			testAnnotations:   map[string]string{"openshift.io/internal-registry-auth-token.binding": "bound"},
-			expectedErrorText: "",
-		},
-		{
-			testAnnotations:   map[string]string{"openshift.io/internal-registry-auth-token.service-account": "default"},
-			expectedErrorText: "",
-		},
-		{
-			testAnnotations:   map[string]string{},
-			expectedErrorText: "'annotations' argument cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidSecretBuilder(buildTestClientWithDummyObject())
-
-		testBuilder.WithAnnotations(testCase.testAnnotations)
-
-		assert.Equal(t, testCase.expectedErrorText, testBuilder.errorMsg)
-
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, testCase.testAnnotations, testBuilder.Definition.Annotations)
-		}
-	}
-}
-
-func TestSecretUpdate(t *testing.T) {
-	generateTestSecret := func() *corev1.Secret {
-		return &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      defaultSecretName,
-				Namespace: defaultSecretNamespace,
+			name: "sets stringData on valid builder",
+			builder: func() *Builder {
+				return NewBuilder(newSecretTestClient(), defaultSecretName, defaultSecretNamespace, defaultSecretType)
 			},
-		}
-	}
-
-	testCases := []struct {
-		secretExistsAlready bool
-		Name                string
-		Namespace           string
-	}{
-		{
-			secretExistsAlready: false,
-			Name:                "nameBeforeUpdate",
-			Namespace:           "namespaceBeforeUpdate",
+			data:               map[string]string{testDataKey: testDataValue},
+			assertError:        func(err error) bool { return err == nil },
+			expectedStringData: map[string]string{testDataKey: testDataValue},
 		},
 		{
-			secretExistsAlready: true,
-			Name:                defaultSecretName,
-			Namespace:           defaultSecretNamespace,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.secretExistsAlready {
-			runtimeObjects = append(runtimeObjects, generateTestSecret())
-		}
-
-		testBuilder, _ := buildTestBuilderWithFakeObjects(runtimeObjects, testCase.Name, testCase.Namespace)
-
-		// Assert the secret before the update
-		assert.NotNil(t, testBuilder.Definition)
-
-		assert.Equal(t, testCase.Name, testBuilder.Definition.Name)
-		assert.Equal(t, testCase.Namespace, testBuilder.Definition.Namespace)
-
-		// Perform the update
-		result, err := testBuilder.Update()
-
-		// Assert the result
-		assert.NotNil(t, testBuilder.Definition)
-
-		if !testCase.secretExistsAlready {
-			assert.NotNil(t, err)
-			assert.Equal(t, "secrets \"nameBeforeUpdate\" not found", err.Error())
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testBuilder.Definition.Name, result.Definition.Name)
-			assert.Equal(t, testBuilder.Definition.Namespace, result.Definition.Namespace)
-		}
-	}
-}
-
-func TestSecretValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		expectedError string
-	}{
-		{
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "error: received nil Secret builder",
+			name: "empty stringData sets builder error",
+			builder: func() *Builder {
+				return NewBuilder(newSecretTestClient(), defaultSecretName, defaultSecretNamespace, defaultSecretType)
+			},
+			data:          map[string]string{},
+			assertError:   func(err error) bool { return err != nil && err.Error() == "'stringData' cannot be empty" },
+			expectDataNil: true,
 		},
 		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: "can not redefine the undefined Secret",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: "Secret builder cannot have nil apiClient",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
+			name: invalidBuilderShortCirc,
+			builder: func() *Builder {
+				return NewBuilder(newSecretTestClient(), "", defaultSecretNamespace, defaultSecretType)
+			},
+			data:          map[string]string{testDataKey: testDataValue},
+			assertError:   commonerrors.IsBuilderNameEmpty,
+			expectDataNil: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder, _ := buildTestBuilderWithFakeObjects(nil, "test", "test")
+		testCase := testCase
 
-		if testCase.builderNil {
-			testBuilder = nil
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
+			builder := testCase.builder()
+			require.NotNil(t, builder)
 
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
+			result := builder.WithStringData(testCase.data)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
 
-		result, err := testBuilder.validate()
-		if testCase.expectedError != "" {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.False(t, result)
-		} else {
-			assert.Nil(t, err)
-			assert.True(t, result)
-		}
+			if testCase.expectDataNil {
+				assert.Nil(t, result.Definition.StringData)
+			} else {
+				assert.Equal(t, testCase.expectedStringData, result.Definition.StringData)
+			}
+		})
 	}
 }
 
-func buildTestBuilderWithFakeObjects(runtimeObjects []runtime.Object,
-	name, namespace string) (*Builder, *clients.Settings) {
-	testSettings := clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: runtimeObjects,
-	})
+func TestWithAnnotations(t *testing.T) {
+	t.Parallel()
 
-	return &Builder{
-		apiClient: testSettings,
-		Definition: &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
+	testCases := []struct {
+		name                string
+		builder             func() *Builder
+		annotations         map[string]string
+		assertError         func(error) bool
+		expectedAnnotations map[string]string
+	}{
+		{
+			name: "sets annotations on valid builder",
+			builder: func() *Builder {
+				return NewBuilder(newSecretTestClient(), defaultSecretName, defaultSecretNamespace, defaultSecretType)
+			},
+			annotations:         map[string]string{"openshift.io/internal-registry-auth-token.binding": "bound"},
+			assertError:         func(err error) bool { return err == nil },
+			expectedAnnotations: map[string]string{"openshift.io/internal-registry-auth-token.binding": "bound"},
+		},
+		{
+			name: "empty annotations sets builder error",
+			builder: func() *Builder {
+				return NewBuilder(newSecretTestClient(), defaultSecretName, defaultSecretNamespace, defaultSecretType)
+			},
+			annotations: map[string]string{},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "'annotations' argument cannot be empty"
 			},
 		},
-	}, testSettings
+		{
+			name: "empty annotation key sets builder error",
+			builder: func() *Builder {
+				return NewBuilder(newSecretTestClient(), defaultSecretName, defaultSecretNamespace, defaultSecretType)
+			},
+			annotations: map[string]string{"": testDataValue},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "can not apply an annotations with an empty key"
+			},
+		},
+		{
+			name: invalidBuilderShortCirc,
+			builder: func() *Builder {
+				return NewBuilder(newSecretTestClient(), "", defaultSecretNamespace, defaultSecretType)
+			},
+			annotations: map[string]string{testDataKey: testDataValue},
+			assertError: commonerrors.IsBuilderNameEmpty,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := testCase.builder()
+			require.NotNil(t, builder)
+
+			result := builder.WithAnnotations(testCase.annotations)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if testCase.expectedAnnotations != nil {
+				assert.Equal(t, testCase.expectedAnnotations, result.Definition.Annotations)
+			}
+		})
+	}
 }
 
-func buildValidSecretBuilder(apiClient *clients.Settings) *Builder {
-	return NewBuilder(
-		apiClient,
-		defaultSecretName,
-		defaultSecretNamespace,
-		corev1.SecretType(defaultSecretType),
-	)
+func newSecretCommonTestConfig() testhelper.CommonTestConfig[corev1.Secret, Builder, *corev1.Secret, *Builder] {
+	return testhelper.NewCommonTestConfig[corev1.Secret, Builder](
+		corev1.AddToScheme, secretGVK, testhelper.ResourceScopeNamespaced)
 }
 
-func buildInvalidSecretBuilder(apiClient *clients.Settings) *Builder {
-	return NewBuilder(
-		apiClient,
-		"",
-		defaultSecretNamespace,
-		corev1.SecretType(defaultSecretType),
-	)
-}
-
-func buildTestClientWithDummyObject() *clients.Settings {
+func newSecretTestClient() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: buildSecretWithDummyObject(),
-	})
-}
-
-func buildSecretWithDummyObject() []runtime.Object {
-	return append([]runtime.Object{}, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultSecretName,
-			Namespace: defaultSecretNamespace,
-		},
-		Type: corev1.SecretType(defaultSecretType),
+		SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
 	})
 }
