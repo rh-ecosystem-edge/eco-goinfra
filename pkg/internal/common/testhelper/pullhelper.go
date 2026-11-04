@@ -21,6 +21,10 @@ type NamespacedPullFunc[SB any] func(apiClient *clients.Settings, name, nsname s
 // ClusterScopedPullFunc is a cluster-scoped Pull function signature.
 type ClusterScopedPullFunc[SB any] func(apiClient *clients.Settings, name string) (SB, error)
 
+// ClusterScopedSingletonPullFunc is a cluster-scoped Pull function signature for singleton resources whose name is
+// fixed (e.g., PullKubeAPIServer).
+type ClusterScopedSingletonPullFunc[SB any] func(apiClient *clients.Settings) (SB, error)
+
 // GenericClusterScopedPullFunc is the signature for the common.PullClusterScopedBuilder function.
 type GenericClusterScopedPullFunc[O, B any, SO common.ObjectPointer[O], SB common.BuilderPointer[B, O, SO]] func(
 	ctx context.Context,
@@ -62,6 +66,13 @@ type PullTestConfig[
 
 	// testSchemeAttacher indicates whether scheme attacher failures should be tested.
 	testSchemeAttacher bool
+
+	// testEmptyName indicates whether empty name validation should be tested. This is false for singleton pull
+	// functions that ignore the name parameter.
+	testEmptyName bool
+
+	// fixedResourceName is the object name used for mock setup and assertions when testing singleton pull functions.
+	fixedResourceName string
 }
 
 // NewNamespacedPullTestConfig creates a new PullTestConfig for namespaced resources.
@@ -84,6 +95,7 @@ func NewNamespacedPullTestConfig[
 			return pullFunc(apiClient, name, nsname)
 		},
 		testSchemeAttacher: false,
+		testEmptyName:      true,
 	}
 }
 
@@ -108,6 +120,34 @@ func NewClusterScopedPullTestConfig[
 			return pullFunc(apiClient, name)
 		},
 		testSchemeAttacher: false,
+		testEmptyName:      true,
+	}
+}
+
+// NewSingletonClusterScopedPullTestConfig creates a new PullTestConfig for cluster-scoped singleton resources whose
+// Pull function ignores the name parameter and always pulls a resource with a fixed name.
+func NewSingletonClusterScopedPullTestConfig[
+	O, B any,
+	SO common.ObjectPointer[O],
+	SB common.BuilderPointer[B, O, SO],
+](
+	pullFunc ClusterScopedSingletonPullFunc[SB],
+	schemeAttacher clients.SchemeAttacher,
+	expectedGVK schema.GroupVersionKind,
+	resourceName string,
+) PullTestConfig[O, B, SO, SB] {
+	return PullTestConfig[O, B, SO, SB]{
+		CommonTestConfig: CommonTestConfig[O, B, SO, SB]{
+			SchemeAttacher: schemeAttacher,
+			ExpectedGVK:    expectedGVK,
+			ResourceScope:  ResourceScopeClusterScoped,
+		},
+		pullFunc: func(_ context.Context, apiClient *clients.Settings, _ clients.SchemeAttacher, _, _ string) (SB, error) {
+			return pullFunc(apiClient)
+		},
+		testSchemeAttacher: false,
+		testEmptyName:      false,
+		fixedResourceName:  resourceName,
 	}
 }
 
@@ -123,6 +163,7 @@ func NewGenericClusterScopedPullTestConfig[O, B any, SO common.ObjectPointer[O],
 			return pullFunc(ctx, apiClient, schemeAttacher, name)
 		},
 		testSchemeAttacher: true,
+		testEmptyName:      true,
 	}
 }
 
@@ -138,6 +179,7 @@ func NewGenericNamespacedPullTestConfig[O, B any, SO common.ObjectPointer[O], SB
 			return pullFunc(ctx, apiClient, schemeAttacher, name, nsname)
 		},
 		testSchemeAttacher: true,
+		testEmptyName:      true,
 	}
 }
 
@@ -164,6 +206,14 @@ func (config PullTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 		assertError    func(error) bool
 	}
 
+	pullResourceName := func(name string) string {
+		if config.fixedResourceName != "" {
+			return config.fixedResourceName
+		}
+
+		return name
+	}
+
 	testCases := []testCase{
 		{
 			name:           "valid pull existing resource",
@@ -184,15 +234,6 @@ func (config PullTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 			assertError:    commonerrors.IsAPIClientNil,
 		},
 		{
-			name:           "empty name returns error",
-			clientNil:      false,
-			builderName:    "",
-			builderNsName:  testResourceNamespace,
-			schemeAttacher: config.SchemeAttacher,
-			objectExists:   false,
-			assertError:    commonerrors.IsBuilderNameEmpty,
-		},
-		{
 			name:           "non-existent resource returns not found",
 			clientNil:      false,
 			builderName:    "non-existent-resource",
@@ -201,6 +242,18 @@ func (config PullTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 			objectExists:   false,
 			assertError:    k8serrors.IsNotFound,
 		},
+	}
+
+	if config.testEmptyName {
+		testCases = append(testCases, testCase{
+			name:           "empty name returns error",
+			clientNil:      false,
+			builderName:    "",
+			builderNsName:  testResourceNamespace,
+			schemeAttacher: config.SchemeAttacher,
+			objectExists:   false,
+			assertError:    commonerrors.IsBuilderNameEmpty,
+		})
 	}
 
 	if config.ResourceScope.IsNamespaced() {
@@ -243,7 +296,7 @@ func (config PullTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 						namespace = testCase.builderNsName
 					}
 
-					objects = append(objects, buildDummyObject[O, SO](testCase.builderName, namespace))
+					objects = append(objects, buildDummyObject[O, SO](pullResourceName(testCase.builderName), namespace))
 				}
 
 				client = clients.GetTestClients(clients.TestClientParams{
@@ -257,17 +310,19 @@ func (config PullTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 			require.Truef(t, testCase.assertError(err), "unexpected error, got: %v", err)
 
 			if err == nil {
+				expectedName := pullResourceName(testCase.builderName)
+
 				require.NotNil(t, builder)
 				require.NotNil(t, builder.GetDefinition())
 
-				assert.Equal(t, testCase.builderName, builder.GetDefinition().GetName())
+				assert.Equal(t, expectedName, builder.GetDefinition().GetName())
 
 				if config.ResourceScope.IsNamespaced() {
 					assert.Equal(t, testCase.builderNsName, builder.GetDefinition().GetNamespace())
 				}
 
 				require.NotNil(t, builder.GetObject())
-				assert.Equal(t, testCase.builderName, builder.GetObject().GetName())
+				assert.Equal(t, expectedName, builder.GetObject().GetName())
 
 				if config.ResourceScope.IsNamespaced() {
 					assert.Equal(t, testCase.builderNsName, builder.GetObject().GetNamespace())
