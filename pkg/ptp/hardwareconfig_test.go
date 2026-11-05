@@ -3,8 +3,8 @@ package ptp
 import (
 	"testing"
 
+	ptpv2alpha1 "github.com/k8snetworkplumbingwg/ptp-operator/api/v2alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
-	ptpv2alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ptp/v2alpha1"
 )
 
 var hardwareConfigGVK = ptpv2alpha1.GroupVersion.WithKind("HardwareConfig")
