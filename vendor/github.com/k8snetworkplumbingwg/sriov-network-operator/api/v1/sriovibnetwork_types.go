@@ -18,6 +18,7 @@ package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -47,12 +48,13 @@ type SriovIBNetworkSpec struct {
 
 // SriovIBNetworkStatus defines the observed state of SriovIBNetwork
 type SriovIBNetworkStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	ConditionStatus `json:",inline"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+//+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // SriovIBNetwork is the Schema for the sriovibnetworks API
 type SriovIBNetwork struct {
@@ -73,5 +75,8 @@ type SriovIBNetworkList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&SriovIBNetwork{}, &SriovIBNetworkList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &SriovIBNetwork{}, &SriovIBNetworkList{})
+		return nil
+	})
 }

@@ -14,7 +14,26 @@ const (
 
 type DrainState string
 
+// TLSConfig holds cluster-wide TLS configuration retrieved from the orchestrator or based on the environment variables.
+// Empty string values indicate that the component should use its default configuration.
+type TLSConfig struct {
+	// CipherSuites is a comma-separated list of TLS cipher suites.
+	// If empty, the component should use its default cipher suites.
+	CipherSuites string
+	// MinTLSVersion is the minimum TLS version (e.g., "VersionTLS12", "VersionTLS13").
+	// If empty, the component should use its default minimum version.
+	MinTLSVersion string
+	// CurvePreferences is a comma-separated list of TLS group/curve names
+	// (e.g., "X25519,secp256r1,secp384r1") used during the TLS handshake.
+	// Go treats this as a filter of allowed groups (internal ordering is used).
+	// If empty, the component should use its default curve preferences.
+	CurvePreferences string
+}
+
 const (
+	SriovNetworkOperatorIdentifier     = "sriov-network-operator"
+	SriovNetworkConfigDaemonIdentifier = "sriov-network-config-daemon"
+
 	Chroot = "/host"
 	Host   = "/host"
 
@@ -76,6 +95,12 @@ const (
 	SriovDevicePluginLabel         = "sriovnetwork.openshift.io/device-plugin"
 	SriovDevicePluginLabelEnabled  = "Enabled"
 	SriovDevicePluginLabelDisabled = "Disabled"
+	// NodeStatePolicyRevisionsAnnotation records a SriovNetworkNodePolicy UID and generation on
+	// a NodeState.
+	NodeStatePolicyRevisionsAnnotation = "sriovnetwork.openshift.io/policy-revisions"
+	// PoolRevisionAnnotation records a SriovNetworkPoolConfig UID and generation on
+	// a NodeState or an offload MachineConfig.
+	PoolRevisionAnnotation = "sriovnetwork.openshift.io/pool-revision"
 
 	NodeDrainAnnotation                = "sriovnetwork.openshift.io/state"
 	NodeStateDrainAnnotation           = "sriovnetwork.openshift.io/desired-state"
@@ -85,6 +110,7 @@ const (
 	DrainIdle                          = "Idle"
 	DrainRequired                      = "Drain_Required"
 	RebootRequired                     = "Reboot_Required"
+	MaxRebootsPerGeneration            = 5
 	Draining                           = "Draining"
 	DrainComplete                      = "DrainComplete"
 
@@ -161,6 +187,7 @@ const (
 	SriovSystemdResultPath        = SriovConfBasePath + "/sriov-interface-result.yaml"
 	SriovSystemdSupportedNicPath  = SriovConfBasePath + "/sriov-supported-nics-ids.yaml"
 	SriovSystemdServiceBinaryPath = "/var/lib/sriov/sriov-network-config-daemon"
+	SriovRebootTrackerFilePath    = "/var/lib/sriov/reboot-tracker.yaml"
 
 	SriovServiceBasePath        = "/etc/systemd/system"
 	SriovServicePath            = SriovServiceBasePath + "/sriov-config.service"
