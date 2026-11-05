@@ -56,7 +56,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Setup cluster (ocp)
-        uses: palmsoftware/quick-ocp@1654424face22940aa96157934109ebce1e41c63 # v1.0.8
+        uses: palmsoftware/quick-ocp@45dc02bea2a8a6fc5813dca2a96d127d037362e2 # v1.0.9
         with:
           ocpPullSecret: $OCP_PULL_SECRET
           bundleCache: true
