@@ -10,6 +10,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -586,6 +587,56 @@ func (builder *NetworkBuilder) Update(force bool) (*NetworkBuilder, error) {
 	}
 
 	return builder, err
+}
+
+// WaitUntilReady waits until timeout for a generation-fresh Ready=True condition.
+// On 5.0 this is the SriovNetwork.status.conditions replacement for waiting on NAD creation:
+// Ready=True/NetworkReady once the NAD exists; Ready=False/NamespaceNotFound while the
+// target namespace is missing.
+func (builder *NetworkBuilder) WaitUntilReady(timeout time.Duration) error {
+	return builder.WaitForCondition(metav1.Condition{
+		Type:   srIovV1.ConditionReady,
+		Status: metav1.ConditionTrue,
+	}, timeout)
+}
+
+// WaitForCondition waits until timeout for a generation-fresh condition matching expected.
+// Zero fields are ignored; Message matches by substring.
+func (builder *NetworkBuilder) WaitForCondition(expected metav1.Condition, timeout time.Duration) error {
+	if valid, err := builder.validate(); !valid {
+		return err
+	}
+
+	return waitForCondition(
+		"SriovNetwork", builder.Definition.Namespace, builder.Definition.Name,
+		expected, timeout, func() ([]metav1.Condition, int64, error) {
+			network, err := builder.Get()
+			if err != nil {
+				return nil, 0, err
+			}
+
+			builder.Object = network
+
+			return network.Status.Conditions, network.GetGeneration(), nil
+		})
+}
+
+// GetCondition returns the named condition from the last fetched object, or nil if missing.
+func (builder *NetworkBuilder) GetCondition(conditionType string) *metav1.Condition {
+	if builder == nil || builder.Object == nil {
+		return nil
+	}
+
+	return meta.FindStatusCondition(builder.Object.Status.Conditions, conditionType)
+}
+
+// IsReady reports whether the last fetched SriovNetwork has generation-fresh Ready=True.
+func (builder *NetworkBuilder) IsReady() bool {
+	if builder == nil || builder.Object == nil {
+		return false
+	}
+
+	return isReadyConditionTrue(builder.Object.Status.Conditions, builder.Object.GetGeneration())
 }
 
 // GetSriovNetworksGVR returns SriovNetwork's GroupVersionResource which could be used for Clean function.

@@ -3,6 +3,7 @@ package sriov
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
@@ -400,6 +401,98 @@ func TestOperatorConfigDelete(t *testing.T) {
 	}
 }
 
+func TestOperatorConfigWaitUntilReady(t *testing.T) {
+	testCases := []struct {
+		name        string
+		config      *srIovV1.SriovOperatorConfig
+		expectReady bool
+	}{
+		{
+			name:        "Ready True OperatorConfigReady",
+			config:      buildReadyOperatorConfig(),
+			expectReady: true,
+		},
+		{
+			name:        "missing Ready does not pass",
+			config:      buildDummySrIovOperatorConfigObject()[0].(*srIovV1.SriovOperatorConfig),
+			expectReady: false,
+		},
+		{
+			name: "SyncFailed is not ready",
+			config: buildOperatorConfigWithCondition(
+				1, metav1.ConditionFalse, srIovV1.ReasonOperatorConfigSyncFailed),
+			expectReady: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			builder := NewOperatorConfigBuilder(
+				clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  []runtime.Object{testCase.config},
+					SchemeAttachers: testSchemes,
+				}),
+				defaultOperatorConfigNsName)
+			err := builder.WaitUntilReady(2 * time.Second)
+
+			if testCase.expectReady {
+				assert.NoError(t, err)
+				assert.True(t, builder.IsReady())
+				assert.Equal(t, srIovV1.ReasonOperatorConfigReady, builder.GetCondition(srIovV1.ConditionReady).Reason)
+
+				return
+			}
+
+			assert.Error(t, err)
+			assert.False(t, builder.IsReady())
+		})
+	}
+}
+
+func TestOperatorConfigWaitForCondition(t *testing.T) {
+	config := buildReadyOperatorConfig()
+	builder := NewOperatorConfigBuilder(
+		clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects:  []runtime.Object{config},
+			SchemeAttachers: testSchemes,
+		}),
+		defaultOperatorConfigNsName)
+
+	err := builder.WaitForCondition(metav1.Condition{
+		Type:   srIovV1.ConditionReady,
+		Status: metav1.ConditionTrue,
+		Reason: srIovV1.ReasonOperatorConfigReady,
+	}, 2*time.Second)
+	assert.NoError(t, err)
+
+	err = builder.WaitForCondition(metav1.Condition{
+		Type:   srIovV1.ConditionReady,
+		Status: metav1.ConditionFalse,
+	}, 2*time.Second)
+	assert.Error(t, err)
+}
+
+func TestOperatorConfigWaitInvalidBuilder(t *testing.T) {
+	timeout := time.Second
+
+	t.Run("empty nsname WaitUntilReady", func(t *testing.T) {
+		builder := NewOperatorConfigBuilder(
+			clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes}), "")
+		err := builder.WaitUntilReady(timeout)
+		assert.EqualError(t, err, "SriovOperatorConfig 'nsname' is empty")
+	})
+
+	t.Run("nil builder WaitUntilReady", func(t *testing.T) {
+		err := (*OperatorConfigBuilder)(nil).WaitUntilReady(timeout)
+		assert.EqualError(t, err, "error: received nil SriovOperatorConfig builder")
+	})
+
+	t.Run("nil builder IsReady and GetCondition", func(t *testing.T) {
+		assert.False(t, (*OperatorConfigBuilder)(nil).IsReady())
+		assert.Nil(t, (*OperatorConfigBuilder)(nil).GetCondition(srIovV1.ConditionReady))
+	})
+}
+
 func buildTestClientWithDummyOperatorConfigObject() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  buildDummySrIovOperatorConfigObject(),
@@ -415,4 +508,24 @@ func buildDummySrIovOperatorConfigObject() []runtime.Object {
 		},
 		Spec: srIovV1.SriovOperatorConfigSpec{},
 	})
+}
+
+func buildReadyOperatorConfig() *srIovV1.SriovOperatorConfig {
+	return buildOperatorConfigWithCondition(1, metav1.ConditionTrue, srIovV1.ReasonOperatorConfigReady)
+}
+
+func buildOperatorConfigWithCondition(
+	generation int64, status metav1.ConditionStatus, reason string) *srIovV1.SriovOperatorConfig {
+	config := buildDummySrIovOperatorConfigObject()[0].(*srIovV1.SriovOperatorConfig)
+	config.Generation = generation
+	config.Status.Conditions = []metav1.Condition{
+		{
+			Type:               srIovV1.ConditionReady,
+			Status:             status,
+			Reason:             reason,
+			ObservedGeneration: 1,
+		},
+	}
+
+	return config
 }

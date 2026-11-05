@@ -2,6 +2,8 @@ package sriov
 
 import (
 	"fmt"
+	"slices"
+	"time"
 
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -9,11 +11,10 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	"k8s.io/klog/v2"
 
-	"slices"
-
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -333,6 +334,55 @@ func (builder *OperatorConfigBuilder) Delete() (*OperatorConfigBuilder, error) {
 	builder.Object = nil
 
 	return builder, nil
+}
+
+// WaitUntilReady waits until timeout for a generation-fresh Ready=True condition.
+// On 5.0 this is the SriovOperatorConfig.status.conditions replacement for IsSriovDeployed
+// daemonset checks: Ready=True/OperatorConfigReady once the operator is synced.
+func (builder *OperatorConfigBuilder) WaitUntilReady(timeout time.Duration) error {
+	return builder.WaitForCondition(metaV1.Condition{
+		Type:   srIovV1.ConditionReady,
+		Status: metaV1.ConditionTrue,
+	}, timeout)
+}
+
+// WaitForCondition waits until timeout for a generation-fresh condition matching expected.
+// Zero fields are ignored; Message matches by substring.
+func (builder *OperatorConfigBuilder) WaitForCondition(expected metaV1.Condition, timeout time.Duration) error {
+	if valid, err := builder.validate(); !valid {
+		return err
+	}
+
+	return waitForCondition(
+		"SriovOperatorConfig", builder.Definition.Namespace, builder.Definition.Name,
+		expected, timeout, func() ([]metaV1.Condition, int64, error) {
+			operatorConfig, err := builder.Get()
+			if err != nil {
+				return nil, 0, err
+			}
+
+			builder.Object = operatorConfig
+
+			return operatorConfig.Status.Conditions, operatorConfig.GetGeneration(), nil
+		})
+}
+
+// GetCondition returns the named condition from the last fetched object, or nil if missing.
+func (builder *OperatorConfigBuilder) GetCondition(conditionType string) *metaV1.Condition {
+	if builder == nil || builder.Object == nil {
+		return nil
+	}
+
+	return meta.FindStatusCondition(builder.Object.Status.Conditions, conditionType)
+}
+
+// IsReady reports whether the last fetched SriovOperatorConfig has generation-fresh Ready=True.
+func (builder *OperatorConfigBuilder) IsReady() bool {
+	if builder == nil || builder.Object == nil {
+		return false
+	}
+
+	return isReadyConditionTrue(builder.Object.Status.Conditions, builder.Object.GetGeneration())
 }
 
 // validate will check that the builder and builder definition are properly initialized before
