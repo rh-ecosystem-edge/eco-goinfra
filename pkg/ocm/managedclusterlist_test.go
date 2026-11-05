@@ -1,17 +1,16 @@
 package ocm
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ocm/clusterv1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -19,53 +18,18 @@ const (
 	testHubClusterName   = "local-cluster"
 )
 
+var clusterTestSchemes = []clients.SchemeAttacher{
+	clusterv1.Install,
+}
+
 func TestListManagedClusters(t *testing.T) {
-	testCases := []struct {
-		managedClusters []*ManagedClusterBuilder
-		listOptions     []runtimeclient.ListOption
-		client          bool
-		expectedError   error
-	}{
-		{
-			managedClusters: []*ManagedClusterBuilder{
-				buildValidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			},
-			listOptions:   nil,
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			managedClusters: []*ManagedClusterBuilder{
-				buildValidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			},
-			listOptions:   []runtimeclient.ListOption{&runtimeclient.ListOptions{LabelSelector: labels.NewSelector()}},
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			managedClusters: []*ManagedClusterBuilder{
-				buildValidManagedClusterTestBuilder(buildTestClientWithDummyManagedCluster()),
-			},
-			listOptions:   nil,
-			client:        false,
-			expectedError: fmt.Errorf("failed to list managedClusters, 'apiClient' parameter is nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = buildTestClientWithDummyManagedCluster()
-		}
-
-		builders, err := ListManagedClusters(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.managedClusters), len(builders))
-		}
-	}
+	testhelper.NewListTestConfig(
+		ListManagedClusters,
+		clusterv1.Install,
+		managedClusterGVK,
+	).ExecuteTests(t)
 }
 
 func TestListNodeClusterEligibleManagedClusters(t *testing.T) {
@@ -121,7 +85,7 @@ func TestListNodeClusterEligibleManagedClusters(t *testing.T) {
 
 	t.Run("returns error when apiClient is nil", func(t *testing.T) {
 		builders, err := ListNodeClusterEligibleManagedClusters(nil)
-		assert.EqualError(t, err, "failed to list managedClusters, 'apiClient' parameter is nil")
+		assert.True(t, commonerrors.IsAPIClientNil(err))
 		assert.Nil(t, builders)
 	})
 }
@@ -185,7 +149,7 @@ func TestListDeploymentManagerEligibleManagedClusters(t *testing.T) {
 
 	t.Run("returns error when apiClient is nil", func(t *testing.T) {
 		builders, err := ListDeploymentManagerEligibleManagedClusters(nil)
-		assert.EqualError(t, err, "failed to list managedClusters, 'apiClient' parameter is nil")
+		assert.True(t, commonerrors.IsAPIClientNil(err))
 		assert.Nil(t, builders)
 	})
 }
