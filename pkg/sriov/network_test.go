@@ -815,6 +815,128 @@ func TestUpdate(t *testing.T) {
 }
 
 // buildValidTestBuilder returns a valid Builder for testing purposes.
+func TestNetworkWaitUntilReady(t *testing.T) {
+	testCases := []struct {
+		name        string
+		network     *srIovV1.SriovNetwork
+		expectReady bool
+	}{
+		{
+			name:        "Ready True NetworkReady",
+			network:     buildReadySriovNetwork(),
+			expectReady: true,
+		},
+		{
+			name:        "missing Ready does not pass",
+			network:     buildDummySrIovNetworkObject()[0].(*srIovV1.SriovNetwork),
+			expectReady: false,
+		},
+		{
+			name: "NamespaceNotFound is not ready",
+			network: buildSriovNetworkWithCondition(
+				1, metav1.ConditionFalse, srIovV1.ReasonNamespaceNotFound),
+			expectReady: false,
+		},
+		{
+			name: "stale observedGeneration does not pass",
+			network: buildSriovNetworkWithCondition(
+				2, metav1.ConditionTrue, srIovV1.ReasonNetworkReady),
+			expectReady: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			builder := NewNetworkBuilder(
+				clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  []runtime.Object{testCase.network},
+					SchemeAttachers: testSchemes,
+				}),
+				defaultNetName, defaultNetNsName, defaultNetTargetNsName, defaultNetResName)
+			err := builder.WaitUntilReady(2 * time.Second)
+
+			if testCase.expectReady {
+				assert.NoError(t, err)
+				assert.True(t, builder.IsReady())
+				assert.Equal(t, metav1.ConditionTrue, builder.GetCondition(srIovV1.ConditionReady).Status)
+				assert.Equal(t, srIovV1.ReasonNetworkReady, builder.GetCondition(srIovV1.ConditionReady).Reason)
+
+				return
+			}
+
+			assert.Error(t, err)
+			assert.False(t, builder.IsReady())
+		})
+	}
+}
+
+func TestNetworkWaitForCondition(t *testing.T) {
+	network := buildSriovNetworkWithCondition(
+		1, metav1.ConditionFalse, srIovV1.ReasonNamespaceNotFound)
+	builder := NewNetworkBuilder(
+		clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects:  []runtime.Object{network},
+			SchemeAttachers: testSchemes,
+		}),
+		defaultNetName, defaultNetNsName, defaultNetTargetNsName, defaultNetResName)
+
+	err := builder.WaitForCondition(metav1.Condition{
+		Type:   srIovV1.ConditionReady,
+		Status: metav1.ConditionFalse,
+		Reason: srIovV1.ReasonNamespaceNotFound,
+	}, 2*time.Second)
+	assert.NoError(t, err)
+
+	err = builder.WaitForCondition(metav1.Condition{
+		Type:   srIovV1.ConditionReady,
+		Status: metav1.ConditionTrue,
+		Reason: srIovV1.ReasonNetworkReady,
+	}, 2*time.Second)
+	assert.Error(t, err)
+}
+
+func TestNetworkWaitInvalidBuilder(t *testing.T) {
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: testSchemes,
+	})
+	timeout := time.Second
+
+	t.Run("empty name WaitUntilReady", func(t *testing.T) {
+		builder := NewNetworkBuilder(testSettings, "", defaultNetNsName, defaultNetTargetNsName, defaultNetResName)
+		err := builder.WaitUntilReady(timeout)
+		assert.EqualError(t, err, "SrIovNetwork 'name' cannot be empty")
+	})
+
+	t.Run("nil builder WaitUntilReady", func(t *testing.T) {
+		err := (*NetworkBuilder)(nil).WaitUntilReady(timeout)
+		assert.EqualError(t, err, "error: received nil SriovNetwork builder")
+	})
+
+	t.Run("nil builder IsReady and GetCondition", func(t *testing.T) {
+		assert.False(t, (*NetworkBuilder)(nil).IsReady())
+		assert.Nil(t, (*NetworkBuilder)(nil).GetCondition(srIovV1.ConditionReady))
+	})
+}
+
+func TestNetworkGetCondition(t *testing.T) {
+	assert.Nil(t, (*NetworkBuilder)(nil).GetCondition(srIovV1.ConditionReady))
+	assert.False(t, (*NetworkBuilder)(nil).IsReady())
+
+	builder := NewNetworkBuilder(
+		clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects:  []runtime.Object{buildReadySriovNetwork()},
+			SchemeAttachers: testSchemes,
+		}),
+		defaultNetName, defaultNetNsName, defaultNetTargetNsName, defaultNetResName)
+	assert.True(t, builder.Exists())
+
+	cond := builder.GetCondition(srIovV1.ConditionReady)
+	assert.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, srIovV1.ReasonNetworkReady, cond.Reason)
+	assert.True(t, builder.IsReady())
+}
+
 func buildValidSriovNetworkTestBuilder(apiClient *clients.Settings) *NetworkBuilder {
 	return NewNetworkBuilder(
 		apiClient, defaultNetName, defaultNetNsName, defaultNetTargetNsName, defaultNetResName)
@@ -851,4 +973,24 @@ func buildDummySrIovNetworkObject() []runtime.Object {
 			NetworkNamespace: defaultNetTargetNsName,
 		},
 	})
+}
+
+func buildReadySriovNetwork() *srIovV1.SriovNetwork {
+	return buildSriovNetworkWithCondition(1, metav1.ConditionTrue, srIovV1.ReasonNetworkReady)
+}
+
+func buildSriovNetworkWithCondition(
+	generation int64, status metav1.ConditionStatus, reason string) *srIovV1.SriovNetwork {
+	network := buildDummySrIovNetworkObject()[0].(*srIovV1.SriovNetwork)
+	network.Generation = generation
+	network.Status.Conditions = []metav1.Condition{
+		{
+			Type:               srIovV1.ConditionReady,
+			Status:             status,
+			Reason:             reason,
+			ObservedGeneration: 1,
+		},
+	}
+
+	return network
 }
