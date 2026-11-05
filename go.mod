@@ -36,7 +36,7 @@ require (
 	github.com/openshift-kni/lifecycle-agent v0.0.0-20260707161814-ec769a366476 // release-4.22
 	github.com/openshift-kni/numaresources-operator v0.4.18-0.2024100201.0.20260707092512-254b162fcd0f // release-4.22
 	github.com/openshift-kni/oran-o2ims v0.0.0-20260707122918-22ed0a55833b // release-4.22
-	github.com/openshift/api v0.0.0-20260521125114-09730f85d883 // release-4.22
+	github.com/openshift/api v0.0.0-20260610192510-1b2a074e0bd6 // release-4.22
 	github.com/openshift/client-go v0.0.0-20260330134249-7e1499aaacd7 // release-4.22
 	github.com/openshift/cluster-logging-operator/api/observability v0.0.0-20260623121619-2db215f31af4
 	github.com/openshift/cluster-nfd-operator v0.0.0-20260629131115-e53505ffcb61 // release-4.22
@@ -221,7 +221,10 @@ require (
 
 replace (
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
-	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20260526181104-0626dd1a7086 // release-4.22
+	// release-5.0: SriovNetwork and SriovOperatorConfig Ready conditions.
+	// NodeState/PoolConfig conditions are 5.1-only (see add-sriov-nodestatus-conditions).
+	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20260923181747-4d6a7b26cbe2
+	github.com/openshift/api => github.com/openshift/api v0.0.0-20260521125114-09730f85d883
 	k8s.io/client-go => k8s.io/client-go v0.35.6
 	// The cluster-node-tuning-operator release-4.22 uses version k8s.io/kube-openapi v0.35.1, which does not exist.
 	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20260127142750-a19766b6e2d4
