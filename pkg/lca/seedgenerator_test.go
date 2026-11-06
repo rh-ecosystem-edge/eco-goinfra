@@ -8,26 +8,42 @@ import (
 
 	lcasgv1 "github.com/openshift-kni/lifecycle-agent/api/seedgenerator/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-var (
-	lcasgv1TestSchemes = []clients.SchemeAttacher{
-		lcasgv1.AddToScheme,
-	}
-)
+var seedGeneratorGVK = lcasgv1.GroupVersion.WithKind("SeedGenerator")
 
 func TestNewSeedGeneratorBuilder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid seed image name", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidSeedGeneratorBuilder(newSeedGeneratorTestClient(nil))
+
+		require.NoError(t, builder.GetError())
+		assert.Equal(t, seedImageName, builder.Definition.Name)
+		assert.Equal(t, seedGeneratorGVK, builder.GetGVK())
+	})
+
+	t.Run("nil client returns error-bearing builder", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewSeedGeneratorBuilder(nil, seedImageName)
+
+		require.NotNil(t, builder)
+		assert.True(t, commonerrors.IsAPIClientNil(builder.GetError()))
+	})
+
 	testCases := []struct {
 		name        string
 		expectedErr string
 	}{
-		{
-			name:        seedImageName,
-			expectedErr: "",
-		},
 		{
 			name:        "",
 			expectedErr: "SeedGenerator name must be seedimage",
@@ -39,318 +55,205 @@ func TestNewSeedGeneratorBuilder(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
+		t.Run("invalid name "+testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder := NewSeedGeneratorBuilder(testSettings, testCase.name)
+			builder := NewSeedGeneratorBuilder(newSeedGeneratorTestClient(nil), testCase.name)
 
-		assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
-
-		if testCase.expectedErr == "" {
-			assert.NotNil(t, testBuilder)
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-		}
+			require.NotNil(t, builder)
+			assert.EqualError(t, builder.GetError(), testCase.expectedErr)
+			assert.Equal(t, testCase.name, builder.Definition.Name)
+		})
 	}
+}
+
+func TestPullSeedGenerator(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewClusterScopedPullTestConfig(
+		PullSeedGenerator,
+		lcasgv1.AddToScheme,
+		seedGeneratorGVK,
+	).ExecuteTests(t)
+}
+
+func TestSeedGeneratorBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[lcasgv1.SeedGenerator, SeedGeneratorBuilder](
+		lcasgv1.AddToScheme,
+		seedGeneratorGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestSeedGeneratorWithOptions(t *testing.T) {
-	testBuilder := buildTestBuilderWithFakeObjects()
+	t.Parallel()
 
-	testBuilder.WithOptions(func(builder *SeedGeneratorBuilder) (*SeedGeneratorBuilder, error) {
-		return builder, nil
-	})
-
-	assert.Equal(t, "", testBuilder.errorMsg)
-
-	testBuilder.WithOptions(func(builder *SeedGeneratorBuilder) (*SeedGeneratorBuilder, error) {
-		return builder, fmt.Errorf("error")
-	})
-
-	assert.Equal(t, "error", testBuilder.errorMsg)
-}
-
-func TestSeedGeneratorCreate(t *testing.T) {
-	testCases := []struct {
-		seedGenerator *SeedGeneratorBuilder
-		expectedError error
-	}{
-		{
-			seedGenerator: buildValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-		{
-			seedGenerator: buildInValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("SeedGenerator name must be seedimage"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSeedGeneratorBuilder, err := testCase.seedGenerator.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testSeedGeneratorBuilder.Definition.Name, testSeedGeneratorBuilder.Object.Name)
-		}
-	}
-}
-
-func TestSeedGeneratorPull(t *testing.T) {
-	testCases := []struct {
-		name                string
-		expectedError       error
-		addToRuntimeObjects bool
-		client              bool
-	}{
-		{
-			name:                "",
-			expectedError:       fmt.Errorf("seedgenerator 'name' cannot be empty"),
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "notseedimage",
-			expectedError:       fmt.Errorf("seedgenerator object notseedimage does not exist"),
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                seedImageName,
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                seedImageName,
-			expectedError:       fmt.Errorf("the apiClient is nil"),
-			addToRuntimeObjects: true,
-			client:              false,
-		},
-		{
-			name:                seedImageName,
-			expectedError:       fmt.Errorf("seedgenerator object seedimage does not exist"),
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testSG := generateSeedGenerator(seedImageName)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testSG)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: lcasgv1TestSchemes,
-			})
-		}
-
-		// Test the PullSeedGenerator function
-		builderResult, err := PullSeedGenerator(testSettings, testCase.name)
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
-	}
-}
-
-func TestSeedGeneratorDelete(t *testing.T) {
-	testCases := []struct {
-		seedGenerator *SeedGeneratorBuilder
-		expectedError error
-	}{
-		{
-			seedGenerator: buildValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-		{
-			seedGenerator: buildInValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("SeedGenerator name must be seedimage"),
-		},
-		{
-			seedGenerator: buildValidSeedGeneratorBuilder(
-				buildSeedGeneratorTestClientWithDummyObject(buildDummySeedGeneratorRuntime())),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSeedGeneratorBuilder, err := testCase.seedGenerator.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testSeedGeneratorBuilder.Object)
-		}
-	}
-}
-
-func TestSeedGeneratorGet(t *testing.T) {
-	testCases := []struct {
-		seedGenerator *SeedGeneratorBuilder
-		expectedError error
-	}{
-		{
-			seedGenerator: buildValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("seedgenerators.lca.openshift.io \"seedimage\" not found"),
-		},
-		{
-			seedGenerator: buildInValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("SeedGenerator name must be seedimage"),
-		},
-		{
-			seedGenerator: buildValidSeedGeneratorBuilder(
-				buildSeedGeneratorTestClientWithDummyObject(buildDummySeedGeneratorRuntime())),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSeedGenerator, err := testCase.seedGenerator.Get()
-		if err != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testSeedGenerator.Name, testCase.seedGenerator.Definition.Name)
-		}
-	}
-}
-
-func TestSeedGeneratorExists(t *testing.T) {
-	testCases := []struct {
-		seedGenerator  *SeedGeneratorBuilder
-		expectedStatus bool
-	}{
-		{
-			seedGenerator:  buildValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-		{
-			seedGenerator:  buildInValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-		{
-			seedGenerator: buildValidSeedGeneratorBuilder(
-				buildSeedGeneratorTestClientWithDummyObject(buildDummySeedGeneratorRuntime())),
-			expectedStatus: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.seedGenerator.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
+	testhelper.NewWithOptionsTestConfig(
+		testhelper.NewCommonTestConfig[lcasgv1.SeedGenerator, SeedGeneratorBuilder](
+			lcasgv1.AddToScheme,
+			seedGeneratorGVK,
+			testhelper.ResourceScopeClusterScoped,
+		)).ExecuteTests(t)
 }
 
 func TestSeedGeneratorWithSeedImage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		seedGenerator *SeedGeneratorBuilder
-		expectedError string
+		name          string
 		seedImage     string
+		expectedError string
+		expectedValue string
 	}{
 		{
-			seedGenerator: buildValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "",
+			name:          "sets seed image",
 			seedImage:     "testSeedImage",
+			expectedValue: "testSeedImage",
 		},
 		{
-			seedGenerator: buildValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			name:          "rejects empty seed image",
 			expectedError: "seedImage 'name' cannot be empty",
-			seedImage:     "",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSeedGeneratorBuilder := testCase.seedGenerator.WithSeedImage(testCase.seedImage)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Nil(t, testSeedGeneratorBuilder.Object)
-		assert.Equal(t, testCase.expectedError, testSeedGeneratorBuilder.errorMsg)
+			builder := buildValidSeedGeneratorBuilder(newSeedGeneratorTestClient(nil))
+			result := builder.WithSeedImage(testCase.seedImage)
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+			} else {
+				require.NoError(t, result.GetError())
+			}
+
+			assert.Equal(t, testCase.expectedValue, result.Definition.Spec.SeedImage)
+
+			invalidBuilder := buildValidSeedGeneratorBuilder(newSeedGeneratorTestClient(nil))
+			invalidBuilder.SetError(fmt.Errorf("invalid builder"))
+			invalidResult := invalidBuilder.WithSeedImage("should-not-be-set")
+
+			require.Error(t, invalidResult.GetError())
+			assert.Empty(t, invalidResult.Definition.Spec.SeedImage)
+		})
 	}
 }
 
 func TestSeedGeneratorWithRecertImage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		seedGenerator *SeedGeneratorBuilder
-		expectedError string
+		name          string
 		recertImage   string
+		expectedError string
+		expectedValue string
 	}{
 		{
-			seedGenerator: buildValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "",
-			recertImage:   "testSeedImage",
+			name:          "sets recert image",
+			recertImage:   "testRecertImage",
+			expectedValue: "testRecertImage",
 		},
 		{
-			seedGenerator: buildValidSeedGeneratorBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			name:          "rejects empty recert image",
 			expectedError: "recertImage 'name' cannot be empty",
-			recertImage:   "",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSeedGeneratorBuilder := testCase.seedGenerator.WithRecertImage(testCase.recertImage)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Nil(t, testSeedGeneratorBuilder.Object)
+			builder := buildValidSeedGeneratorBuilder(newSeedGeneratorTestClient(nil))
+			result := builder.WithRecertImage(testCase.recertImage)
 
-		assert.Equal(t, testCase.expectedError, testSeedGeneratorBuilder.errorMsg)
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+			} else {
+				require.NoError(t, result.GetError())
+			}
+
+			assert.Equal(t, testCase.expectedValue, result.Definition.Spec.RecertImage)
+
+			invalidBuilder := buildValidSeedGeneratorBuilder(newSeedGeneratorTestClient(nil))
+			invalidBuilder.SetError(fmt.Errorf("invalid builder"))
+			invalidResult := invalidBuilder.WithRecertImage("should-not-be-set")
+
+			require.Error(t, invalidResult.GetError())
+			assert.Empty(t, invalidResult.Definition.Spec.RecertImage)
+		})
 	}
 }
 
 func TestSeedGeneratorWaitUntilComplete(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
+		object        *lcasgv1.SeedGenerator
 		expectedError error
-		status        lcasgv1.SeedGeneratorStatus
 	}{
 		{
+			name: "waits until completed condition is true",
+			object: &lcasgv1.SeedGenerator{
+				ObjectMeta: metav1.ObjectMeta{Name: seedImageName},
+				Status: lcasgv1.SeedGeneratorStatus{
+					Conditions: []metav1.Condition{{
+						Status: isFalse,
+						Type:   conditionTypeSeedGenCompleted,
+						Reason: isComplete,
+					}},
+				},
+			},
 			expectedError: context.DeadlineExceeded,
-			status: lcasgv1.SeedGeneratorStatus{
-				Conditions: []metav1.Condition{{Status: "True1", Type: conditionTypeSeedGenCompleted, Reason: isComplete}},
+		},
+		{
+			name: "completed condition succeeds",
+			object: &lcasgv1.SeedGenerator{
+				ObjectMeta: metav1.ObjectMeta{Name: seedImageName},
+				Status: lcasgv1.SeedGeneratorStatus{
+					Conditions: []metav1.Condition{{
+						Status: isTrue,
+						Type:   conditionTypeSeedGenCompleted,
+						Reason: isComplete,
+					}},
+				},
 			},
 		},
 		{
-			expectedError: nil,
-			status: lcasgv1.SeedGeneratorStatus{
-				Conditions: []metav1.Condition{{Status: isTrue, Type: conditionTypeSeedGenCompleted, Reason: isComplete}},
-			},
+			name:          "missing resource returns error",
+			expectedError: fmt.Errorf("seedgenerator object %s does not exist", seedImageName),
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSeedGenetator := generateSeedGenerator(seedImageName)
-		testSeedGenetator.Status = testCase.status
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		var runtimeObjects []runtime.Object
+			var objects []runtime.Object
+			if testCase.object != nil {
+				objects = append(objects, testCase.object)
+			}
 
-		runtimeObjects = append(runtimeObjects, testSeedGenetator)
+			builder := buildValidSeedGeneratorBuilder(newSeedGeneratorTestClient(objects))
+			result, err := builder.WaitUntilComplete(100 * time.Millisecond)
 
-		testSeedGeneratorBuilder := buildValidSeedGeneratorBuilder(
-			buildSeedGeneratorTestClientWithDummyObject(runtimeObjects))
-		_, err := testSeedGeneratorBuilder.WaitUntilComplete(time.Second * 1)
+			assert.Equal(t, testCase.expectedError, err)
 
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-	}
-}
-
-func buildTestBuilderWithFakeObjects() *SeedGeneratorBuilder {
-	return NewSeedGeneratorBuilder(
-		buildSeedGeneratorTestClientWithDummyObject(buildDummySeedGeneratorRuntime()), seedImageName)
-}
-
-func generateSeedGenerator(name string) *lcasgv1.SeedGenerator {
-	return &lcasgv1.SeedGenerator{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Spec: lcasgv1.SeedGeneratorSpec{},
+			if testCase.expectedError == nil {
+				require.NotNil(t, result)
+			}
+		})
 	}
 }
 
@@ -358,22 +261,9 @@ func buildValidSeedGeneratorBuilder(apiClient *clients.Settings) *SeedGeneratorB
 	return NewSeedGeneratorBuilder(apiClient, seedImageName)
 }
 
-func buildInValidSeedGeneratorBuilder(apiClient *clients.Settings) *SeedGeneratorBuilder {
-	return NewSeedGeneratorBuilder(apiClient, "")
-}
-
-func buildSeedGeneratorTestClientWithDummyObject(objects []runtime.Object) *clients.Settings {
+func newSeedGeneratorTestClient(objects []runtime.Object) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  objects,
-		SchemeAttachers: lcasgv1TestSchemes,
-	})
-}
-
-func buildDummySeedGeneratorRuntime() []runtime.Object {
-	return append([]runtime.Object{}, &lcasgv1.SeedGenerator{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: seedImageName,
-		},
-		Spec: lcasgv1.SeedGeneratorSpec{},
+		SchemeAttachers: []clients.SchemeAttacher{lcasgv1.AddToScheme},
 	})
 }
