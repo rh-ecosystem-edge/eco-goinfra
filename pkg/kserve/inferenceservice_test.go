@@ -1,16 +1,16 @@
 package kserve
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	kservev1beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/kserve/v1beta1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -18,151 +18,242 @@ const (
 	defaultISvcNamespace = "test-ns"
 )
 
-var isvcTestSchemes = []clients.SchemeAttacher{
-	kservev1beta1.AddToScheme,
-}
-
 func TestNewInferenceServiceBuilder(t *testing.T) {
-	testCases := []struct {
-		name             string
-		namespace        string
-		expectedErrorMsg string
-	}{
-		{
-			name:             defaultISvcName,
-			namespace:        defaultISvcNamespace,
-			expectedErrorMsg: "",
-		},
-		{
-			name:             "",
-			namespace:        defaultISvcNamespace,
-			expectedErrorMsg: "InferenceService 'name' cannot be empty",
-		},
-		{
-			name:             defaultISvcName,
-			namespace:        "",
-			expectedErrorMsg: "InferenceService 'namespace' cannot be empty",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			SchemeAttachers: isvcTestSchemes,
-		})
-		builder := NewInferenceServiceBuilder(testSettings, testCase.name, testCase.namespace)
-		assert.NotNil(t, builder)
-		assert.NotNil(t, builder.Definition)
-
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, testCase.name, builder.Definition.Name)
-			assert.Equal(t, testCase.namespace, builder.Definition.Namespace)
-			assert.Equal(t, "", builder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedErrorMsg, builder.errorMsg)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewInferenceServiceBuilder,
+		kservev1beta1.AddToScheme,
+		inferenceServiceGVK,
+	).ExecuteTests(t)
 }
 
-func TestNewInferenceServiceBuilderNilClient(t *testing.T) {
-	builder := NewInferenceServiceBuilder(nil, defaultISvcName, defaultISvcNamespace)
-	assert.Nil(t, builder)
+func TestPullInferenceService(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig(
+		PullInferenceService,
+		kservev1beta1.AddToScheme,
+		inferenceServiceGVK,
+	).ExecuteTests(t)
+}
+
+func TestInferenceServiceBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[kservev1beta1.InferenceService, InferenceServiceBuilder](
+		kservev1beta1.AddToScheme,
+		inferenceServiceGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestInferenceServiceWithModelFormat(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		modelFormat      string
-		expectedErrorMsg string
+		name           string
+		modelFormat    string
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			modelFormat:      "vllm-neuron",
-			expectedErrorMsg: "",
+			name:        "valid model format",
+			modelFormat: "vllm-neuron",
 		},
 		{
-			modelFormat:      "",
-			expectedErrorMsg: "InferenceService 'modelFormat' cannot be empty",
+			name:          "empty model format",
+			expectedError: "InferenceService 'modelFormat' cannot be empty",
+		},
+		{
+			name:           "invalid builder",
+			modelFormat:    "vllm-neuron",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		builder := buildValidISvcBuilder(buildISvcTestClient())
-		builder.WithModelFormat(testCase.modelFormat)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, testCase.modelFormat,
-				builder.Definition.Spec.Predictor.Model.ModelFormat.Name)
-			assert.Equal(t, "", builder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedErrorMsg, builder.errorMsg)
-		}
+			builder := buildValidISvcTestBuilder(buildISvcTestClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidISvcTestBuilder(buildISvcTestClient())
+			}
+
+			builder.WithModelFormat(testCase.modelFormat)
+
+			switch {
+			case testCase.invalidBuilder:
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+				assert.Empty(t, builder.Definition.Spec.Predictor.Model.ModelFormat.Name)
+			case testCase.expectedError != "":
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+				assert.Empty(t, builder.Definition.Spec.Predictor.Model.ModelFormat.Name)
+			default:
+				require.NoError(t, builder.GetError())
+				assert.Equal(t, testCase.modelFormat,
+					builder.Definition.Spec.Predictor.Model.ModelFormat.Name)
+			}
+		})
 	}
 }
 
 func TestInferenceServiceWithRuntime(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		runtime          string
-		expectedErrorMsg string
+		name           string
+		runtime        string
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			runtime:          "vllm-neuron-runtime",
-			expectedErrorMsg: "",
+			name:    "valid runtime",
+			runtime: "vllm-neuron-runtime",
 		},
 		{
-			runtime:          "",
-			expectedErrorMsg: "InferenceService 'runtime' cannot be empty",
+			name:          "empty runtime",
+			expectedError: "InferenceService 'runtime' cannot be empty",
+		},
+		{
+			name:           "invalid builder",
+			runtime:        "vllm-neuron-runtime",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		builder := buildValidISvcBuilder(buildISvcTestClient())
-		builder.WithRuntime(testCase.runtime)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, testCase.runtime, *builder.Definition.Spec.Predictor.Model.Runtime)
-			assert.Equal(t, "", builder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedErrorMsg, builder.errorMsg)
-		}
+			builder := buildValidISvcTestBuilder(buildISvcTestClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidISvcTestBuilder(buildISvcTestClient())
+			}
+
+			builder.WithRuntime(testCase.runtime)
+
+			switch {
+			case testCase.invalidBuilder:
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+				assert.Nil(t, builder.Definition.Spec.Predictor.Model.Runtime)
+			case testCase.expectedError != "":
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+				assert.Nil(t, builder.Definition.Spec.Predictor.Model.Runtime)
+			default:
+				require.NoError(t, builder.GetError())
+				assert.Equal(t, testCase.runtime, *builder.Definition.Spec.Predictor.Model.Runtime)
+			}
+		})
 	}
 }
 
 func TestInferenceServiceWithStorageURI(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		uri              string
-		expectedErrorMsg string
+		name           string
+		uri            string
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			uri:              "s3://bucket/model",
-			expectedErrorMsg: "",
+			name: "valid storage URI",
+			uri:  "s3://bucket/model",
 		},
 		{
-			uri:              "",
-			expectedErrorMsg: "InferenceService 'storageUri' cannot be empty",
+			name:          "empty storage URI",
+			expectedError: "InferenceService 'storageUri' cannot be empty",
+		},
+		{
+			name:           "invalid builder",
+			uri:            "s3://bucket/model",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		builder := buildValidISvcBuilder(buildISvcTestClient())
-		builder.WithStorageURI(testCase.uri)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, testCase.uri, *builder.Definition.Spec.Predictor.Model.StorageURI)
-			assert.Equal(t, "", builder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedErrorMsg, builder.errorMsg)
-		}
+			builder := buildValidISvcTestBuilder(buildISvcTestClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidISvcTestBuilder(buildISvcTestClient())
+			}
+
+			builder.WithStorageURI(testCase.uri)
+
+			switch {
+			case testCase.invalidBuilder:
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+				assert.Nil(t, builder.Definition.Spec.Predictor.Model.StorageURI)
+			case testCase.expectedError != "":
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+				assert.Nil(t, builder.Definition.Spec.Predictor.Model.StorageURI)
+			default:
+				require.NoError(t, builder.GetError())
+				assert.Equal(t, testCase.uri, *builder.Definition.Spec.Predictor.Model.StorageURI)
+			}
+		})
 	}
 }
 
 func TestInferenceServiceWithServiceAccountName(t *testing.T) {
-	builder := buildValidISvcBuilder(buildISvcTestClient())
-	builder.WithServiceAccountName("test-sa")
+	t.Parallel()
 
-	assert.Equal(t, "test-sa", builder.Definition.Spec.Predictor.ServiceAccountName)
-	assert.Equal(t, "", builder.errorMsg)
+	testCases := []struct {
+		name               string
+		serviceAccountName string
+		invalidBuilder     bool
+	}{
+		{
+			name:               "valid service account name",
+			serviceAccountName: "test-sa",
+		},
+		{
+			name:           "invalid builder",
+			invalidBuilder: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildValidISvcTestBuilder(buildISvcTestClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidISvcTestBuilder(buildISvcTestClient())
+			}
+
+			builder.WithServiceAccountName(testCase.serviceAccountName)
+
+			if testCase.invalidBuilder {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+				assert.Empty(t, builder.Definition.Spec.Predictor.ServiceAccountName)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.serviceAccountName, builder.Definition.Spec.Predictor.ServiceAccountName)
+		})
+	}
 }
 
 func TestInferenceServiceWithResources(t *testing.T) {
-	builder := buildValidISvcBuilder(buildISvcTestClient())
+	t.Parallel()
 
 	requests := corev1.ResourceList{
 		corev1.ResourceCPU:    resource.MustParse("1"),
@@ -173,347 +264,229 @@ func TestInferenceServiceWithResources(t *testing.T) {
 		corev1.ResourceMemory: resource.MustParse("4Gi"),
 	}
 
-	builder.WithResources(requests, limits)
-
-	assert.Equal(t, requests, builder.Definition.Spec.Predictor.Model.Resources.Requests)
-	assert.Equal(t, limits, builder.Definition.Spec.Predictor.Model.Resources.Limits)
-	assert.Equal(t, "", builder.errorMsg)
-}
-
-func TestInferenceServiceWithNeuronResources(t *testing.T) {
 	testCases := []struct {
-		description      string
-		devices          int64
-		memoryRequest    string
-		memoryLimit      string
-		expectedErrorMsg string
+		name           string
+		invalidBuilder bool
 	}{
 		{
-			description:      "valid neuron resources",
-			devices:          2,
-			memoryRequest:    "8Gi",
-			memoryLimit:      "16Gi",
-			expectedErrorMsg: "",
+			name: "valid resources",
 		},
 		{
-			description:      "invalid memory request",
-			devices:          1,
-			memoryRequest:    "not-a-quantity",
-			memoryLimit:      "8Gi",
-			expectedErrorMsg: "failed to parse memory request",
-		},
-		{
-			description:      "invalid memory limit",
-			devices:          1,
-			memoryRequest:    "8Gi",
-			memoryLimit:      "not-a-quantity",
-			expectedErrorMsg: "failed to parse memory limit",
+			name:           "invalid builder",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		builder := buildValidISvcBuilder(buildISvcTestClient())
-		builder.WithNeuronResources(testCase.devices, testCase.memoryRequest, testCase.memoryLimit)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorMsg == "" {
-			neuronQuantity := resource.MustParse(fmt.Sprintf("%d", testCase.devices))
-			assert.Equal(t, neuronQuantity,
-				builder.Definition.Spec.Predictor.Model.Resources.Requests["aws.amazon.com/neuron"])
-			assert.Equal(t, neuronQuantity,
-				builder.Definition.Spec.Predictor.Model.Resources.Limits["aws.amazon.com/neuron"])
-			assert.Equal(t, "", builder.errorMsg)
-		} else {
-			assert.Contains(t, builder.errorMsg, testCase.expectedErrorMsg)
-		}
+			builder := buildValidISvcTestBuilder(buildISvcTestClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidISvcTestBuilder(buildISvcTestClient())
+			}
+
+			builder.WithResources(requests, limits)
+
+			if testCase.invalidBuilder {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+				assert.Empty(t, builder.Definition.Spec.Predictor.Model.Resources.Requests)
+				assert.Empty(t, builder.Definition.Spec.Predictor.Model.Resources.Limits)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, requests, builder.Definition.Spec.Predictor.Model.Resources.Requests)
+			assert.Equal(t, limits, builder.Definition.Spec.Predictor.Model.Resources.Limits)
+		})
+	}
+}
+
+func TestInferenceServiceWithNeuronResources(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		devices        int64
+		memoryRequest  string
+		memoryLimit    string
+		invalidBuilder bool
+		expectedError  string
+	}{
+		{
+			name:          "valid neuron resources",
+			devices:       2,
+			memoryRequest: "8Gi",
+			memoryLimit:   "16Gi",
+		},
+		{
+			name:          "invalid memory request",
+			devices:       1,
+			memoryRequest: "not-a-quantity",
+			memoryLimit:   "8Gi",
+			expectedError: "failed to parse memory request",
+		},
+		{
+			name:          "invalid memory limit",
+			devices:       1,
+			memoryRequest: "8Gi",
+			memoryLimit:   "not-a-quantity",
+			expectedError: "failed to parse memory limit",
+		},
+		{
+			name:           "invalid builder",
+			devices:        1,
+			memoryRequest:  "8Gi",
+			memoryLimit:    "8Gi",
+			invalidBuilder: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildValidISvcTestBuilder(buildISvcTestClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidISvcTestBuilder(buildISvcTestClient())
+			}
+
+			builder.WithNeuronResources(testCase.devices, testCase.memoryRequest, testCase.memoryLimit)
+
+			switch {
+			case testCase.invalidBuilder:
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+				assert.Empty(t, builder.Definition.Spec.Predictor.Model.Resources.Requests)
+				assert.Empty(t, builder.Definition.Spec.Predictor.Model.Resources.Limits)
+			case testCase.expectedError != "":
+				assert.ErrorContains(t, builder.GetError(), testCase.expectedError)
+				assert.Empty(t, builder.Definition.Spec.Predictor.Model.Resources.Requests)
+				assert.Empty(t, builder.Definition.Spec.Predictor.Model.Resources.Limits)
+			default:
+				require.NoError(t, builder.GetError())
+
+				neuronQuantity := resource.MustParse("2")
+				memoryRequest := resource.MustParse(testCase.memoryRequest)
+				memoryLimit := resource.MustParse(testCase.memoryLimit)
+
+				assert.Equal(t, neuronQuantity,
+					builder.Definition.Spec.Predictor.Model.Resources.Requests["aws.amazon.com/neuron"])
+				assert.Equal(t, neuronQuantity,
+					builder.Definition.Spec.Predictor.Model.Resources.Limits["aws.amazon.com/neuron"])
+				assert.Equal(t, memoryRequest,
+					builder.Definition.Spec.Predictor.Model.Resources.Requests[corev1.ResourceMemory])
+				assert.Equal(t, memoryLimit,
+					builder.Definition.Spec.Predictor.Model.Resources.Limits[corev1.ResourceMemory])
+			}
+		})
 	}
 }
 
 func TestInferenceServiceWithAnnotation(t *testing.T) {
-	builder := buildValidISvcBuilder(buildISvcTestClient())
-	builder.WithAnnotation("serving.kserve.io/deploymentMode", "RawDeployment")
+	t.Parallel()
 
-	assert.Equal(t, "RawDeployment",
-		builder.Definition.Annotations["serving.kserve.io/deploymentMode"])
-	assert.Equal(t, "", builder.errorMsg)
+	const (
+		annotationKey   = "serving.kserve.io/deploymentMode"
+		annotationValue = "RawDeployment"
+	)
+
+	testCases := []struct {
+		name           string
+		invalidBuilder bool
+	}{
+		{
+			name: "valid annotation",
+		},
+		{
+			name:           "invalid builder",
+			invalidBuilder: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildValidISvcTestBuilder(buildISvcTestClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidISvcTestBuilder(buildISvcTestClient())
+			}
+
+			builder.WithAnnotation(annotationKey, annotationValue)
+
+			if testCase.invalidBuilder {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+				assert.Empty(t, builder.Definition.Annotations)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, annotationValue, builder.Definition.Annotations[annotationKey])
+		})
+	}
 }
 
 func TestInferenceServiceWithEnv(t *testing.T) {
-	builder := buildValidISvcBuilder(buildISvcTestClient())
+	t.Parallel()
 
 	envVars := []corev1.EnvVar{
 		{Name: "NEURON_CORES", Value: "2"},
 		{Name: "MODEL_NAME", Value: "test-model"},
 	}
 
-	builder.WithEnv(envVars)
-
-	assert.Equal(t, 2, len(builder.Definition.Spec.Predictor.Model.Env))
-	assert.Equal(t, "NEURON_CORES", builder.Definition.Spec.Predictor.Model.Env[0].Name)
-	assert.Equal(t, "2", builder.Definition.Spec.Predictor.Model.Env[0].Value)
-	assert.Equal(t, "", builder.errorMsg)
-}
-
-func TestPullInferenceService(t *testing.T) {
 	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
+		name           string
+		invalidBuilder bool
 	}{
 		{
-			name:                defaultISvcName,
-			namespace:           defaultISvcNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
+			name: "valid environment variables",
 		},
 		{
-			name:                "",
-			namespace:           defaultISvcNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("inferenceService 'name' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                defaultISvcName,
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("inferenceService 'namespace' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "nonexistent",
-			namespace:           defaultISvcNamespace,
-			addToRuntimeObjects: false,
-			expectedError: fmt.Errorf(
-				"inferenceService nonexistent does not exist in namespace %s", defaultISvcNamespace),
-			client: true,
-		},
-		{
-			name:                defaultISvcName,
-			namespace:           defaultISvcNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("inferenceService 'apiClient' cannot be nil"),
-			client:              false,
+			name:           "invalid builder",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		var testSettings *clients.Settings
+			builder := buildValidISvcTestBuilder(buildISvcTestClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidISvcTestBuilder(buildISvcTestClient())
+			}
 
-		testISvc := buildDummyInferenceService(testCase.name, testCase.namespace)
+			builder.WithEnv(envVars)
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testISvc)
-		}
+			if testCase.invalidBuilder {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+				assert.Empty(t, builder.Definition.Spec.Predictor.Model.Env)
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: isvcTestSchemes,
-			})
-		}
+				return
+			}
 
-		builderResult, err := PullInferenceService(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.expectedError != nil {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testISvc.Name, builderResult.Object.Name)
-			assert.Equal(t, testISvc.Namespace, builderResult.Object.Namespace)
-		}
-	}
-}
-
-func TestInferenceServiceExists(t *testing.T) {
-	testCases := []struct {
-		testISvc       *InferenceServiceBuilder
-		expectedStatus bool
-	}{
-		{
-			testISvc:       buildValidISvcBuilder(buildISvcClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testISvc:       buildInvalidISvcBuilder(buildISvcClientWithDummyObject()),
-			expectedStatus: false,
-		},
-		{
-			testISvc:       buildValidISvcBuilder(buildISvcTestClient()),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.testISvc.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
-
-func TestInferenceServiceCreate(t *testing.T) {
-	testCases := []struct {
-		testISvc    *InferenceServiceBuilder
-		expectedErr bool
-	}{
-		{
-			testISvc:    buildValidISvcBuilder(buildISvcTestClient()),
-			expectedErr: false,
-		},
-		{
-			testISvc:    buildInvalidISvcBuilder(buildISvcTestClient()),
-			expectedErr: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		result, err := testCase.testISvc.Create()
-
-		if testCase.expectedErr {
-			assert.NotNil(t, err)
-		} else {
-			assert.Nil(t, err)
-			assert.NotNil(t, result.Object)
-			assert.Equal(t, defaultISvcName, result.Object.Name)
-		}
-	}
-}
-
-func TestInferenceServiceDelete(t *testing.T) {
-	testCases := []struct {
-		testISvc    *InferenceServiceBuilder
-		expectedErr bool
-	}{
-		{
-			testISvc:    buildValidISvcBuilder(buildISvcClientWithDummyObject()),
-			expectedErr: false,
-		},
-		{
-			testISvc:    buildValidISvcBuilder(buildISvcTestClient()),
-			expectedErr: false,
-		},
-		{
-			testISvc:    buildInvalidISvcBuilder(buildISvcTestClient()),
-			expectedErr: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		result, err := testCase.testISvc.Delete()
-
-		if testCase.expectedErr {
-			assert.NotNil(t, err)
-		} else {
-			assert.Nil(t, err)
-			assert.Nil(t, result.Object)
-		}
-	}
-}
-
-func TestInferenceServiceValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		errorMsg      string
-		expectedValid bool
-	}{
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			errorMsg:      "",
-			expectedValid: true,
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			errorMsg:      "",
-			expectedValid: false,
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			errorMsg:      "",
-			expectedValid: false,
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			errorMsg:      "test error",
-			expectedValid: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			SchemeAttachers: isvcTestSchemes,
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, envVars, builder.Definition.Spec.Predictor.Model.Env)
 		})
-
-		builder := &InferenceServiceBuilder{
-			apiClient:  testSettings,
-			Definition: &kservev1beta1.InferenceService{},
-			errorMsg:   testCase.errorMsg,
-		}
-
-		if testCase.definitionNil {
-			builder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			builder.apiClient = nil
-		}
-
-		valid, err := builder.validate()
-		assert.Equal(t, testCase.expectedValid, valid)
-
-		if !testCase.expectedValid {
-			assert.NotNil(t, err)
-		} else {
-			assert.Nil(t, err)
-		}
 	}
 }
 
-func buildValidISvcBuilder(apiClient *clients.Settings) *InferenceServiceBuilder {
+func buildValidISvcTestBuilder(apiClient *clients.Settings) *InferenceServiceBuilder {
 	return NewInferenceServiceBuilder(apiClient, defaultISvcName, defaultISvcNamespace)
 }
 
-func buildInvalidISvcBuilder(apiClient *clients.Settings) *InferenceServiceBuilder {
+func buildInvalidISvcTestBuilder(apiClient *clients.Settings) *InferenceServiceBuilder {
 	return NewInferenceServiceBuilder(apiClient, "", defaultISvcNamespace)
 }
 
 func buildISvcTestClient() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		SchemeAttachers: isvcTestSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{kservev1beta1.AddToScheme},
 	})
-}
-
-func buildISvcClientWithDummyObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyISvcObjects(),
-		SchemeAttachers: isvcTestSchemes,
-	})
-}
-
-func buildDummyISvcObjects() []runtime.Object {
-	return []runtime.Object{
-		buildDummyInferenceService(defaultISvcName, defaultISvcNamespace),
-	}
-}
-
-func buildDummyInferenceService(name, namespace string) *kservev1beta1.InferenceService {
-	return &kservev1beta1.InferenceService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-	}
 }
