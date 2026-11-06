@@ -2,12 +2,15 @@ package storage
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -16,179 +19,142 @@ import (
 const defaultPersistentVolumeName = "persistentvolume-test"
 
 func TestPullPersistentVolume(t *testing.T) {
-	testCases := []struct {
-		persistentVolumeName string
-		addToRuntimeObjects  bool
-		client               bool
-		expectedErrorText    string
-	}{
-		{
-			persistentVolumeName: defaultPersistentVolumeName,
-			addToRuntimeObjects:  true,
-			client:               true,
-			expectedErrorText:    "",
-		},
-		{
-			persistentVolumeName: defaultPersistentVolumeName,
-			addToRuntimeObjects:  true,
-			client:               false,
-			expectedErrorText:    "persistentVolume 'apiClient' cannot be empty",
-		},
-		{
-			persistentVolumeName: defaultPersistentVolumeName,
-			addToRuntimeObjects:  false,
-			client:               true,
-			expectedErrorText:    fmt.Sprintf("PersistentVolume object %s does not exist", defaultPersistentVolumeName),
-		},
-		{
-			persistentVolumeName: "",
-			addToRuntimeObjects:  true,
-			client:               true,
-			expectedErrorText:    "persistentVolume 'name' cannot be empty",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testPersistentVolume := buildDummyPersistentVolume(testCase.persistentVolumeName)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testPersistentVolume)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
-
-		persistentVolumeBuilder, err := PullPersistentVolume(testSettings, testCase.persistentVolumeName)
-
-		if testCase.expectedErrorText == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testPersistentVolume.Name, persistentVolumeBuilder.Definition.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedErrorText)
-		}
-	}
+	testhelper.NewClusterScopedPullTestConfig(
+		PullPersistentVolume,
+		corev1.AddToScheme,
+		persistentVolumeGVK,
+	).ExecuteTests(t)
 }
 
-func TestPersistentVolumeExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *PVBuilder
-		exists      bool
-	}{
-		{
-			testBuilder: buildValidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume()),
-			exists:      true,
-		},
-		{
-			testBuilder: buildInvalidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume()),
-			exists:      false,
-		},
-		{
-			testBuilder: buildValidPersistentVolumeTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
-		},
-	}
+func TestPersistentVolumeBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
-}
+	commonTestConfig := testhelper.NewCommonTestConfig[corev1.PersistentVolume, PVBuilder](
+		corev1.AddToScheme,
+		persistentVolumeGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
 
-func TestPersistentVolumeDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *PVBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildValidPersistentVolumeTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume()),
-			expectedError: fmt.Errorf("can not redefine the undefined PersistentVolume"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestPersistentVolumeDeleteAndWait(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBuilder       *PVBuilder
-		expectedErrorText string
+		name           string
+		objectExists   bool
+		invalidBuilder bool
 	}{
 		{
-			testBuilder:       buildValidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume()),
-			expectedErrorText: "",
+			name:         "deletes existing persistent volume",
+			objectExists: true,
 		},
 		{
-			testBuilder:       buildValidPersistentVolumeTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedErrorText: "",
+			name: "persistent volume already absent",
 		},
 		{
-			testBuilder:       buildInvalidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume()),
-			expectedErrorText: "can not redefine the undefined PersistentVolume",
+			name:           "invalid builder short circuits",
+			objectExists:   true,
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testBuilder.DeleteAndWait(time.Second)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Nil(t, err)
-			assert.Nil(t, testCase.testBuilder.Object)
-		} else {
-			assert.EqualError(t, err, testCase.expectedErrorText)
-		}
+			var objects []runtime.Object
+			if testCase.objectExists {
+				objects = append(objects, buildDummyPersistentVolume(defaultPersistentVolumeName))
+			}
+
+			apiClient := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  objects,
+				SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+			})
+
+			builder := buildValidPersistentVolumeTestBuilder(apiClient)
+			if testCase.invalidBuilder {
+				builder = buildInvalidPersistentVolumeTestBuilder(apiClient)
+			}
+
+			err := builder.DeleteAndWait(time.Second)
+
+			if testCase.invalidBuilder {
+				require.Error(t, err)
+				assert.True(t, commonerrors.IsBuilderNameEmpty(err))
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Nil(t, builder.Object)
+		})
 	}
 }
 
 func TestPersistentVolumeWaitUntilDeleted(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBuilder   *PVBuilder
-		expectedError error
+		name           string
+		objectExists   bool
+		invalidBuilder bool
+		expectTimeout  bool
 	}{
 		{
-			testBuilder:   buildValidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume()),
-			expectedError: context.DeadlineExceeded,
+			name:          "times out while persistent volume remains",
+			objectExists:  true,
+			expectTimeout: true,
 		},
 		{
-			testBuilder:   buildValidPersistentVolumeTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
+			name: "persistent volume already absent",
 		},
 		{
-			testBuilder:   buildInvalidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume()),
-			expectedError: fmt.Errorf("can not redefine the undefined PersistentVolume"),
+			name:           "invalid builder short circuits",
+			objectExists:   true,
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testBuilder.WaitUntilDeleted(time.Second)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
+			var objects []runtime.Object
+			if testCase.objectExists {
+				objects = append(objects, buildDummyPersistentVolume(defaultPersistentVolumeName))
+			}
+
+			apiClient := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  objects,
+				SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+			})
+
+			builder := buildValidPersistentVolumeTestBuilder(apiClient)
+			if testCase.invalidBuilder {
+				builder = buildInvalidPersistentVolumeTestBuilder(apiClient)
+			}
+
+			err := builder.WaitUntilDeleted(time.Second)
+
+			switch {
+			case testCase.invalidBuilder:
+				require.Error(t, err)
+				assert.True(t, commonerrors.IsBuilderNameEmpty(err))
+			case testCase.expectTimeout:
+				assert.Equal(t, context.DeadlineExceeded, err)
+			default:
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 
@@ -201,26 +167,14 @@ func buildDummyPersistentVolume(name string) *corev1.PersistentVolume {
 	}
 }
 
-// buildTestClientWithDummyPersistentVolume returns a client with a mock PersistentVolume with the default name.
-func buildTestClientWithDummyPersistentVolume() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyPersistentVolume(defaultPersistentVolumeName),
-		},
-	})
-}
-
 // buildValidPersistentVolumeTestBuilder returns a valid PVBuilder with the default name and specified client.
 func buildValidPersistentVolumeTestBuilder(apiClient *clients.Settings) *PVBuilder {
-	return &PVBuilder{
-		apiClient:  apiClient,
-		Definition: buildDummyPersistentVolume(defaultPersistentVolumeName),
-	}
+	return common.NewClusterScopedBuilder[corev1.PersistentVolume, PVBuilder](
+		apiClient, corev1.AddToScheme, defaultPersistentVolumeName)
 }
 
-// buildInvalidPersistentVolumeTestBuilder returns an invalid PVBuilder with no definition and the specified client.
+// buildInvalidPersistentVolumeTestBuilder returns an invalid PVBuilder with an empty name and the specified client.
 func buildInvalidPersistentVolumeTestBuilder(apiClient *clients.Settings) *PVBuilder {
-	return &PVBuilder{
-		apiClient: apiClient,
-	}
+	return common.NewClusterScopedBuilder[corev1.PersistentVolume, PVBuilder](
+		apiClient, corev1.AddToScheme, "")
 }
