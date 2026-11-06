@@ -1,14 +1,14 @@
 package kmm
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/kmm/v1beta1"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -22,287 +22,39 @@ var (
 )
 
 func TestNewModuleBuilder(t *testing.T) {
-	testCases := []struct {
-		name        string
-		namespace   string
-		expectedErr string
-		client      bool
-	}{
-		{
-			name:        defaultModuleName,
-			namespace:   defaultModuleNamespace,
-			expectedErr: "",
-			client:      true,
-		},
-		{
-			name:        defaultModuleName,
-			namespace:   defaultModuleNamespace,
-			expectedErr: "",
-			client:      false,
-		},
-		{
-			name:        defaultModuleName,
-			namespace:   "",
-			expectedErr: errEmptyModuleNamespace,
-			client:      true,
-		},
-		{
-			name:        "",
-			namespace:   defaultModuleNamespace,
-			expectedErr: "module 'name' cannot be empty",
-			client:      true,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemesV1beta1})
-		}
-
-		testBuilder := NewModuleBuilder(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.expectedErr == "" {
-			if testCase.client {
-				assert.NotNil(t, testBuilder)
-				assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-				assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-			} else {
-				assert.Nil(t, testBuilder)
-			}
-		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewModuleBuilder, v1beta1.AddToScheme, moduleGVK).ExecuteTests(t)
 }
 
 func TestModulePull(t *testing.T) {
-	testCases := []struct {
-		name                string
-		namespace           string
-		expectedError       error
-		addToRuntimeObjects bool
-		client              bool
-	}{
-		{
-			name:                "test",
-			namespace:           "testns",
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "testns",
-			expectedError:       fmt.Errorf("module 'name' cannot be empty"),
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "test",
-			namespace:           "",
-			expectedError:       fmt.Errorf(errEmptyModuleNamespace),
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "test",
-			namespace:           "testns",
-			expectedError:       fmt.Errorf("module object test does not exist in namespace testns"),
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-		{
-			name:                "test",
-			namespace:           "testns",
-			expectedError:       fmt.Errorf("module 'apiClient' cannot be empty"),
-			addToRuntimeObjects: true,
-			client:              false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testModule := generateModule(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testModule)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemesV1beta1,
-			})
-		}
-
-		builderResult, err := Pull(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Definition.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Definition.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(Pull, v1beta1.AddToScheme, moduleGVK).ExecuteTests(t)
 }
 
-func TestModuleGet(t *testing.T) {
-	testCases := []struct {
-		testModule    *ModuleBuilder
-		expectedError error
-	}{
-		{
-			testModule:    buildValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testModule:    buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyModuleNamespace),
-		},
-		{
-			testModule:    buildValidTestModule(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("modules.kmm.sigs.x-k8s.io \"testmodule\" not found"),
-		},
-	}
+func TestModuleBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		module, err := testCase.testModule.Get()
+	commonTestConfig := testhelper.NewCommonTestConfig[v1beta1.Module, ModuleBuilder](
+		v1beta1.AddToScheme,
+		moduleGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, module.Name, testCase.testModule.Definition.Name)
-			assert.Equal(t, module.Namespace, testCase.testModule.Definition.Namespace)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestModuleExists(t *testing.T) {
-	testCases := []struct {
-		testModule     *ModuleBuilder
-		expectedStatus bool
-	}{
-		{
-			testModule:     buildValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testModule:     buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedStatus: false,
-		},
-		{
-			testModule:     buildValidTestModule(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.testModule.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
-
-func TestModuleCreate(t *testing.T) {
-	testCases := []struct {
-		testModule    *ModuleBuilder
-		expectedError string
-	}{
-		{
-			testModule:    buildValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: "",
-		},
-		{
-			testModule:    buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: errEmptyModuleNamespace,
-		},
-		{
-			testModule:    buildValidTestModule(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testModuleBuilder, err := testCase.testModule.Create()
-		if testCase.expectedError == "" {
-			assert.Equal(t, testModuleBuilder.Definition.Name, testModuleBuilder.Object.Name)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
-}
-
-func TestModuleDelete(t *testing.T) {
-	testCases := []struct {
-		testModule    *ModuleBuilder
-		expectedError error
-	}{
-		{
-			testModule:    buildValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testModule:    buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyModuleNamespace),
-		},
-		{
-			testModule:    buildValidTestModule(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testModule.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testModule.Object)
-		}
-	}
-}
-
-func TestModuleUpdate(t *testing.T) {
-	testCases := []struct {
-		testModule    *ModuleBuilder
-		expectedError error
-	}{
-		{
-			testModule:    buildValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testModule:    buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyModuleNamespace),
-		},
-		{
-			testModule:    buildValidTestModule(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("modules.kmm.sigs.x-k8s.io \"testmodule\" not found"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Empty(t, testCase.testModule.Definition.Spec.Selector)
-		testCase.testModule.Definition.ResourceVersion = "999"
-		testCase.testModule.Definition.Spec.Selector = map[string]string{"test": "test"}
-		_, err := testCase.testModule.Update()
-
-		if errors.IsNotFound(err) {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testCase.expectedError, err)
-		}
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, map[string]string{"test": "test"}, testCase.testModule.Object.Spec.Selector)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestModuleWithNodeSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		nodeSelector map[string]string
 		expectedErr  string
@@ -324,12 +76,14 @@ func TestModuleWithNodeSelector(t *testing.T) {
 		if testCase.expectedErr == "" {
 			assert.Equal(t, testBuilder.Definition.Spec.Selector, testCase.nodeSelector)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithLoadServiceAccount(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		loadServiceAccount string
 		expectedErr        string
@@ -351,12 +105,14 @@ func TestModuleWithLoadServiceAccount(t *testing.T) {
 		if testCase.expectedErr == "" {
 			assert.Equal(t, testBuilder.Definition.Spec.ModuleLoader.ServiceAccountName, testCase.loadServiceAccount)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDevicePluginServiceAccount(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		devicePluginServiceAccount string
 		expectedErr                string
@@ -378,12 +134,14 @@ func TestModuleWithDevicePluginServiceAccount(t *testing.T) {
 		if testCase.expectedErr == "" {
 			assert.Equal(t, testBuilder.Definition.Spec.DevicePlugin.ServiceAccountName, testCase.devicePluginServiceAccount)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithImageRepoSecret(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		repoSecret  string
 		expectedErr string
@@ -405,12 +163,14 @@ func TestModuleWithImageRepoSecret(t *testing.T) {
 		if testCase.expectedErr == "" {
 			assert.Equal(t, testBuilder.Definition.Spec.ImageRepoSecret.Name, testCase.repoSecret)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDevicePluginAutomountServiceAccountToken(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		automount     bool
 		expectedValue bool
@@ -437,6 +197,8 @@ func TestModuleWithDevicePluginAutomountServiceAccountToken(t *testing.T) {
 }
 
 func TestModuleWithDevicePluginVolume(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		pluginVolumeName string
 		configMapName    string
@@ -467,12 +229,14 @@ func TestModuleWithDevicePluginVolume(t *testing.T) {
 			assert.Equal(t, testBuilder.Definition.Spec.DevicePlugin.Volumes[0].Name, testCase.pluginVolumeName)
 			assert.Equal(t, testBuilder.Definition.Spec.DevicePlugin.Volumes[0].ConfigMap.Name, testCase.configMapName)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithModuleLoaderContainer(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		containerSpec *v1beta1.ModuleLoaderContainerSpec
 		expectedErr   string
@@ -494,12 +258,14 @@ func TestModuleWithModuleLoaderContainer(t *testing.T) {
 		if testCase.expectedErr == "" {
 			assert.Equal(t, testBuilder.Definition.Spec.ModuleLoader.Container, *testCase.containerSpec)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDevicePluginContainer(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		containerSpec *v1beta1.DevicePluginContainerSpec
 		expectedErr   string
@@ -521,27 +287,26 @@ func TestModuleWithDevicePluginContainer(t *testing.T) {
 		if testCase.expectedErr == "" {
 			assert.Equal(t, testBuilder.Definition.Spec.DevicePlugin.Container, *testCase.containerSpec)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithOptions(t *testing.T) {
-	testSettings := buildModuleTestClientWithDummyObject()
-	testBuilder := buildValidTestModule(testSettings).WithOptions(
-		func(builder *ModuleBuilder) (*ModuleBuilder, error) {
-			return builder, nil
-		})
+	t.Parallel()
 
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidTestModule(testSettings).WithOptions(
-		func(builder *ModuleBuilder) (*ModuleBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
+	commonTestConfig := testhelper.NewCommonTestConfig[v1beta1.Module, ModuleBuilder](
+		v1beta1.AddToScheme,
+		moduleGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+
+	testhelper.NewWithOptionsTestConfig(commonTestConfig).ExecuteTests(t)
 }
 
 func TestModuleWithToleration(t *testing.T) {
+	t.Parallel()
+
 	var tenSeconds = int64(10)
 
 	testCases := []struct {
@@ -603,12 +368,14 @@ func TestModuleWithToleration(t *testing.T) {
 			assert.Equal(t, testCase.value, testBuilder.Definition.Spec.Tolerations[0].Value)
 			assert.Equal(t, testCase.seconds, testBuilder.Definition.Spec.Tolerations[0].TolerationSeconds)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithImageRebuildTriggerGeneration(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		generation  int
 		expectedErr string
@@ -635,32 +402,41 @@ func TestModuleWithImageRebuildTriggerGeneration(t *testing.T) {
 			assert.NotNil(t, testBuilder.Definition.Spec.ImageRebuildTriggerGeneration)
 			assert.Equal(t, testCase.generation, *testBuilder.Definition.Spec.ImageRebuildTriggerGeneration)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleBuildModuleSpec(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testModule    *ModuleBuilder
-		expectedError string
+		name       string
+		testModule *ModuleBuilder
+		valid      bool
 	}{
 		{
-			testModule:    buildValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: "",
+			name:       "valid builder",
+			testModule: buildValidTestModule(buildModuleTestClientWithDummyObject()),
+			valid:      true,
 		},
 		{
-			testModule:    buildInValidTestModule(buildModuleTestClientWithDummyObject()),
-			expectedError: errEmptyModuleNamespace,
+			name:       "invalid builder",
+			testModule: buildInValidTestModule(buildModuleTestClientWithDummyObject()),
 		},
 	}
 	for _, testCase := range testCases {
-		moduleSpec, err := testCase.testModule.BuildModuleSpec()
-		if testCase.expectedError == "" {
-			assert.NotEmpty(t, moduleSpec)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			moduleSpec, err := testCase.testModule.BuildModuleSpec()
+			if testCase.valid {
+				assert.NoError(t, err)
+				assert.NotEmpty(t, moduleSpec)
+			} else {
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(err))
+			}
+		})
 	}
 }
 
@@ -695,16 +471,22 @@ func buildDummyModule() []runtime.Object {
 	})
 }
 
-func generateModule(name, nsname string) *v1beta1.Module {
-	return &v1beta1.Module{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nsname,
-		},
+// assertModuleBuilderError checks the package-specific error message stored on a Module builder.
+func assertModuleBuilderError(t *testing.T, expectedError string, builder *ModuleBuilder) {
+	t.Helper()
+
+	if expectedError == "" {
+		assert.NoError(t, builder.GetError())
+
+		return
 	}
+
+	assert.EqualError(t, builder.GetError(), expectedError)
 }
 
 func TestModuleWithDRA(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		dra         *v1beta1.DRASpec
 		expectedErr string
@@ -727,12 +509,14 @@ func TestModuleWithDRA(t *testing.T) {
 			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
 			assert.Equal(t, testCase.dra.DriverName, testBuilder.Definition.Spec.DRA.DriverName)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDRAContainer(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		container   *v1beta1.CommonContainerSpec
 		expectedErr string
@@ -755,12 +539,14 @@ func TestModuleWithDRAContainer(t *testing.T) {
 			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
 			assert.Equal(t, testCase.container.Image, testBuilder.Definition.Spec.DRA.Container.Image)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDRAInitContainer(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		container   *v1beta1.CommonContainerSpec
 		expectedErr string
@@ -784,12 +570,14 @@ func TestModuleWithDRAInitContainer(t *testing.T) {
 			assert.NotNil(t, testBuilder.Definition.Spec.DRA.InitContainer)
 			assert.Equal(t, testCase.container.Image, testBuilder.Definition.Spec.DRA.InitContainer.Image)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDRAServiceAccount(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		serviceAccount string
 		expectedErr    string
@@ -812,12 +600,14 @@ func TestModuleWithDRAServiceAccount(t *testing.T) {
 			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
 			assert.Equal(t, testCase.serviceAccount, testBuilder.Definition.Spec.DRA.ServiceAccountName)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDRADriverName(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		driverName  string
 		expectedErr string
@@ -840,12 +630,14 @@ func TestModuleWithDRADriverName(t *testing.T) {
 			assert.NotNil(t, testBuilder.Definition.Spec.DRA)
 			assert.Equal(t, testCase.driverName, testBuilder.Definition.Spec.DRA.DriverName)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDRADeviceClass(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		deviceClass v1beta1.DeviceClassSpec
 		expectedErr string
@@ -869,23 +661,27 @@ func TestModuleWithDRADeviceClass(t *testing.T) {
 			assert.Len(t, testBuilder.Definition.Spec.DRA.DeviceClasses, 1)
 			assert.Equal(t, testCase.deviceClass.Name, testBuilder.Definition.Spec.DRA.DeviceClasses[0].Name)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDRADeviceClassMultiple(t *testing.T) {
+	t.Parallel()
+
 	testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
 	testBuilder.WithDRADeviceClass(v1beta1.DeviceClassSpec{Name: "device-a"})
 	testBuilder.WithDRADeviceClass(v1beta1.DeviceClassSpec{Name: "device-b"})
 
-	assert.Empty(t, testBuilder.errorMsg)
+	assert.NoError(t, testBuilder.GetError())
 	assert.Len(t, testBuilder.Definition.Spec.DRA.DeviceClasses, 2)
 	assert.Equal(t, "device-a", testBuilder.Definition.Spec.DRA.DeviceClasses[0].Name)
 	assert.Equal(t, "device-b", testBuilder.Definition.Spec.DRA.DeviceClasses[1].Name)
 }
 
 func TestModuleWithDRAVolume(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
 		configMapName string
@@ -919,12 +715,14 @@ func TestModuleWithDRAVolume(t *testing.T) {
 			assert.Equal(t, testCase.configMapName,
 				testBuilder.Definition.Spec.DRA.Volumes[0].ConfigMap.Name)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDRAHostPathVolume(t *testing.T) {
+	t.Parallel()
+
 	dirType := corev1.HostPathDirectory
 
 	testCases := []struct {
@@ -964,12 +762,14 @@ func TestModuleWithDRAHostPathVolume(t *testing.T) {
 			assert.Equal(t, testCase.path, testBuilder.Definition.Spec.DRA.Volumes[0].HostPath.Path)
 			assert.Equal(t, testCase.pathType, testBuilder.Definition.Spec.DRA.Volumes[0].HostPath.Type)
 		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			assertModuleBuilderError(t, testCase.expectedErr, testBuilder)
 		}
 	}
 }
 
 func TestModuleWithDRAAutomountServiceAccountToken(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		automount     bool
 		expectedValue bool
@@ -996,23 +796,29 @@ func TestModuleWithDRAAutomountServiceAccountToken(t *testing.T) {
 }
 
 func TestModuleWithServiceAccountDRAPath(t *testing.T) {
+	t.Parallel()
+
 	testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
 	testBuilder.WithDRAServiceAccount("dra-sa")
 
-	assert.Empty(t, testBuilder.errorMsg)
+	assert.NoError(t, testBuilder.GetError())
 	assert.NotNil(t, testBuilder.Definition.Spec.DRA)
 	assert.Equal(t, "dra-sa", testBuilder.Definition.Spec.DRA.ServiceAccountName)
 }
 
 func TestModuleWithServiceAccountInvalidType(t *testing.T) {
+	t.Parallel()
+
 	testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
 	testBuilder.withServiceAccount("test-sa", "invalid")
 
-	assert.Equal(t, "invalid account type parameter. Supported parameters are: 'module', 'device', 'dra'",
-		testBuilder.errorMsg)
+	assert.EqualError(t, testBuilder.GetError(),
+		"invalid account type parameter. Supported parameters are: 'module', 'device', 'dra'")
 }
 
 func TestModuleWithDRAChaining(t *testing.T) {
+	t.Parallel()
+
 	testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
 	testBuilder.
 		WithDRADriverName("gpu.example.com").
@@ -1022,7 +828,7 @@ func TestModuleWithDRAChaining(t *testing.T) {
 		WithDRAVolume("config", "config-cm").
 		WithDRAAutomountServiceAccountToken(true)
 
-	assert.Empty(t, testBuilder.errorMsg)
+	assert.NoError(t, testBuilder.GetError())
 	assert.Equal(t, "gpu.example.com", testBuilder.Definition.Spec.DRA.DriverName)
 	assert.Equal(t, "driver:v1", testBuilder.Definition.Spec.DRA.Container.Image)
 	assert.Equal(t, "dra-sa", testBuilder.Definition.Spec.DRA.ServiceAccountName)
@@ -1031,39 +837,80 @@ func TestModuleWithDRAChaining(t *testing.T) {
 	assert.True(t, *testBuilder.Definition.Spec.DRA.AutomountServiceAccountToken)
 }
 
-func TestModuleWithDRAOnInvalidBuilder(t *testing.T) {
+func TestModuleModifiersOnInvalidBuilder(t *testing.T) {
+	t.Parallel()
+
 	testBuilder := buildInValidTestModule(buildModuleTestClientWithDummyObject())
-	origErr := testBuilder.errorMsg
+	origErr := testBuilder.GetError()
+
+	testBuilder.WithNodeSelector(map[string]string{"test": "test"})
+	assert.Equal(t, origErr, testBuilder.GetError())
+
+	testBuilder.WithLoadServiceAccount("test")
+	assert.Equal(t, origErr, testBuilder.GetError())
+
+	testBuilder.WithDevicePluginServiceAccount("test")
+	assert.Equal(t, origErr, testBuilder.GetError())
+
+	testBuilder.WithImageRepoSecret("test")
+	assert.Equal(t, origErr, testBuilder.GetError())
+
+	testBuilder.WithDevicePluginAutomountServiceAccountToken(true)
+	assert.Equal(t, origErr, testBuilder.GetError())
+
+	testBuilder.WithDevicePluginVolume("test", "test")
+	assert.Equal(t, origErr, testBuilder.GetError())
+
+	testBuilder.WithToleration("test", "Equals", "test", "NoSchedule", nil)
+	assert.Equal(t, origErr, testBuilder.GetError())
+
+	testBuilder.WithModuleLoaderContainer(&v1beta1.ModuleLoaderContainerSpec{})
+	assert.Equal(t, origErr, testBuilder.GetError())
+
+	testBuilder.WithDevicePluginContainer(&v1beta1.DevicePluginContainerSpec{})
+	assert.Equal(t, origErr, testBuilder.GetError())
+
+	testBuilder.WithImageRebuildTriggerGeneration(1)
+	assert.Equal(t, origErr, testBuilder.GetError())
+}
+
+func TestModuleDRAModifiersOnInvalidBuilder(t *testing.T) {
+	t.Parallel()
+
+	testBuilder := buildInValidTestModule(buildModuleTestClientWithDummyObject())
+	origErr := testBuilder.GetError()
 
 	testBuilder.WithDRA(&v1beta1.DRASpec{DriverName: "test"})
-	assert.Equal(t, origErr, testBuilder.errorMsg)
+	assert.Equal(t, origErr, testBuilder.GetError())
 
 	testBuilder.WithDRAContainer(&v1beta1.CommonContainerSpec{Image: "test"})
-	assert.Equal(t, origErr, testBuilder.errorMsg)
+	assert.Equal(t, origErr, testBuilder.GetError())
 
 	testBuilder.WithDRAInitContainer(&v1beta1.CommonContainerSpec{Image: "test"})
-	assert.Equal(t, origErr, testBuilder.errorMsg)
+	assert.Equal(t, origErr, testBuilder.GetError())
 
 	testBuilder.WithDRADriverName("test")
-	assert.Equal(t, origErr, testBuilder.errorMsg)
+	assert.Equal(t, origErr, testBuilder.GetError())
 
 	testBuilder.WithDRAServiceAccount("test")
-	assert.Equal(t, origErr, testBuilder.errorMsg)
+	assert.Equal(t, origErr, testBuilder.GetError())
 
 	testBuilder.WithDRADeviceClass(v1beta1.DeviceClassSpec{Name: "test"})
-	assert.Equal(t, origErr, testBuilder.errorMsg)
+	assert.Equal(t, origErr, testBuilder.GetError())
 
 	testBuilder.WithDRAVolume("test", "test")
-	assert.Equal(t, origErr, testBuilder.errorMsg)
+	assert.Equal(t, origErr, testBuilder.GetError())
 
 	testBuilder.WithDRAHostPathVolume("test", "/test", nil)
-	assert.Equal(t, origErr, testBuilder.errorMsg)
+	assert.Equal(t, origErr, testBuilder.GetError())
 
 	testBuilder.WithDRAAutomountServiceAccountToken(true)
-	assert.Equal(t, origErr, testBuilder.errorMsg)
+	assert.Equal(t, origErr, testBuilder.GetError())
 }
 
 func TestModuleWithDRAInitializesDRASpec(t *testing.T) {
+	t.Parallel()
+
 	testBuilder := buildValidTestModule(buildModuleTestClientWithDummyObject())
 	assert.Nil(t, testBuilder.Definition.Spec.DRA)
 
