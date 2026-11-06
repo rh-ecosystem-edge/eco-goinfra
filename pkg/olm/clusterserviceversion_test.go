@@ -1,10 +1,11 @@
 package olm
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	oplmV1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/olm/operators/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,313 +13,170 @@ import (
 )
 
 func TestPullClusterServiceVersion(t *testing.T) {
-	generateClusterService := func(name, namespace string) *oplmV1alpha1.ClusterServiceVersion {
-		return &oplmV1alpha1.ClusterServiceVersion{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: oplmV1alpha1.ClusterServiceVersionSpec{
-				DisplayName: "test",
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "clusterserviceversion",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("clusterserviceversion 'name' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "clusterserviceversion",
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("clusterserviceversion 'namespace' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "clusterserviceversion",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: false,
-			expectedError: fmt.Errorf(
-				"clusterserviceversion object clusterserviceversion does not exist in namespace test-namespace"),
-			client: true,
-		},
-		{
-			name:                "clusterserviceversion",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("clusterserviceversion 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		clusterServiceVersion := generateClusterService(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, clusterServiceVersion)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects, SchemeAttachers: testSchemes})
-		}
-
-		builderResult, err := PullClusterServiceVersion(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Object.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Object.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullClusterServiceVersion,
+		oplmV1alpha1.AddToScheme,
+		clusterServiceVersionGVK,
+	).ExecuteTests(t)
 }
 
-func TestClusterServiceVersionGet(t *testing.T) {
-	testCases := []struct {
-		clusterService *ClusterServiceVersionBuilder
-		expectedError  string
-	}{
-		{
-			clusterService: buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject()),
-			expectedError:  "",
-		},
-		{
-			clusterService: buildValidClusterServiceBuilder(
-				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			expectedError: "clusterserviceversions.operators.coreos.com \"clusterservice\" not found",
-		},
-	}
+func TestClusterServiceVersionBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		clusterService, err := testCase.clusterService.Get()
+	commonTestConfig := testhelper.NewCommonTestConfig[oplmV1alpha1.ClusterServiceVersion,
+		ClusterServiceVersionBuilder](oplmV1alpha1.AddToScheme, clusterServiceVersionGVK,
+		testhelper.ResourceScopeNamespaced)
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, clusterService.Name, testCase.clusterService.Definition.Name)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
-}
-
-func TestClusterServiceVersionExist(t *testing.T) {
-	testCases := []struct {
-		clusterService *ClusterServiceVersionBuilder
-		expectedStatus bool
-	}{
-		{
-			clusterService: buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject()),
-			expectedStatus: true,
-		},
-		{
-			clusterService: buildValidClusterServiceBuilder(
-				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.clusterService.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
-
-func TestClusterServiceDelete(t *testing.T) {
-	testCases := []struct {
-		clusterService *ClusterServiceVersionBuilder
-		expectedError  error
-	}{
-		{
-			clusterService: buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject()),
-			expectedError:  nil,
-		},
-		{
-			clusterService: buildValidClusterServiceBuilder(
-				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.clusterService.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.clusterService.Object)
-		}
-	}
-}
-
-func TestClusterServiceVersionUpdate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ClusterServiceVersionBuilder
-		expectedError error
-		displayName   string
-	}{
-		{
-			testBuilder:   buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject()),
-			expectedError: nil,
-			displayName:   "newName",
-		},
-		{
-			testBuilder: buildValidClusterServiceBuilder(
-				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			expectedError: fmt.Errorf("cannot update non-existent ClusterServiceVersion"),
-			displayName:   "newName",
-		},
-		{
-			testBuilder:   buildInvalidClusterServiceBuilder(),
-			expectedError: fmt.Errorf("ClusterServiceVersion builder cannot have nil apiClient"),
-			displayName:   "newName",
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.NotEqual(t, testCase.testBuilder.Definition.Spec.DisplayName, testCase.displayName)
-
-		testCase.testBuilder.Definition.Spec.DisplayName = testCase.displayName
-
-		testBuilder, err := testCase.testBuilder.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testBuilder.Object.Spec.DisplayName, testCase.displayName)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestClusterServiceGetAlmExamples(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name           string
 		clusterService *ClusterServiceVersionBuilder
-		almExample     map[string]string
-		expectedError  error
+		expectedValue  string
+		expectedError  string
 	}{
 		{
-			almExample: map[string]string{annotationAlmExamples: "test"},
+			name: "alm-examples annotation present",
 			clusterService: buildValidClusterServiceBuilder(
-				buildTestClientWithDummyClusterServiceObjectWitAlm(map[string]string{annotationAlmExamples: "test"})),
-			expectedError: nil,
+				buildTestClientWithDummyClusterServiceObjectWithAlm(map[string]string{
+					annotationAlmExamples: "test",
+				})),
+			expectedValue: "test",
 		},
 		{
-			almExample: nil,
+			name: "resource does not exist",
 			clusterService: buildValidClusterServiceBuilder(
 				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			expectedError: fmt.Errorf("alm-examples not found in given clusterserviceversion named clusterservice"),
+			expectedError: "alm-examples not found in given clusterserviceversion named clusterservice",
 		},
 		{
-			almExample:     map[string]string{annotationAlmExamples: "test"},
+			name:           "alm-examples annotation absent",
 			clusterService: buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject()),
-			expectedError:  fmt.Errorf("alm-examples not found in given clusterserviceversion named clusterservice"),
+			expectedError:  "alm-examples not found in given clusterserviceversion named clusterservice",
 		},
 	}
 
 	for _, testCase := range testCases {
-		almExamples, err := testCase.clusterService.GetAlmExamples()
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, almExamples, testCase.almExample[annotationAlmExamples])
-		}
+			almExamples, err := testCase.clusterService.GetAlmExamples()
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, testCase.expectedValue, almExamples)
+		})
 	}
 }
 
 func TestClusterServiceGetPhase(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name           string
 		clusterService *ClusterServiceVersionBuilder
-		expectedError  error
-		phase          oplmV1alpha1.ClusterServiceVersionPhase
+		expectedPhase  oplmV1alpha1.ClusterServiceVersionPhase
+		expectedError  string
 	}{
 		{
+			name: "phase present",
 			clusterService: buildValidClusterServiceBuilder(
-				buildTestClientWithDummyClusterServiceObjectWitPhase(oplmV1alpha1.CSVPhaseSucceeded)),
-			phase:         oplmV1alpha1.CSVPhaseSucceeded,
-			expectedError: nil,
+				buildTestClientWithDummyClusterServiceObjectWithPhase(oplmV1alpha1.CSVPhaseSucceeded)),
+			expectedPhase: oplmV1alpha1.CSVPhaseSucceeded,
 		},
 		{
+			name: "resource does not exist",
 			clusterService: buildValidClusterServiceBuilder(
 				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			phase:         oplmV1alpha1.CSVPhaseSucceeded,
-			expectedError: fmt.Errorf("clusterservice clusterserviceversion not found in test-namespace namespace"),
+			expectedError: "clusterservice clusterserviceversion not found in test-namespace namespace",
 		},
 	}
 
 	for _, testCase := range testCases {
-		phase, err := testCase.clusterService.GetPhase()
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.phase, phase)
-		}
+			phase, err := testCase.clusterService.GetPhase()
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, testCase.expectedPhase, phase)
+		})
 	}
 }
 
 func TestClusterServiceIsSuccessful(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name           string
 		clusterService *ClusterServiceVersionBuilder
-		expectedError  error
 		successful     bool
+		expectedError  string
 	}{
 		{
+			name: "succeeded phase",
 			clusterService: buildValidClusterServiceBuilder(
-				buildTestClientWithDummyClusterServiceObjectWitPhase(oplmV1alpha1.CSVPhaseSucceeded)),
-			successful:    true,
-			expectedError: nil,
+				buildTestClientWithDummyClusterServiceObjectWithPhase(oplmV1alpha1.CSVPhaseSucceeded)),
+			successful: true,
 		},
 		{
+			name: "failed phase",
 			clusterService: buildValidClusterServiceBuilder(
-				buildTestClientWithDummyClusterServiceObjectWitPhase(oplmV1alpha1.CSVPhaseFailed)),
-			successful:    false,
-			expectedError: nil,
+				buildTestClientWithDummyClusterServiceObjectWithPhase(oplmV1alpha1.CSVPhaseFailed)),
+			successful: false,
 		},
 		{
+			name: "resource does not exist",
 			clusterService: buildValidClusterServiceBuilder(
 				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			successful: false,
-			expectedError: fmt.Errorf("failed to get phase value for clusterservice clusterserviceversion in " +
-				"test-namespace namespace due to clusterservice clusterserviceversion not found in test-namespace namespace"),
+			expectedError: "failed to get phase value for clusterservice clusterserviceversion in " +
+				"test-namespace namespace",
 		},
 	}
 
 	for _, testCase := range testCases {
-		successful, err := testCase.clusterService.IsSuccessful()
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Nil(t, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			successful, err := testCase.clusterService.IsSuccessful()
+
+			if testCase.expectedError != "" {
+				assert.ErrorContains(t, err, testCase.expectedError)
+
+				return
+			}
+
+			assert.NoError(t, err)
 			assert.Equal(t, testCase.successful, successful)
-		}
+		})
 	}
 }
 
 func buildValidClusterServiceBuilder(apiClient *clients.Settings) *ClusterServiceVersionBuilder {
-	return newClusterServiceBuilder(apiClient, "clusterservice", "test-namespace")
-}
-
-func buildInvalidClusterServiceBuilder() *ClusterServiceVersionBuilder {
-	return invalidClusterServiceBuilder("clusterservice", "test-namespace")
+	return common.NewNamespacedBuilder[oplmV1alpha1.ClusterServiceVersion, ClusterServiceVersionBuilder](
+		apiClient, oplmV1alpha1.AddToScheme, "clusterservice", "test-namespace")
 }
 
 func buildTestClientWithDummyClusterServiceObject() *clients.Settings {
@@ -328,14 +186,14 @@ func buildTestClientWithDummyClusterServiceObject() *clients.Settings {
 	})
 }
 
-func buildTestClientWithDummyClusterServiceObjectWitAlm(almExaple map[string]string) *clients.Settings {
+func buildTestClientWithDummyClusterServiceObjectWithAlm(almExamples map[string]string) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyClusterServiceWithAlm(almExaple),
+		K8sMockObjects:  buildDummyClusterServiceWithAlm(almExamples),
 		SchemeAttachers: testSchemes,
 	})
 }
 
-func buildTestClientWithDummyClusterServiceObjectWitPhase(
+func buildTestClientWithDummyClusterServiceObjectWithPhase(
 	phase oplmV1alpha1.ClusterServiceVersionPhase) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  buildDummyClusterServiceWithPhase(phase),
@@ -375,30 +233,4 @@ func buildDummyClusterService(
 	}
 
 	return append([]runtime.Object{}, &csv)
-}
-
-func newClusterServiceBuilder(apiClient *clients.Settings, name, namespace string) *ClusterServiceVersionBuilder {
-	return &ClusterServiceVersionBuilder{
-		apiClient: apiClient,
-		Definition: &oplmV1alpha1.ClusterServiceVersion{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: oplmV1alpha1.ClusterServiceVersionSpec{
-				DisplayName: "test",
-			}}}
-}
-
-func invalidClusterServiceBuilder(name, namespace string) *ClusterServiceVersionBuilder {
-	return &ClusterServiceVersionBuilder{
-		apiClient: nil,
-		Definition: &oplmV1alpha1.ClusterServiceVersion{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: oplmV1alpha1.ClusterServiceVersionSpec{
-				DisplayName: "test",
-			}}}
 }
