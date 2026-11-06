@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	hiveV1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/hive/api/v1"
 	"k8s.io/klog/v2"
@@ -56,11 +57,10 @@ func ListClusterDeploymentsInAllNamespaces(
 
 	for _, clusterDeployment := range clusterDeployments.Items {
 		copiedClusterDeployment := clusterDeployment
-		clusterDeploymentBuilder := &ClusterDeploymentBuilder{
-			apiClient:  apiClient.Client,
-			Object:     &copiedClusterDeployment,
-			Definition: &copiedClusterDeployment,
-		}
+		clusterDeploymentBuilder := common.NewNamespacedBuilder[hiveV1.ClusterDeployment, ClusterDeploymentBuilder](
+			apiClient, hiveV1.AddToScheme, copiedClusterDeployment.Name, copiedClusterDeployment.Namespace)
+		clusterDeploymentBuilder.SetDefinition(&copiedClusterDeployment)
+		clusterDeploymentBuilder.SetObject(&copiedClusterDeployment)
 
 		clusterDeploymentObjects = append(clusterDeploymentObjects, clusterDeploymentBuilder)
 	}
