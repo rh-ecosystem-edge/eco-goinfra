@@ -5,69 +5,38 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	oplmV1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/olm/operators/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestListCatalogSources(t *testing.T) {
-	testCases := []struct {
-		catalogSource []*CatalogSourceBuilder
-		nsName        string
-		listOptions   []client.ListOptions
-		expectedError error
-		client        bool
-	}{
-		{
-			catalogSource: []*CatalogSourceBuilder{buildValidCatalogSourceBuilder(buildTestClientWithDummyObject())},
-			nsName:        "test-namespace",
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			catalogSource: []*CatalogSourceBuilder{buildValidCatalogSourceBuilder(buildTestClientWithDummyObject())},
-			nsName:        "",
-			expectedError: fmt.Errorf("failed to list catalogsource, 'nsname' parameter is empty"),
-			client:        true,
-		},
-		{
-			catalogSource: []*CatalogSourceBuilder{buildValidCatalogSourceBuilder(buildTestClientWithDummyObject())},
-			nsName:        "test-namespace",
-			expectedError: nil,
-			listOptions:   []client.ListOptions{{Continue: "true"}},
-			client:        true,
-		},
-		{
-			catalogSource: []*CatalogSourceBuilder{buildValidCatalogSourceBuilder(buildTestClientWithDummyObject())},
-			nsName:        "test-namespace",
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			listOptions:   []client.ListOptions{{Continue: "true"}, {Limit: 100}},
-			client:        true,
-		},
-		{
-			catalogSource: []*CatalogSourceBuilder{buildValidCatalogSourceBuilder(buildTestClientWithDummyObject())},
-			nsName:        "test-namespace",
-			expectedError: fmt.Errorf("failed to list catalogSource, 'apiClient' parameter is empty"),
-			listOptions:   []client.ListOptions{},
-			client:        false,
-		},
-	}
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyCatalogSource(),
-				SchemeAttachers: testSchemes,
-			})
-		}
+	testhelper.NewNamespacedListTestConfig(
+		func(apiClient *clients.Settings, nsname string, _ ...client.ListOptions) ([]*CatalogSourceBuilder, error) {
+			return ListCatalogSources(apiClient, nsname)
+		},
+		oplmV1alpha1.AddToScheme,
+		catalogSourceGVK,
+	).ExecuteTests(t)
+}
 
-		netBuilders, err := ListCatalogSources(testSettings, testCase.nsName, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+func TestListCatalogSourcesRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(netBuilders), len(testCase.catalogSource))
-		}
-	}
+	testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+
+	builders, err := ListCatalogSources(
+		testSettings,
+		"test-namespace",
+		client.ListOptions{Continue: "true"},
+		client.ListOptions{Limit: 100},
+	)
+
+	assert.EqualError(t, err, "error: more than one ListOptions was passed")
+	assert.Nil(t, builders)
 }
 
 func TestListClusterServiceVersion(t *testing.T) {
