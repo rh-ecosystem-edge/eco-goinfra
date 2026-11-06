@@ -1,7 +1,6 @@
 package clusterlogging
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -9,7 +8,10 @@ import (
 
 	lokiv1 "github.com/grafana/loki/operator/apis/loki/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -31,419 +33,263 @@ var (
 	}
 )
 
-func TestPullLokiStack(t *testing.T) {
-	generateLokiStack := func(name, namespace string) *lokiv1.LokiStack {
-		return &lokiv1.LokiStack{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
-
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                defaultLokiStackName,
-			namespace:           defaultLokiStackNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           defaultLokiStackNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf(errEmptyLokiStackName),
-			client:              true,
-		},
-		{
-			name:                defaultLokiStackName,
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("lokiStack 'nsname' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "lokitest",
-			namespace:           defaultLokiStackNamespace,
-			addToRuntimeObjects: false,
-			expectedError: fmt.Errorf("lokiStack object lokitest does not exist " +
-				"in namespace lokistack-space"),
-			client: true,
-		},
-		{
-			name:                "triggerauthtest",
-			namespace:           defaultLokiStackNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("lokiStack 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testLokiStack := generateLokiStack(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testLokiStack)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: lokiv1TestSchemes,
-			})
-		}
-
-		builderResult, err := PullLokiStack(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testLokiStack.Name, builderResult.Object.Name)
-			assert.Equal(t, testLokiStack.Namespace, builderResult.Object.Namespace)
-		}
-	}
-}
-
 func TestNewLokiStackBuilder(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		expectedError string
-		client        bool
-	}{
-		{
-			name:          defaultLokiStackName,
-			namespace:     defaultLokiStackNamespace,
-			expectedError: "",
-			client:        true,
-		},
-		{
-			name:          "",
-			namespace:     defaultLokiStackNamespace,
-			expectedError: errEmptyLokiStackName,
-			client:        true,
-		},
-		{
-			name:          defaultLokiStackName,
-			namespace:     "",
-			expectedError: "lokiStack 'nsname' cannot be empty",
-			client:        true,
-		},
-		{
-			name:          defaultLokiStackName,
-			namespace:     defaultLokiStackNamespace,
-			expectedError: "",
-			client:        false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
-
-		testLokiStackBuilder := NewLokiStackBuilder(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.expectedError == "" {
-			if testCase.client {
-				assert.Equal(t, testCase.name, testLokiStackBuilder.Definition.Name)
-				assert.Equal(t, testCase.namespace, testLokiStackBuilder.Definition.Namespace)
-			} else {
-				assert.Nil(t, testLokiStackBuilder)
-			}
-		} else {
-			assert.Equal(t, testCase.expectedError, testLokiStackBuilder.errorMsg)
-			assert.NotNil(t, testLokiStackBuilder.Definition)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewLokiStackBuilder,
+		lokiv1.AddToScheme,
+		lokiStackGVK,
+	).ExecuteTests(t)
 }
 
-func TestLokiStackExists(t *testing.T) {
-	testCases := []struct {
-		testLokiStack  *LokiStackBuilder
-		expectedStatus bool
-	}{
-		{
-			testLokiStack:  buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testLokiStack:  buildInValidLokiStackBuilder(buildLokiStackClientWithDummyObject()),
-			expectedStatus: false,
-		},
-		{
-			testLokiStack:  buildValidLokiStackBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-	}
+func TestPullLokiStack(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exist := testCase.testLokiStack.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullLokiStack,
+		lokiv1.AddToScheme,
+		lokiStackGVK,
+	).ExecuteTests(t)
 }
 
-func TestLokiStackGet(t *testing.T) {
-	testCases := []struct {
-		testLokiStack *LokiStackBuilder
-		expectedError error
-	}{
-		{
-			testLokiStack: buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testLokiStack: buildInValidLokiStackBuilder(buildLokiStackClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyLokiStackName),
-		},
-		{
-			testLokiStack: buildValidLokiStackBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("lokistacks.loki.grafana.com \"lokistack-test\" not found"),
-		},
-	}
+func TestLokiStackBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		lokiStackObj, err := testCase.testLokiStack.Get()
+	commonTestConfig := testhelper.NewCommonTestConfig[lokiv1.LokiStack, LokiStackBuilder](
+		lokiv1.AddToScheme,
+		lokiStackGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, lokiStackObj.Name, testCase.testLokiStack.Definition.Name)
-			assert.Equal(t, lokiStackObj.Namespace, testCase.testLokiStack.Definition.Namespace)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestLokiStackCreate(t *testing.T) {
-	testCases := []struct {
-		testLokiStack *LokiStackBuilder
-		expectedError string
-	}{
-		{
-			testLokiStack: buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject()),
-			expectedError: "",
-		},
-		{
-			testLokiStack: buildInValidLokiStackBuilder(buildLokiStackClientWithDummyObject()),
-			expectedError: errEmptyLokiStackName,
-		},
-		{
-			testLokiStack: buildValidLokiStackBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testLokiStackBuilder, err := testCase.testLokiStack.Create()
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testLokiStackBuilder.Definition.Name, testLokiStackBuilder.Object.Name)
-			assert.Equal(t, testLokiStackBuilder.Definition.Namespace, testLokiStackBuilder.Object.Namespace)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
-}
-
-func TestLokiStackDelete(t *testing.T) {
-	testCases := []struct {
-		testLokiStack *LokiStackBuilder
-		expectedError error
-	}{
-		{
-			testLokiStack: buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testLokiStack: buildValidLokiStackBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testLokiStack.Delete()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testLokiStack.Object)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestLokiStackUpdate(t *testing.T) {
-	testCases := []struct {
-		testLokiStack *LokiStackBuilder
-		testSize      lokiv1.LokiStackSizeType
-		expectedError string
-	}{
-		{
-			testLokiStack: buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject()),
-			testSize:      lokiv1.SizeOneXDemo,
-			expectedError: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, lokiv1.LokiStackSizeType(""), testCase.testLokiStack.Definition.Spec.Size)
-		assert.Nil(t, nil, testCase.testLokiStack.Object)
-		testCase.testLokiStack.WithSize(testCase.testSize)
-		_, err := testCase.testLokiStack.Update()
-
-		if testCase.expectedError != "" {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.Equal(t, testCase.testSize, testCase.testLokiStack.Definition.Spec.Size)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestLokiStackWithSize(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testSize      lokiv1.LokiStackSizeType
-		expectedError string
+		name           string
+		testSize       lokiv1.LokiStackSizeType
+		expectedError  string
+		invalidBuilder bool
 	}{
 		{
-			testSize:      lokiv1.SizeOneXDemo,
-			expectedError: "",
+			name:     "sets one-times-demo size",
+			testSize: lokiv1.SizeOneXDemo,
 		},
 		{
-			testSize:      lokiv1.SizeOneXSmall,
-			expectedError: "",
+			name:     "sets one-times-small size",
+			testSize: lokiv1.SizeOneXSmall,
 		},
 		{
-			testSize:      lokiv1.SizeOneXMedium,
-			expectedError: "",
+			name:     "sets one-times-medium size",
+			testSize: lokiv1.SizeOneXMedium,
 		},
 		{
-			testSize:      lokiv1.SizeOneXExtraSmall,
-			expectedError: "",
+			name:     "sets one-times-extra-small size",
+			testSize: lokiv1.SizeOneXExtraSmall,
 		},
 		{
-			testSize:      "",
+			name:          "empty size returns error",
 			expectedError: "'size' argument cannot be empty",
+		},
+		{
+			name:           "invalid builder short circuits",
+			testSize:       lokiv1.SizeOneXDemo,
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithSize(testCase.testSize)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			testBuilder := buildLokiStackTestBuilder(buildLokiStackClientWithDummyObject(), testCase.invalidBuilder)
+			result := testBuilder.WithSize(testCase.testSize)
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
+			require.Same(t, testBuilder, result)
+
+			if testCase.invalidBuilder {
+				requireInvalidLokiStackBuilderError(t, result.GetError())
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
 			assert.Equal(t, testCase.testSize, result.Definition.Spec.Size)
-		}
+		})
 	}
 }
 
 func TestLokiStackWithStorage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testStorage   lokiv1.ObjectStorageSpec
-		expectedError string
+		name           string
+		testStorage    lokiv1.ObjectStorageSpec
+		invalidBuilder bool
 	}{
 		{
+			name: "sets storage",
 			testStorage: lokiv1.ObjectStorageSpec{
 				Secret: lokiv1.ObjectStorageSecretSpec{
 					Type: "s3",
 					Name: "test",
 				},
 			},
-			expectedError: "",
+		},
+		{
+			name: "invalid builder short circuits",
+			testStorage: lokiv1.ObjectStorageSpec{
+				Secret: lokiv1.ObjectStorageSecretSpec{
+					Type: "s3",
+					Name: "test",
+				},
+			},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithStorage(testCase.testStorage)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			testBuilder := buildLokiStackTestBuilder(buildLokiStackClientWithDummyObject(), testCase.invalidBuilder)
+			result := testBuilder.WithStorage(testCase.testStorage)
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
+			require.Same(t, testBuilder, result)
+
+			if testCase.invalidBuilder {
+				requireInvalidLokiStackBuilderError(t, result.GetError())
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
 			assert.Equal(t, testCase.testStorage, result.Definition.Spec.Storage)
-		}
+		})
 	}
 }
 
 func TestLokiStackWithStorageClassName(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testStorageClassName string
-		expectedError        string
+		name             string
+		testStorageClass string
+		expectedError    string
+		invalidBuilder   bool
 	}{
 		{
-			testStorageClassName: "gp2",
-			expectedError:        "",
+			name:             "sets storage class name",
+			testStorageClass: "gp2",
 		},
 		{
-			testStorageClassName: "",
-			expectedError:        "'storageClassName' argument cannot be empty",
+			name:          "empty storage class name returns error",
+			expectedError: "'storageClassName' argument cannot be empty",
+		},
+		{
+			name:             "invalid builder short circuits",
+			testStorageClass: "gp2",
+			invalidBuilder:   true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithStorageClassName(testCase.testStorageClassName)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			testBuilder := buildLokiStackTestBuilder(buildLokiStackClientWithDummyObject(), testCase.invalidBuilder)
+			result := testBuilder.WithStorageClassName(testCase.testStorageClass)
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testStorageClassName, result.Definition.Spec.StorageClassName)
-		}
+			require.Same(t, testBuilder, result)
+
+			if testCase.invalidBuilder {
+				requireInvalidLokiStackBuilderError(t, result.GetError())
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.testStorageClass, result.Definition.Spec.StorageClassName)
+		})
 	}
 }
 
 func TestLokiStackWithTenants(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testTenants   lokiv1.TenantsSpec
-		expectedError string
+		name           string
+		testTenants    lokiv1.TenantsSpec
+		invalidBuilder bool
 	}{
 		{
+			name: "sets tenants",
 			testTenants: lokiv1.TenantsSpec{
 				Mode: "openshift-logging",
 			},
-			expectedError: "",
+		},
+		{
+			name: "invalid builder short circuits",
+			testTenants: lokiv1.TenantsSpec{
+				Mode: "openshift-logging",
+			},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithTenants(testCase.testTenants)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			testBuilder := buildLokiStackTestBuilder(buildLokiStackClientWithDummyObject(), testCase.invalidBuilder)
+			result := testBuilder.WithTenants(testCase.testTenants)
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testTenants.Mode, result.Definition.Spec.Tenants.Mode)
-		}
+			require.Same(t, testBuilder, result)
+
+			if testCase.invalidBuilder {
+				requireInvalidLokiStackBuilderError(t, result.GetError())
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.Tenants)
+			assert.Equal(t, testCase.testTenants, *result.Definition.Spec.Tenants)
+		})
 	}
 }
 
 func TestLokiStackWithRules(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testRules     lokiv1.RulesSpec
-		expectedError string
+		name           string
+		testRules      lokiv1.RulesSpec
+		invalidBuilder bool
 	}{
 		{
+			name: "sets enabled rules",
 			testRules: lokiv1.RulesSpec{
 				Enabled: true,
 				Selector: &metav1.LabelSelector{
@@ -453,102 +299,151 @@ func TestLokiStackWithRules(t *testing.T) {
 					MatchLabels: map[string]string{"openshift.io/cluster-monitoring": "true"},
 				},
 			},
-			expectedError: "",
 		},
 		{
+			name: "sets disabled rules",
 			testRules: lokiv1.RulesSpec{
 				Enabled: false,
 			},
-			expectedError: "",
+		},
+		{
+			name: "invalid builder short circuits",
+			testRules: lokiv1.RulesSpec{
+				Enabled: true,
+			},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithRules(testCase.testRules)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			testBuilder := buildLokiStackTestBuilder(buildLokiStackClientWithDummyObject(), testCase.invalidBuilder)
+			result := testBuilder.WithRules(testCase.testRules)
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testRules.Enabled, result.Definition.Spec.Rules.Enabled)
+			require.Same(t, testBuilder, result)
 
-			if testCase.testRules.Enabled {
-				assert.Equal(t, testCase.testRules.Selector, result.Definition.Spec.Rules.Selector)
-				assert.Equal(t, testCase.testRules.NamespaceSelector, result.Definition.Spec.Rules.NamespaceSelector)
+			if testCase.invalidBuilder {
+				requireInvalidLokiStackBuilderError(t, result.GetError())
+
+				return
 			}
-		}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.Rules)
+			assert.Equal(t, testCase.testRules, *result.Definition.Spec.Rules)
+		})
 	}
 }
 
 func TestLokiStackWithManagementState(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name                string
 		testManagementState lokiv1.ManagementStateType
-		expectedError       string
+		invalidBuilder      bool
 	}{
 		{
+			name:                "sets managed state",
 			testManagementState: lokiv1.ManagementStateManaged,
-			expectedError:       "",
 		},
 		{
+			name:                "sets unmanaged state",
 			testManagementState: lokiv1.ManagementStateUnmanaged,
-			expectedError:       "",
+		},
+		{
+			name:                "invalid builder short circuits",
+			testManagementState: lokiv1.ManagementStateManaged,
+			invalidBuilder:      true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithManagementState(testCase.testManagementState)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			testBuilder := buildLokiStackTestBuilder(buildLokiStackClientWithDummyObject(), testCase.invalidBuilder)
+			result := testBuilder.WithManagementState(testCase.testManagementState)
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
+			require.Same(t, testBuilder, result)
+
+			if testCase.invalidBuilder {
+				requireInvalidLokiStackBuilderError(t, result.GetError())
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
 			assert.Equal(t, testCase.testManagementState, result.Definition.Spec.ManagementState)
-		}
+		})
 	}
 }
 
 func TestLokiStackWithLimits(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testLimitSpec lokiv1.LimitsSpec
-		expectedError string
+		name           string
+		testLimits     lokiv1.LimitsSpec
+		invalidBuilder bool
 	}{
 		{
-			testLimitSpec: lokiv1.LimitsSpec{
+			name: "sets limits",
+			testLimits: lokiv1.LimitsSpec{
 				Global: &lokiv1.LimitsTemplateSpec{
 					Retention: &lokiv1.RetentionLimitSpec{
 						Days: 7,
 					},
 				},
 			},
-			expectedError: "",
 		},
 		{
-			testLimitSpec: lokiv1.LimitsSpec{},
-			expectedError: "",
+			name:       "sets empty limits",
+			testLimits: lokiv1.LimitsSpec{},
+		},
+		{
+			name: "invalid builder short circuits",
+			testLimits: lokiv1.LimitsSpec{
+				Global: &lokiv1.LimitsTemplateSpec{},
+			},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithLimits(testCase.testLimitSpec)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			testBuilder := buildLokiStackTestBuilder(buildLokiStackClientWithDummyObject(), testCase.invalidBuilder)
+			result := testBuilder.WithLimits(testCase.testLimits)
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testLimitSpec.Global, result.Definition.Spec.Limits.Global)
-		}
+			require.Same(t, testBuilder, result)
+
+			if testCase.invalidBuilder {
+				requireInvalidLokiStackBuilderError(t, result.GetError())
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.Limits)
+			assert.Equal(t, testCase.testLimits, *result.Definition.Spec.Limits)
+		})
 	}
 }
 
 func TestLokiStackWithTemplate(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testTemplate  lokiv1.LokiTemplateSpec
-		expectedError string
+		name           string
+		testTemplate   lokiv1.LokiTemplateSpec
+		invalidBuilder bool
 	}{
 		{
+			name: "sets component template",
 			testTemplate: lokiv1.LokiTemplateSpec{
 				Compactor:     lokiStackComponents,
 				Distributor:   lokiStackComponents,
@@ -559,94 +454,128 @@ func TestLokiStackWithTemplate(t *testing.T) {
 				IndexGateway:  lokiStackComponents,
 				Ruler:         lokiStackComponents,
 			},
-			expectedError: "",
 		},
 		{
-			testTemplate:  lokiv1.LokiTemplateSpec{},
-			expectedError: "",
+			name:         "sets empty template",
+			testTemplate: lokiv1.LokiTemplateSpec{},
+		},
+		{
+			name: "invalid builder short circuits",
+			testTemplate: lokiv1.LokiTemplateSpec{
+				Compactor: lokiStackComponents,
+			},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLokiStackBuilder(buildLokiStackClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithTemplate(testCase.testTemplate)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			testBuilder := buildLokiStackTestBuilder(buildLokiStackClientWithDummyObject(), testCase.invalidBuilder)
+			result := testBuilder.WithTemplate(testCase.testTemplate)
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testTemplate.Compactor, result.Definition.Spec.Template.Compactor)
-			assert.Equal(t, testCase.testTemplate.Distributor, result.Definition.Spec.Template.Distributor)
-			assert.Equal(t, testCase.testTemplate.Ingester, result.Definition.Spec.Template.Ingester)
-			assert.Equal(t, testCase.testTemplate.Querier, result.Definition.Spec.Template.Querier)
-			assert.Equal(t, testCase.testTemplate.QueryFrontend, result.Definition.Spec.Template.QueryFrontend)
-			assert.Equal(t, testCase.testTemplate.Gateway, result.Definition.Spec.Template.Gateway)
-			assert.Equal(t, testCase.testTemplate.IndexGateway, result.Definition.Spec.Template.IndexGateway)
-			assert.Equal(t, testCase.testTemplate.Ruler, result.Definition.Spec.Template.Ruler)
-		}
+			require.Same(t, testBuilder, result)
+
+			if testCase.invalidBuilder {
+				requireInvalidLokiStackBuilderError(t, result.GetError())
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.Template)
+			assert.Equal(t, testCase.testTemplate, *result.Definition.Spec.Template)
+		})
 	}
 }
 
 func TestLokiStackIsReady(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testLokiStack *LokiStackBuilder
-		testCondition bool
+		name           string
+		conditionType  string
+		invalidBuilder bool
+		expectedResult bool
 	}{
 		{
-			testLokiStack: buildValidLokiStackBuilderWithCondition(buildLokiStackClientWithDummyObject(), "Ready"),
-			testCondition: true,
+			name:           "ready condition",
+			conditionType:  "Ready",
+			expectedResult: true,
 		},
 		{
-			testLokiStack: buildValidLokiStackBuilderWithCondition(buildLokiStackClientWithDummyObject(), "NotReady"),
-			testCondition: false,
+			name:          "non-ready condition",
+			conditionType: "NotReady",
 		},
 		{
-			testLokiStack: buildValidLokiStackBuilderWithCondition(clients.GetTestClients(clients.TestClientParams{}),
-				"Ready"),
-			testCondition: false,
+			name:           "invalid builder returns false",
+			conditionType:  "Ready",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		isReadyResult := testCase.testLokiStack.IsReady(2 * time.Second)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.testCondition, isReadyResult)
+			apiClient := buildLokiStackClientWithDummyObject()
+			testBuilder := buildLokiStackTestBuilder(apiClient, testCase.invalidBuilder)
+			testBuilder.Definition.Status.Conditions = []metav1.Condition{{
+				Type:   testCase.conditionType,
+				Status: metav1.ConditionTrue,
+			}}
+
+			assert.Equal(t, testCase.expectedResult, testBuilder.IsReady(2*time.Second))
+		})
 	}
+
+	t.Run("missing resource returns false", func(t *testing.T) {
+		t.Parallel()
+
+		testBuilder := buildValidLokiStackBuilder(clients.GetTestClients(clients.TestClientParams{
+			SchemeAttachers: lokiv1TestSchemes,
+		}))
+		testBuilder.Definition.Status.Conditions = []metav1.Condition{{
+			Type:   "Ready",
+			Status: metav1.ConditionTrue,
+		}}
+
+		assert.False(t, testBuilder.IsReady(2*time.Second))
+	})
 }
 
-func buildValidLokiStackBuilderWithCondition(apiClient *clients.Settings,
-	conditionType string) *LokiStackBuilder {
-	lokiStackBuilder := buildValidLokiStackBuilder(apiClient)
-	lokiStackBuilder.Definition.Status.Conditions = []metav1.Condition{{
-		Type:   conditionType,
-		Status: metav1.ConditionTrue,
-	}}
+func buildLokiStackTestBuilder(apiClient *clients.Settings, invalid bool) *LokiStackBuilder {
+	if invalid {
+		return buildInValidLokiStackBuilder(apiClient)
+	}
 
-	return lokiStackBuilder
+	return buildValidLokiStackBuilder(apiClient)
+}
+
+func requireInvalidLokiStackBuilderError(t *testing.T, err error) {
+	t.Helper()
+
+	require.Error(t, err)
+	assert.True(t, commonerrors.IsBuilderNameEmpty(err), "expected an empty-name builder error, got: %v", err)
 }
 
 func buildValidLokiStackBuilder(apiClient *clients.Settings) *LokiStackBuilder {
-	lokiStackBuilder := NewLokiStackBuilder(
-		apiClient, defaultLokiStackName, defaultLokiStackNamespace)
-
-	return lokiStackBuilder
+	return NewLokiStackBuilder(apiClient, defaultLokiStackName, defaultLokiStackNamespace)
 }
 
 func buildInValidLokiStackBuilder(apiClient *clients.Settings) *LokiStackBuilder {
-	lokiStackBuilder := NewLokiStackBuilder(
-		apiClient, "", defaultLokiStackNamespace)
-
-	return lokiStackBuilder
+	return NewLokiStackBuilder(apiClient, "", defaultLokiStackNamespace)
 }
 
 func buildLokiStackClientWithDummyObject() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyTriggerAuthentication(),
+		K8sMockObjects:  buildDummyLokiStack(),
 		SchemeAttachers: lokiv1TestSchemes,
 	})
 }
 
-func buildDummyTriggerAuthentication() []runtime.Object {
+func buildDummyLokiStack() []runtime.Object {
 	return append([]runtime.Object{}, &lokiv1.LokiStack{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      defaultLokiStackName,
