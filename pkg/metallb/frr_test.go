@@ -1,581 +1,846 @@
 package metallb
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/frrtypes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+)
+
+const (
+	defaultFrrConfigurationName = "frrconfiguration"
+	defaultFrrBGPPeerIP         = "10.46.73.131"
+	invalidRouterIndexError     = "invalid routerIndex: 1"
+	invalidNeighborIndexError   = "invalid neighborIndex: 1"
 )
 
 var (
 	frrTestSchemes                = []clients.SchemeAttacher{frrtypes.AddToScheme}
-	defaultFrrConfigurationName   = "frrconfiguration"
 	defaultFrrConfigurationNsName = "test-namespace"
 )
 
 func TestNewFrrConfigurationBuilder(t *testing.T) {
-	generateFrrConfiguration := NewFrrConfigurationBuilder
+	t.Parallel()
 
-	testCases := []struct {
-		name          string
-		namespace     string
-		client        bool
-		expectedError string
-	}{
-		{
-			name:          defaultFrrConfigurationName,
-			namespace:     defaultFrrConfigurationNsName,
-			client:        true,
-			expectedError: "",
-		},
-		{
-			name:          "",
-			namespace:     defaultFrrConfigurationNsName,
-			client:        true,
-			expectedError: errEmptyFRRName,
-		},
-		{
-			name:          defaultFrrConfigurationName,
-			namespace:     "",
-			client:        true,
-			expectedError: "frrConfiguration 'nsname' cannot be empty",
-		},
-		{
-			name:          defaultFrrConfigurationName,
-			namespace:     defaultFrrConfigurationNsName,
-			client:        false,
-			expectedError: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
-
-		testFRRConfigurationBuilder := generateFrrConfiguration(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.client {
-			assert.Equal(t, testCase.expectedError, testFRRConfigurationBuilder.errorMsg)
-
-			if testCase.expectedError == "" {
-				assert.Equal(t, testCase.name, testFRRConfigurationBuilder.Definition.Name)
-			}
-		} else {
-			assert.Nil(t, testFRRConfigurationBuilder)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewFrrConfigurationBuilder,
+		frrtypes.AddToScheme,
+		frrConfigurationGVK,
+	).ExecuteTests(t)
 }
 
-func TestFrrConfigurationCreate(t *testing.T) {
-	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		expectedError        error
-	}{
-		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedError:        nil,
-		},
-		{
-			testFrrConfiguration: buildInValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf(errEmptyFRRName),
-		},
-	}
+func TestFrrConfigurationMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testFrrConfigBuilder, err := testCase.testFrrConfiguration.Create()
-		assert.Equal(t, testCase.expectedError, err)
+	commonTestConfig := testhelper.NewCommonTestConfig[frrtypes.FRRConfiguration, FrrConfigurationBuilder](
+		frrtypes.AddToScheme,
+		frrConfigurationGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testFrrConfigBuilder.Definition.Name, testFrrConfigBuilder.Object.Name)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		Run(t)
 }
 
-func TestFrrConfigurationDelete(t *testing.T) {
-	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		expectedError        error
-	}{
-		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedError:        nil,
-		},
-		{
-			testFrrConfiguration: buildInValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf(errEmptyFRRName),
-		},
-	}
+func TestGetFrrConfigurationGVR(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		err := testCase.testFrrConfiguration.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testFrrConfiguration.Object)
-		}
-	}
-}
-
-func TestFrrConfigurationGet(t *testing.T) {
-	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		expectedError        string
-	}{
-		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedError:        "",
-		},
-		{
-			testFrrConfiguration: buildInValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedError:        errEmptyFRRName,
-		},
-		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:        "frrconfigurations.frrk8s.metallb.io \"frrconfiguration\" not found",
-		},
-	}
-
-	for _, testCase := range testCases {
-		frrConfig, err := testCase.testFrrConfiguration.Get()
-
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, frrConfig.Name, testCase.testFrrConfiguration.Definition.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestFrrConfigurationExist(t *testing.T) {
-	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		expectedStatus       bool
-	}{
-		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedStatus:       true,
-		},
-		{
-			testFrrConfiguration: buildInValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			expectedStatus:       false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.testFrrConfiguration.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
+	assert.Equal(t, schema.GroupVersionResource{
+		Group: FRRAPIGroup, Version: APIVersion, Resource: "frrconfigurations",
+	}, GetFrrConfigurationGVR())
 }
 
 func TestFrrConfigurationWithBGPRouter(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		localASN             uint32
-		expectedError        string
+		name          string
+		valid         bool
+		localASN      uint32
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			localASN:             64500,
-			expectedError:        "",
+			name:     "adds BGP router",
+			valid:    true,
+			localASN: 64500,
+		},
+		{
+			name:     "invalid builder short circuits",
+			valid:    false,
+			localASN: 64500,
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(testCase.localASN)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.localASN, frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].ASN)
-		}
+			builder := buildFrrConfigurationBuilderForTest(testCase.valid)
+			result := builder.WithBGPRouter(testCase.localASN)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
+			require.Len(t, result.Definition.Spec.BGP.Routers, 1)
+			assert.Equal(t, testCase.localASN, result.Definition.Spec.BGP.Routers[0].ASN)
+		})
 	}
 }
 
 func TestFrrConfigurationBGPNeighbor(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		bgpPeer              string
-		expectedError        string
+		name          string
+		valid         bool
+		bgpPeer       string
+		remoteAS      uint32
+		routerIndex   uint
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			bgpPeer:              "10.46.71.131",
-			expectedError:        "",
+			name:        "adds BGP neighbor",
+			valid:       true,
+			bgpPeer:     defaultFrrBGPPeerIP,
+			remoteAS:    64500,
+			routerIndex: 0,
 		},
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			bgpPeer:              "10.46.71.",
-			expectedError:        "frrConfiguration 'peerIP' of the BGPPeer contains invalid ip address",
+			name:          "invalid peer IP",
+			valid:         true,
+			bgpPeer:       "10.46.71.",
+			remoteAS:      64500,
+			routerIndex:   0,
+			expectedError: "frrConfiguration 'peerIP' of the BGPPeer contains invalid ip address",
+		},
+		{
+			name:          "invalid router index",
+			valid:         true,
+			bgpPeer:       defaultFrrBGPPeerIP,
+			remoteAS:      64500,
+			routerIndex:   1,
+			expectedError: invalidRouterIndexError,
+		},
+		{
+			name:     "invalid builder short circuits",
+			valid:    false,
+			bgpPeer:  defaultFrrBGPPeerIP,
+			remoteAS: 64500,
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64500).
-			WithBGPNeighbor(testCase.bgpPeer, 64500, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.bgpPeer, frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].
-				Neighbors[0].Address)
-		}
+			builder := buildFrrConfigurationWithRouterForTest(testCase.valid)
+			result := builder.WithBGPNeighbor(testCase.bgpPeer, testCase.remoteAS, testCase.routerIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
+			require.Len(t, result.Definition.Spec.BGP.Routers[0].Neighbors, 1)
+			assert.Equal(t, testCase.bgpPeer, result.Definition.Spec.BGP.Routers[0].Neighbors[0].Address)
+			assert.Equal(t, testCase.remoteAS, result.Definition.Spec.BGP.Routers[0].Neighbors[0].ASN)
+		})
 	}
 }
 
 func TestFrrConfigurationWithBGPPassword(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		bgpPassword          string
-		expectedError        string
+		name          string
+		valid         bool
+		bgpPassword   string
+		routerIndex   uint
+		neighborIndex uint
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			bgpPassword:          "bgpPassword",
-			expectedError:        "",
+			name:        "sets password",
+			valid:       true,
+			bgpPassword: "bgpPassword",
 		},
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			bgpPassword:          "",
-			expectedError:        "the bgpPassword  is an empty string",
+			name:          "empty password",
+			valid:         true,
+			bgpPassword:   "",
+			expectedError: "the bgpPassword  is an empty string",
+		},
+		{
+			name:          "invalid router index",
+			valid:         true,
+			bgpPassword:   "bgpPassword",
+			routerIndex:   1,
+			expectedError: invalidRouterIndexError,
+		},
+		{
+			name:          "invalid neighbor index",
+			valid:         true,
+			bgpPassword:   "bgpPassword",
+			neighborIndex: 1,
+			expectedError: invalidNeighborIndexError,
+		},
+		{
+			name:        "invalid builder short circuits",
+			valid:       false,
+			bgpPassword: "bgpPassword",
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
-			WithBGPNeighbor("10.46.73.131", 64500, 0).
-			WithBGPPassword(testCase.bgpPassword, 0, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.bgpPassword,
-				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].Password)
-		}
+			builder := buildFrrConfigurationWithNeighborForTest(testCase.valid)
+			result := builder.WithBGPPassword(testCase.bgpPassword, testCase.routerIndex, testCase.neighborIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
+			assert.Equal(t, testCase.bgpPassword, result.Definition.Spec.BGP.Routers[0].Neighbors[0].Password)
+		})
 	}
 }
 
 func TestFrrConfigurationWithHoldTime(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		holdTime             *metav1.Duration
-		expectedError        string
+		name          string
+		valid         bool
+		holdTime      metav1.Duration
+		routerIndex   uint
+		neighborIndex uint
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			holdTime: &metav1.Duration{
-				Duration: 90 * time.Second,
-			},
+			name:     "sets hold time",
+			valid:    true,
+			holdTime: metav1.Duration{Duration: 90 * time.Second},
 		},
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			holdTime: &metav1.Duration{
-				Duration: 0 * time.Minute,
-			},
+			name:          "hold time below minimum",
+			valid:         true,
+			holdTime:      metav1.Duration{},
 			expectedError: "frrConfiguration 'holdtime' value is not valid",
+		},
+		{
+			name:          "hold time above maximum",
+			valid:         true,
+			holdTime:      metav1.Duration{Duration: 65536 * time.Second},
+			expectedError: "frrConfiguration 'holdtime' value is not valid",
+		},
+		{
+			name:          "invalid router index",
+			valid:         true,
+			holdTime:      metav1.Duration{Duration: 90 * time.Second},
+			routerIndex:   1,
+			expectedError: invalidRouterIndexError,
+		},
+		{
+			name:          "invalid neighbor index",
+			valid:         true,
+			holdTime:      metav1.Duration{Duration: 90 * time.Second},
+			neighborIndex: 1,
+			expectedError: invalidNeighborIndexError,
+		},
+		{
+			name:     "invalid builder short circuits",
+			valid:    false,
+			holdTime: metav1.Duration{Duration: 90 * time.Second},
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
-			WithBGPNeighbor("10.46.73.131", 64500, 0).WithHoldTime(*testCase.holdTime, 0, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.holdTime,
-				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].HoldTime)
-		}
+			builder := buildFrrConfigurationWithNeighborForTest(testCase.valid)
+			result := builder.WithHoldTime(testCase.holdTime, testCase.routerIndex, testCase.neighborIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
+			assert.Equal(t, &testCase.holdTime, result.Definition.Spec.BGP.Routers[0].Neighbors[0].HoldTime)
+		})
 	}
 }
 
 func TestFrrConfigurationWithKeepalive(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		keepalive            *metav1.Duration
-		expectedError        string
+		name          string
+		valid         bool
+		keepalive     metav1.Duration
+		routerIndex   uint
+		neighborIndex uint
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			keepalive: &metav1.Duration{
-				Duration: 30 * time.Second,
-			},
-			expectedError: "",
+			name:      "sets keepalive",
+			valid:     true,
+			keepalive: metav1.Duration{Duration: 30 * time.Second},
 		},
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			keepalive: &metav1.Duration{
-				Duration: 0 * time.Second,
-			},
+			name:          "keepalive below minimum",
+			valid:         true,
+			keepalive:     metav1.Duration{},
 			expectedError: "frrConfiguration 'keepAlive' value is not valid",
+		},
+		{
+			name:          "keepalive above maximum",
+			valid:         true,
+			keepalive:     metav1.Duration{Duration: 65536 * time.Second},
+			expectedError: "frrConfiguration 'keepAlive' value is not valid",
+		},
+		{
+			name:          "invalid router index",
+			valid:         true,
+			keepalive:     metav1.Duration{Duration: 30 * time.Second},
+			routerIndex:   1,
+			expectedError: invalidRouterIndexError,
+		},
+		{
+			name:          "invalid neighbor index",
+			valid:         true,
+			keepalive:     metav1.Duration{Duration: 30 * time.Second},
+			neighborIndex: 1,
+			expectedError: invalidNeighborIndexError,
+		},
+		{
+			name:      "invalid builder short circuits",
+			valid:     false,
+			keepalive: metav1.Duration{Duration: 30 * time.Second},
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
-			WithBGPNeighbor("10.46.73.131", 64500, 0).WithKeepalive(*testCase.keepalive, 0, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.keepalive,
-				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].KeepaliveTime)
-		}
+			builder := buildFrrConfigurationWithNeighborForTest(testCase.valid)
+			result := builder.WithKeepalive(testCase.keepalive, testCase.routerIndex, testCase.neighborIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
+			assert.Equal(t, &testCase.keepalive, result.Definition.Spec.BGP.Routers[0].Neighbors[0].KeepaliveTime)
+		})
 	}
 }
 
 func TestFrrConfigurationWithConnectTime(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		connectTime          *metav1.Duration
-		expectedError        string
+		name          string
+		valid         bool
+		connectTime   metav1.Duration
+		routerIndex   uint
+		neighborIndex uint
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			connectTime: &metav1.Duration{
-				Duration: 10 * time.Second,
-			},
-			expectedError: "",
+			name:        "sets connect time",
+			valid:       true,
+			connectTime: metav1.Duration{Duration: 10 * time.Second},
 		},
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			connectTime: &metav1.Duration{
-				Duration: 0 * time.Second,
-			},
+			name:          "connect time below minimum",
+			valid:         true,
+			connectTime:   metav1.Duration{},
 			expectedError: frrconfigurationConnecttimeValueIsNotValid,
 		},
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			connectTime: &metav1.Duration{
-				Duration: 65555 * time.Second,
-			},
+			name:          "connect time above maximum",
+			valid:         true,
+			connectTime:   metav1.Duration{Duration: 65536 * time.Second},
 			expectedError: frrconfigurationConnecttimeValueIsNotValid,
+		},
+		{
+			name:          "invalid router index",
+			valid:         true,
+			connectTime:   metav1.Duration{Duration: 10 * time.Second},
+			routerIndex:   1,
+			expectedError: invalidRouterIndexError,
+		},
+		{
+			name:          "invalid neighbor index",
+			valid:         true,
+			connectTime:   metav1.Duration{Duration: 10 * time.Second},
+			neighborIndex: 1,
+			expectedError: invalidNeighborIndexError,
+		},
+		{
+			name:        "invalid builder short circuits",
+			valid:       false,
+			connectTime: metav1.Duration{Duration: 10 * time.Second},
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
-			WithBGPNeighbor("10.46.73.131", 64500, 0).
-			WithConnectTime(*testCase.connectTime, 0, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.connectTime,
-				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].ConnectTime)
-		}
+			builder := buildFrrConfigurationWithNeighborForTest(testCase.valid)
+			result := builder.WithConnectTime(testCase.connectTime, testCase.routerIndex, testCase.neighborIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
+			assert.Equal(t, &testCase.connectTime, result.Definition.Spec.BGP.Routers[0].Neighbors[0].ConnectTime)
+		})
 	}
 }
 
 func TestFrrConfigurationWithEBGPMultiHop(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		ebgpMultiHop         bool
-		expectedError        string
+		name          string
+		valid         bool
+		routerIndex   uint
+		neighborIndex uint
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			ebgpMultiHop:         true,
-			expectedError:        "",
+			name:  "enables multihop",
+			valid: true,
+		},
+		{
+			name:          "invalid router index",
+			valid:         true,
+			routerIndex:   1,
+			expectedError: invalidRouterIndexError,
+		},
+		{
+			name:          "invalid neighbor index",
+			valid:         true,
+			neighborIndex: 1,
+			expectedError: invalidNeighborIndexError,
+		},
+		{
+			name:  "invalid builder short circuits",
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
-			WithBGPNeighbor("10.46.73.131", 64500, 0).WithEBGPMultiHop(0, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.ebgpMultiHop,
-				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].EBGPMultiHop)
-		}
+			builder := buildFrrConfigurationWithNeighborForTest(testCase.valid)
+			result := builder.WithEBGPMultiHop(testCase.routerIndex, testCase.neighborIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
+			assert.True(t, result.Definition.Spec.BGP.Routers[0].Neighbors[0].EBGPMultiHop)
+		})
 	}
 }
 
 func TestFrrConfigurationWithBGPNeighborDisableMP(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		disableMP            bool
-		expectedError        string
+		name          string
+		valid         bool
+		disableMP     bool
+		routerIndex   uint
+		neighborIndex uint
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			disableMP:            true,
-			expectedError:        "",
+			name:      "sets disable MP true",
+			valid:     true,
+			disableMP: true,
 		},
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			disableMP:            false,
-			expectedError:        "",
+			name:      "sets disable MP false",
+			valid:     true,
+			disableMP: false,
+		},
+		{
+			name:          "invalid router index",
+			valid:         true,
+			disableMP:     true,
+			routerIndex:   1,
+			expectedError: invalidRouterIndexError,
+		},
+		{
+			name:          "invalid neighbor index",
+			valid:         true,
+			disableMP:     true,
+			neighborIndex: 1,
+			expectedError: invalidNeighborIndexError,
+		},
+		{
+			name:      "invalid builder short circuits",
+			valid:     false,
+			disableMP: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
-			WithBGPNeighbor("10.46.73.131", 64500, 0).WithBGPNeighborDisableMP(testCase.disableMP, 0, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
+			builder := buildFrrConfigurationWithNeighborForTest(testCase.valid)
+			result := builder.WithBGPNeighborDisableMP(
+				testCase.disableMP, testCase.routerIndex, testCase.neighborIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
 			//nolint:staticcheck // DisableMP is deprecated, keep for backwards compatibility.
-			assert.Equal(t, testCase.disableMP,
-				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].DisableMP)
-		}
+			assert.Equal(t, testCase.disableMP, result.Definition.Spec.BGP.Routers[0].Neighbors[0].DisableMP)
+		})
 	}
 }
 
 func TestFrrConfigurationWithBGPNeighborDualStackAddressFamily(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration   *FrrConfigurationBuilder
+		name                   string
+		valid                  bool
 		dualStackAddressFamily bool
+		routerIndex            uint
+		neighborIndex          uint
 		expectedError          string
 	}{
 		{
-			testFrrConfiguration:   buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
+			name:                   "enables dual stack address family",
+			valid:                  true,
 			dualStackAddressFamily: true,
-			expectedError:          "",
 		},
 		{
-			testFrrConfiguration:   buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
+			name:                   "disables dual stack address family",
+			valid:                  true,
 			dualStackAddressFamily: false,
-			expectedError:          "",
+		},
+		{
+			name:                   "invalid router index",
+			valid:                  true,
+			dualStackAddressFamily: true,
+			routerIndex:            1,
+			expectedError:          invalidRouterIndexError,
+		},
+		{
+			name:                   "invalid neighbor index",
+			valid:                  true,
+			dualStackAddressFamily: true,
+			neighborIndex:          1,
+			expectedError:          invalidNeighborIndexError,
+		},
+		{
+			name:                   "invalid builder short circuits",
+			valid:                  false,
+			dualStackAddressFamily: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
-			WithBGPNeighbor("10.46.73.131", 64500, 0).
-			WithBGPNeighborDualStackAddressFamily(testCase.dualStackAddressFamily, 0, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
+			builder := buildFrrConfigurationWithNeighborForTest(testCase.valid)
+			result := builder.WithBGPNeighborDualStackAddressFamily(
+				testCase.dualStackAddressFamily, testCase.routerIndex, testCase.neighborIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
 			assert.Equal(t, testCase.dualStackAddressFamily,
-				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].DualStackAddressFamily)
-		}
+				result.Definition.Spec.BGP.Routers[0].Neighbors[0].DualStackAddressFamily)
+		})
 	}
 }
 
 func TestFrrConfigurationWithPort(t *testing.T) {
-	var (
-		portIDpass uint16 = 179
-		portIDfail uint16 = 16385
-	)
+	t.Parallel()
 
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		port                 *uint16
-		expectedError        string
+		name          string
+		valid         bool
+		port          uint16
+		routerIndex   uint
+		neighborIndex uint
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			port:                 &portIDpass,
-			expectedError:        "",
+			name:  "sets port",
+			valid: true,
+			port:  179,
 		},
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			port:                 &portIDfail,
-			expectedError:        "invalid port number: 16385",
+			name:          "port above maximum",
+			valid:         true,
+			port:          16385,
+			expectedError: "invalid port number: 16385",
+		},
+		{
+			name:          "invalid router index",
+			valid:         true,
+			port:          179,
+			routerIndex:   1,
+			expectedError: invalidRouterIndexError,
+		},
+		{
+			name:          "invalid neighbor index",
+			valid:         true,
+			port:          179,
+			neighborIndex: 1,
+			expectedError: invalidNeighborIndexError,
+		},
+		{
+			name:  "invalid builder short circuits",
+			valid: false,
+			port:  179,
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
-			WithBGPNeighbor("10.46.73.131", 64500, 0).
-			WithPort(*testCase.port, 0, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.port,
-				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].Port)
-		}
+			builder := buildFrrConfigurationWithNeighborForTest(testCase.valid)
+			result := builder.WithPort(testCase.port, testCase.routerIndex, testCase.neighborIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
+			assert.Equal(t, &testCase.port, result.Definition.Spec.BGP.Routers[0].Neighbors[0].Port)
+		})
 	}
 }
 
 func TestFrrConfigurationWithToReceiveModeAll(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		mode                 string
-		expectedError        string
+		name          string
+		valid         bool
+		routerIndex   uint
+		neighborIndex uint
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			mode:                 "all",
-			expectedError:        "",
+			name:  "allows all routes",
+			valid: true,
 		},
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			mode:                 "allowAll",
-			expectedError:        "",
+			name:          "invalid router index",
+			valid:         true,
+			routerIndex:   1,
+			expectedError: invalidRouterIndexError,
+		},
+		{
+			name:          "invalid neighbor index",
+			valid:         true,
+			neighborIndex: 1,
+			expectedError: invalidNeighborIndexError,
+		},
+		{
+			name:  "invalid builder short circuits",
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64550).
-			WithBGPNeighbor("10.46.73.131", 64500, 0).WithToReceiveModeAll(0, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "all" {
-			assert.Equal(t, testCase.mode,
-				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].ToReceive.Allowed.Mode)
-		}
+			builder := buildFrrConfigurationWithNeighborForTest(testCase.valid)
+			result := builder.WithToReceiveModeAll(testCase.routerIndex, testCase.neighborIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
+			assert.Equal(t, frrtypes.AllowAll,
+				result.Definition.Spec.BGP.Routers[0].Neighbors[0].ToReceive.Allowed.Mode)
+		})
 	}
 }
 
 func TestFrrConfigurationWithToReceiveModeFiltered(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFrrConfiguration *FrrConfigurationBuilder
-		prefix               string
-		expectedError        string
+		name          string
+		valid         bool
+		prefixes      []string
+		routerIndex   uint
+		neighborIndex uint
+		expectedError string
 	}{
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			prefix:               "192.168.1.0/24",
-			expectedError:        "",
+			name:     "allows filtered routes",
+			valid:    true,
+			prefixes: []string{"192.168.1.0/24", "10.0.0.0/24"},
 		},
 		{
-			testFrrConfiguration: buildValidFRRConfigurationBuilder(buildFrrConfigurationTestClientWithDummyObject()),
-			prefix:               "192.168.1.",
-			expectedError:        "the prefix 192.168.1. is not a valid CIDR",
+			name:          "invalid CIDR prefix",
+			valid:         true,
+			prefixes:      []string{"192.168.1."},
+			expectedError: "the prefix 192.168.1. is not a valid CIDR",
+		},
+		{
+			name:          "invalid router index",
+			valid:         true,
+			prefixes:      []string{"192.168.1.0/24"},
+			routerIndex:   1,
+			expectedError: invalidRouterIndexError,
+		},
+		{
+			name:          "invalid neighbor index",
+			valid:         true,
+			prefixes:      []string{"192.168.1.0/24"},
+			neighborIndex: 1,
+			expectedError: invalidNeighborIndexError,
+		},
+		{
+			name:     "invalid builder short circuits",
+			valid:    false,
+			prefixes: []string{"192.168.1.0/24"},
 		},
 	}
 
 	for _, testCase := range testCases {
-		frrConfigurationBuilder := testCase.testFrrConfiguration.WithBGPRouter(64500).
-			WithBGPNeighbor("10.46.73.131", 64500, 0).
-			WithToReceiveModeFiltered([]string{testCase.prefix}, 0, 0)
-		assert.Equal(t, testCase.expectedError, frrConfigurationBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.prefix,
-				frrConfigurationBuilder.Definition.Spec.BGP.Routers[0].Neighbors[0].ToReceive.Allowed.Prefixes[0].Prefix)
-		}
+			builder := buildFrrConfigurationWithNeighborForTest(testCase.valid)
+			result := builder.WithToReceiveModeFiltered(
+				testCase.prefixes, testCase.routerIndex, testCase.neighborIndex)
+
+			require.Same(t, builder, result)
+
+			if !requireFrrConfigurationModifierResult(t, result, testCase.valid, testCase.expectedError) {
+				return
+			}
+
+			allowedPrefixes := result.Definition.Spec.BGP.Routers[0].Neighbors[0].ToReceive.Allowed.Prefixes
+			require.Len(t, allowedPrefixes, len(testCase.prefixes))
+
+			for index, prefix := range testCase.prefixes {
+				assert.Equal(t, prefix, allowedPrefixes[index].Prefix)
+			}
+		})
 	}
 }
 
+// requireFrrConfigurationModifierResult checks the expected builder error state and reports whether field assertions
+// should continue.
+func requireFrrConfigurationModifierResult(
+	t *testing.T, builder *FrrConfigurationBuilder, valid bool, expectedError string) bool {
+	t.Helper()
+
+	if !valid {
+		require.Error(t, builder.GetError())
+		assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+		return false
+	}
+
+	if expectedError != "" {
+		assert.EqualError(t, builder.GetError(), expectedError)
+
+		return false
+	}
+
+	require.NoError(t, builder.GetError())
+
+	return true
+}
+
+// buildFrrConfigurationBuilderForTest returns a valid or builder-error-state FRRConfiguration builder.
+func buildFrrConfigurationBuilderForTest(valid bool) *FrrConfigurationBuilder {
+	apiClient := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: frrTestSchemes})
+
+	if valid {
+		return buildValidFRRConfigurationBuilder(apiClient)
+	}
+
+	return buildInValidFRRConfigurationBuilder(apiClient)
+}
+
+// buildFrrConfigurationWithRouterForTest returns a valid builder with one BGP router, or an invalid builder.
+func buildFrrConfigurationWithRouterForTest(valid bool) *FrrConfigurationBuilder {
+	builder := buildFrrConfigurationBuilderForTest(valid)
+
+	if !valid {
+		return builder
+	}
+
+	return builder.WithBGPRouter(64550)
+}
+
+// buildFrrConfigurationWithNeighborForTest returns a valid builder with one BGP neighbor, or an invalid builder.
+func buildFrrConfigurationWithNeighborForTest(valid bool) *FrrConfigurationBuilder {
+	builder := buildFrrConfigurationWithRouterForTest(valid)
+
+	if !valid {
+		return builder
+	}
+
+	return builder.WithBGPNeighbor(defaultFrrBGPPeerIP, 64500, 0)
+}
+
+// buildValidFRRConfigurationBuilder returns a valid FRRConfiguration builder for testing.
 func buildValidFRRConfigurationBuilder(apiClient *clients.Settings) *FrrConfigurationBuilder {
 	return NewFrrConfigurationBuilder(apiClient, defaultFrrConfigurationName, defaultFrrConfigurationNsName)
 }
 
+// buildInValidFRRConfigurationBuilder returns an invalid FRRConfiguration builder for testing.
 func buildInValidFRRConfigurationBuilder(apiClient *clients.Settings) *FrrConfigurationBuilder {
 	return NewFrrConfigurationBuilder(apiClient, "", defaultFrrConfigurationNsName)
-}
-
-func buildFrrConfigurationTestClientWithDummyObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyFrrConfig(defaultFrrConfigurationName),
-		},
-		SchemeAttachers: frrTestSchemes,
-	})
-}
-
-// buildDummyFrrConfig returns a FrrConfiguration with the provided name.
-func buildDummyFrrConfig(name string) *frrtypes.FRRConfiguration {
-	return &frrtypes.FRRConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: defaultFrrConfigurationNsName,
-		},
-	}
 }
