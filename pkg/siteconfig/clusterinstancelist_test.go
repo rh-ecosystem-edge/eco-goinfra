@@ -1,83 +1,57 @@
 package siteconfig
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	siteconfigv1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/siteconfig/v1alpha1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestListClusterInstances(t *testing.T) {
-	testCases := []struct {
-		clusterInstances []*CIBuilder
-		listOptions      []runtimeclient.ListOptions
-		client           bool
-		expectedError    error
-	}{
-		{
-			clusterInstances: []*CIBuilder{buildValidClusterInstanceTestBuilder(
-				buildClusterInstanceClientWithDummyObject())},
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			clusterInstances: []*CIBuilder{buildValidClusterInstanceTestBuilder(
-				buildClusterInstanceClientWithDummyObject())},
-			listOptions:   []runtimeclient.ListOptions{{Continue: "test"}},
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			clusterInstances: []*CIBuilder{buildValidClusterInstanceTestBuilder(
-				buildClusterInstanceClientWithDummyObject())},
-			listOptions: []runtimeclient.ListOptions{
-				{Namespace: "test"},
-				{Continue: "true"},
-			},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
-		},
-		{
-			clusterInstances: []*CIBuilder{buildValidClusterInstanceTestBuilder(
-				buildClusterInstanceClientWithDummyObject())},
-			expectedError: fmt.Errorf("failed to list ClusterInstances, 'apiClient' parameter is nil"),
-			client:        false,
-		},
-		{
-			clusterInstances: nil,
-			client:           true,
-			expectedError:    nil,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	testhelper.NewListTestConfig(
+		ListClusterInstances,
+		siteconfigv1alpha1.AddToScheme,
+		clusterInstanceGVK,
+	).ExecuteTests(t)
+}
 
-		if testCase.client {
-			if testCase.clusterInstances == nil {
-				testSettings = clients.GetTestClients(clients.TestClientParams{
-					SchemeAttachers: testSchemes,
-				})
-			} else {
-				testSettings = buildClusterInstanceClientWithDummyObject()
-			}
-		}
+func TestListClusterInstancesWithNamespaceOption(t *testing.T) {
+	t.Parallel()
 
-		builders, err := ListClusterInstances(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+	matching := generateClusterInstance()
+	other := generateClusterInstance()
+	other.Name = "other-cluster-instance"
+	other.Namespace = "other-namespace"
 
-		if testCase.expectedError == nil {
-			expectedCount := 0
-			if testCase.clusterInstances != nil {
-				expectedCount = len(testCase.clusterInstances)
-			}
+	testSettings := buildClusterInstanceTestClient(matching, other)
 
-			assert.Equal(t, expectedCount, len(builders))
-		}
-	}
+	builders, err := ListClusterInstances(testSettings, runtimeclient.ListOptions{Namespace: testClusterInstance})
+
+	require.NoError(t, err)
+	require.Len(t, builders, 1)
+	assert.Equal(t, testClusterInstance, builders[0].Definition.Name)
+	assert.Equal(t, testClusterInstance, builders[0].Definition.Namespace)
+	assert.Equal(t, clusterInstanceGVK, builders[0].GetGVK())
+}
+
+func TestListClusterInstancesRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
+
+	builders, err := ListClusterInstances(
+		buildClusterInstanceClientWithDummyObject(),
+		runtimeclient.ListOptions{Namespace: testClusterInstance},
+		runtimeclient.ListOptions{Continue: "test"},
+	)
+
+	assert.EqualError(t, err, "error: more than one ListOptions was passed")
+	assert.Nil(t, builders)
 }
 
 func buildClusterInstanceClientWithDummyObject() *clients.Settings {
@@ -85,4 +59,28 @@ func buildClusterInstanceClientWithDummyObject() *clients.Settings {
 		K8sMockObjects:  []runtime.Object{generateClusterInstance()},
 		SchemeAttachers: testSchemes,
 	})
+}
+
+func TestListClusterInstancesReturnsSingleObject(t *testing.T) {
+	t.Parallel()
+
+	builders, err := ListClusterInstances(buildClusterInstanceClientWithDummyObject())
+
+	require.NoError(t, err)
+	require.Len(t, builders, 1)
+	assert.Equal(t, testClusterInstance, builders[0].Object.Name)
+	assert.Equal(t, testClusterInstance, builders[0].Object.Namespace)
+}
+
+func TestListClusterInstancesWithContinueOption(t *testing.T) {
+	t.Parallel()
+
+	builders, err := ListClusterInstances(
+		buildClusterInstanceClientWithDummyObject(),
+		runtimeclient.ListOptions{Continue: "test"},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, builders, 1)
+	assert.Equal(t, testClusterInstance, builders[0].Definition.Name)
 }

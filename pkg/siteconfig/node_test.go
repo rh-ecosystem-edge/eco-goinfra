@@ -7,7 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+//nolint:funlen // Table-driven validation covers each required constructor field.
 func TestClusterInstanceNewNewNodeBuilder(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name               string
 		bmcAddress         string
@@ -100,6 +103,8 @@ func TestClusterInstanceNewNewNodeBuilder(t *testing.T) {
 }
 
 func TestClusterInstanceNodeWithAutomatedCleaningMode(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		cleaningMode      string
 		expectedErrorText string
@@ -135,6 +140,8 @@ func TestClusterInstanceNodeWithAutomatedCleaningMode(t *testing.T) {
 }
 
 func TestClusterInstanceNodeWithNodeNetwork(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		networkConfig     *v1beta1.NMStateConfigSpec
 		expectedErrorText string
@@ -162,6 +169,8 @@ func TestClusterInstanceNodeWithNodeNetwork(t *testing.T) {
 }
 
 func TestClusterInstanceNodeGenerate(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		builder *NodeBuilder
 	}{
@@ -178,6 +187,8 @@ func TestClusterInstanceNodeGenerate(t *testing.T) {
 }
 
 func TestClusterInstanceNodeValidate(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		builderNil    bool
 		definitionNil bool
