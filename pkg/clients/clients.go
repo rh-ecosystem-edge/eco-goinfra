@@ -273,8 +273,6 @@ func GetModifiableTestClients(tcp TestClientParams) (*Settings, *fakeRuntimeClie
 			k8sClientObjects = append(k8sClientObjects, v)
 		case *netv1.NetworkPolicy:
 			k8sClientObjects = append(k8sClientObjects, v)
-		case *appsv1.DaemonSet:
-			k8sClientObjects = append(k8sClientObjects, v)
 		// Generic Client Objects
 		case *configV1.Node:
 			genericClientObjects = append(genericClientObjects, v)
