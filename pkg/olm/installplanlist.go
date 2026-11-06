@@ -1,40 +1,27 @@
 package olm
 
 import (
+	"context"
 	"fmt"
 
-	oplmV1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/olm/operators/v1alpha1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
+	oplmV1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/olm/operators/v1alpha1"
 	"k8s.io/klog/v2"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ListInstallPlan returns a list of installplans found for specific namespace.
 func ListInstallPlan(
-	apiClient *clients.Settings, nsname string, options ...client.ListOptions) ([]*InstallPlanBuilder, error) {
+	apiClient *clients.Settings, nsname string, options ...runtimeclient.ListOptions) ([]*InstallPlanBuilder, error) {
 	if nsname == "" {
 		klog.V(100).Info("The nsname of the installplan is empty")
 
-		return nil, fmt.Errorf("the nsname of the installplan is empty")
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey("InstallPlan", "", ""), commonerrors.BuilderFieldNamespace)
 	}
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil, fmt.Errorf("failed to list installPlan, 'apiClient' parameter is empty")
-	}
-
-	err := apiClient.AttachScheme(oplmV1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add oplmV1alpha1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	passedOptions := client.ListOptions{}
-	logMessage := fmt.Sprintf("Listing InstallPlans in namespace %s", nsname)
 
 	if len(options) > 1 {
 		klog.V(100).Info("'options' parameter must be empty or single-valued")
@@ -42,34 +29,18 @@ func ListInstallPlan(
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
+	allOptions := append(
+		[]runtimeclient.ListOption{runtimeclient.InNamespace(nsname)},
+		common.ConvertListOptionsToOptions(options)...,
+	)
 
-	klog.V(100).Infof("%v", logMessage)
-
-	installPlanList := new(oplmV1alpha1.InstallPlanList)
-
-	err = apiClient.List(logging.DiscardContext(), installPlanList, &passedOptions)
+	installPlanObjects, err := common.List[
+		oplmV1alpha1.InstallPlan, oplmV1alpha1.InstallPlanList, InstallPlanBuilder](
+		context.TODO(), apiClient, oplmV1alpha1.AddToScheme, allOptions...)
 	if err != nil {
-		klog.V(100).Infof("Failed to list all installplan in namespace %s due to %s",
-			nsname, err.Error())
+		klog.V(100).Infof("Failed to list all installplans in namespace %s due to %v", nsname, err)
 
 		return nil, err
-	}
-
-	var installPlanObjects []*InstallPlanBuilder
-
-	for _, foundCsv := range installPlanList.Items {
-		copiedCsv := foundCsv
-		csvBuilder := &InstallPlanBuilder{
-			apiClient:  apiClient.Client,
-			Object:     &copiedCsv,
-			Definition: &copiedCsv,
-		}
-
-		installPlanObjects = append(installPlanObjects, csvBuilder)
 	}
 
 	if len(installPlanObjects) == 0 {
