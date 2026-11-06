@@ -13,7 +13,7 @@ import (
 
 	bmhv1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 )
 
 const (
@@ -56,7 +56,8 @@ func List(apiClient *clients.Settings, nsname string, options ...goclient.ListOp
 
 	klog.V(100).Infof("%v", logMessage)
 
-	return list(apiClient, passedOptions)
+	return common.List[bmhv1alpha1.BareMetalHost, bmhv1alpha1.BareMetalHostList, BmhBuilder](
+		context.TODO(), apiClient, bmhv1alpha1.AddToScheme, &passedOptions)
 }
 
 // ListInAllNamespaces lists the BareMetalHosts across all namespaces on the provided cluster.
@@ -83,7 +84,8 @@ func ListInAllNamespaces(apiClient *clients.Settings, options ...goclient.ListOp
 
 	klog.V(100).Info(logMessage)
 
-	return list(apiClient, passedOptions)
+	return common.List[bmhv1alpha1.BareMetalHost, bmhv1alpha1.BareMetalHostList, BmhBuilder](
+		context.TODO(), apiClient, bmhv1alpha1.AddToScheme, &passedOptions)
 }
 
 // ListInventoryEligibleBMH lists BareMetalHosts that match the O2IMS hardware inventory collector criteria.
@@ -197,38 +199,4 @@ func WaitForAllBareMetalHostsInGoodOperationalState(apiClient *clients.Settings,
 		"during defined timeout: %v", timeout)
 
 	return false, err
-}
-
-// list lists the BareMetalHosts according to the provided options.
-func list(apiClient *clients.Settings, options goclient.ListOptions) ([]*BmhBuilder, error) {
-	err := apiClient.AttachScheme(bmhv1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add bmhv1alpha1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	var bmhList bmhv1alpha1.BareMetalHostList
-
-	err = apiClient.List(logging.DiscardContext(), &bmhList, &options)
-	if err != nil {
-		klog.V(100).Infof("Failed to list bareMetalHosts due to %s", err.Error())
-
-		return nil, err
-	}
-
-	var bmhObjects []*BmhBuilder
-
-	for _, baremetalhost := range bmhList.Items {
-		copiedBmh := baremetalhost
-		bmhBuilder := &BmhBuilder{
-			apiClient:  apiClient.Client,
-			Object:     &copiedBmh,
-			Definition: &copiedBmh,
-		}
-
-		bmhObjects = append(bmhObjects, bmhBuilder)
-	}
-
-	return bmhObjects, nil
 }
