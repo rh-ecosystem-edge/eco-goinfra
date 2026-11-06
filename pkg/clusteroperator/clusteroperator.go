@@ -5,15 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
-
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
 
@@ -24,87 +20,18 @@ const (
 
 // Builder provides struct for clusterOperator object.
 type Builder struct {
-	// ClusterOperator definition. Used to create a clusterOperator object.
-	Definition *configv1.ClusterOperator
-	// Created clusterOperator object.
-	Object *configv1.ClusterOperator
-	// apiClient opens api connection to the cluster.
-	apiClient goclient.Client
-	// Used in functions that define or mutate clusterOperator definition. errorMsg is processed before the
-	// ClusterOperator object is created.
-	errorMsg string
+	common.EmbeddableBuilder[configv1.ClusterOperator, *configv1.ClusterOperator]
+}
+
+// GetGVK returns the ClusterOperator GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return configv1.GroupVersion.WithKind(APIKind)
 }
 
 // Pull loads an existing clusterOperator into Builder struct.
 func Pull(apiClient *clients.Settings, clusterOperatorName string) (*Builder, error) {
-	klog.V(100).Infof("Pulling existing clusterOperator: %s", clusterOperatorName)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("clusterOperator 'apiClient' cannot be empty")
-	}
-
-	builder := &Builder{
-		apiClient: apiClient.Client,
-		Definition: &configv1.ClusterOperator{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: clusterOperatorName,
-			},
-		},
-	}
-
-	if clusterOperatorName == "" {
-		klog.V(100).Info("The name of the clusterOperator is empty")
-
-		return nil, fmt.Errorf("clusterOperator 'clusterOperatorName' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("clusterOperator object %s does not exist", clusterOperatorName)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Get fetches existing clusterOperator from cluster.
-func (builder *Builder) Get() (*configv1.ClusterOperator, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting existing clusterOperator with name %s from cluster", builder.Definition.Name)
-
-	clusterOperatorObj := &configv1.ClusterOperator{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name: builder.Definition.Name,
-	}, clusterOperatorObj)
-	if err != nil {
-		klog.V(100).Infof("Failed to get clusterOperator object %s from cluster due to: %v",
-			builder.Definition.Name, err)
-
-		return nil, err
-	}
-
-	return clusterOperatorObj, nil
-}
-
-// Exists checks whether the given clusterOperator exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if clusterOperator %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
+	return common.PullClusterScopedBuilder[configv1.ClusterOperator, Builder](
+		context.TODO(), apiClient, configv1.Install, clusterOperatorName)
 }
 
 // IsAvailable check if the clusterOperator is available.
@@ -160,7 +87,7 @@ func (builder *Builder) IsProgressing() bool {
 
 // GetConditionReason returns the specific condition type's reason value or an empty string if it does not exist.
 func (builder *Builder) GetConditionReason(conditionType configv1.ClusterStatusConditionType) string {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return ""
 	}
 
@@ -194,7 +121,7 @@ func (builder *Builder) WaitUntilProgressing(timeout time.Duration) error {
 // WaitUntilConditionTrue waits for timeout duration or until clusterOperator gets to a specific status.
 func (builder *Builder) WaitUntilConditionTrue(
 	conditionType configv1.ClusterStatusConditionType, timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -223,7 +150,7 @@ func (builder *Builder) WaitUntilConditionTrue(
 
 // HasDesiredVersion checks if an operator has a desiredVersion.
 func (builder *Builder) HasDesiredVersion(desiredVersion string) (bool, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return false, err
 	}
 
@@ -254,36 +181,4 @@ func (builder *Builder) HasDesiredVersion(desiredVersion string) (bool, error) {
 		builder.Definition.Name, desiredVersion)
 
 	return false, nil
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "ClusterOperator"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
