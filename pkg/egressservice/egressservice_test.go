@@ -1,475 +1,251 @@
 package egressservice
 
 import (
-	"fmt"
 	"testing"
 
 	egresssvcv1 "github.com/ovn-kubernetes/ovn-kubernetes/go-controller/pkg/crd/egressservice/v1"
-	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"k8s.io/apimachinery/pkg/runtime"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var (
-	egressTestSvcName      = "demo-egress-svc"
-	egressTestSvcNamespace = "demo-ns"
-	testSchemes            = []clients.SchemeAttacher{
-		egresssvcv1.AddToScheme,
-	}
+const (
+	defaultEgressServiceName      = "demo-egress-svc"
+	defaultEgressServiceNamespace = "demo-ns"
 )
 
 func TestNewEgressServiceBuilder(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		sourceIPBy    string
-		expectedError string
-	}{
-		{
-			name:          "",
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			expectedError: "the name parameter of the EgressService is empty",
-		},
-		{
-			name:          egressTestSvcName,
-			namespace:     "",
-			sourceIPBy:    "LoadBalancerIP",
-			expectedError: "the namespace of the EgressService is empty",
-		},
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			expectedError: "",
-		},
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "Network",
-			expectedError: "",
-		},
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "",
-			expectedError: errInvalidSourceIPBy,
-		},
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "DemoByIp",
-			expectedError: errInvalidSourceIPBy,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
 
-		testEgressServiceBuilder := NewEgressServiceBuilder(testSettings,
-			testCase.name, testCase.namespace, testCase.sourceIPBy)
+		testhelper.NewNamespacedBuilderTestConfig[egresssvcv1.EgressService, EgressServiceBuilder](
+			func(apiClient *clients.Settings, name, nsname string) *EgressServiceBuilder {
+				return NewEgressServiceBuilder(apiClient, name, nsname, string(egresssvcv1.SourceIPLoadBalancer))
+			},
+			egresssvcv1.AddToScheme,
+			egressServiceGVK,
+		).ExecuteTests(t)
+	})
 
-		assert.NotNil(t, testEgressServiceBuilder.Definition)
+	t.Run("source IP mode validation", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testEgressServiceBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testEgressServiceBuilder.Definition.Namespace)
-			assert.Equal(t, "", testEgressServiceBuilder.errorMsg)
-			assert.Equal(t, testCase.sourceIPBy, string(testEgressServiceBuilder.Definition.Spec.SourceIPBy))
-			assert.Equal(t, "", testEgressServiceBuilder.Definition.Spec.Network)
-		} else {
-			assert.Equal(t, testCase.expectedError, testEgressServiceBuilder.errorMsg)
+		testCases := []struct {
+			name          string
+			sourceIPBy    string
+			expectedValue string
+			expectedError string
+		}{
+			{
+				name:          "load balancer source IP mode is set",
+				sourceIPBy:    string(egresssvcv1.SourceIPLoadBalancer),
+				expectedValue: string(egresssvcv1.SourceIPLoadBalancer),
+			},
+			{
+				name:          "network source IP mode is set",
+				sourceIPBy:    string(egresssvcv1.SourceIPNetwork),
+				expectedValue: string(egresssvcv1.SourceIPNetwork),
+			},
+			{
+				name:          "case-insensitive source IP mode is preserved",
+				sourceIPBy:    "  loadbalancerip  ",
+				expectedValue: "  loadbalancerip  ",
+			},
+			{
+				name:          "empty source IP mode returns error",
+				sourceIPBy:    "",
+				expectedError: errInvalidSourceIPBy,
+			},
+			{
+				name:          "invalid source IP mode returns error",
+				sourceIPBy:    "DemoByIp",
+				expectedError: errInvalidSourceIPBy,
+			},
 		}
-	}
+
+		for _, testCase := range testCases {
+			testCase := testCase
+
+			t.Run(testCase.name, func(t *testing.T) {
+				t.Parallel()
+
+				builder := NewEgressServiceBuilder(
+					getTestEgressServiceAPIClient(), defaultEgressServiceName, defaultEgressServiceNamespace, testCase.sourceIPBy)
+
+				if testCase.expectedError != "" {
+					require.EqualError(t, builder.GetError(), testCase.expectedError)
+
+					return
+				}
+
+				require.NoError(t, builder.GetError())
+				assert.Equal(t, egresssvcv1.SourceIPMode(testCase.expectedValue), builder.Definition.Spec.SourceIPBy)
+			})
+		}
+	})
+}
+
+func TestEgressServicePull(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig[egresssvcv1.EgressService, EgressServiceBuilder](
+		Pull,
+		egresssvcv1.AddToScheme,
+		egressServiceGVK,
+	).ExecuteTests(t)
+}
+
+func TestEgressServiceBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := newEgressServiceCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestWithNodeLabelSelector(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		sourceIPBy    string
-		nodeSelector  map[string]string
-		expectedError string
-	}{
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			expectedError: "",
-			nodeSelector:  map[string]string{"egress-svc": "true"},
-		},
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			expectedError: "",
-			nodeSelector:  map[string]string{"egress-svc": "true", "prod": ""},
-		},
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			expectedError: "cannot accept empty map as nodeSelector",
-			nodeSelector:  map[string]string{},
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
+	selector := map[string]string{"egress-svc": "true", "prod": ""}
 
-		testEgressServiceBuilder := NewEgressServiceBuilder(testSettings,
-			testCase.name, testCase.namespace, testCase.sourceIPBy)
+	testEgressServiceModifier(t, func(builder *EgressServiceBuilder) *EgressServiceBuilder {
+		return builder.WithNodeLabelSelector(selector)
+	}, func(t *testing.T, builder *EgressServiceBuilder) {
+		t.Helper()
 
-		assert.NotNil(t, testEgressServiceBuilder.Definition)
+		assert.Equal(t, metav1.LabelSelector{MatchLabels: selector}, builder.Definition.Spec.NodeSelector)
+	})
 
-		testEgressServiceBuilder = testEgressServiceBuilder.WithNodeLabelSelector(testCase.nodeSelector)
+	t.Run("empty selector returns error", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testEgressServiceBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testEgressServiceBuilder.Definition.Namespace)
-			assert.Equal(t, "", testEgressServiceBuilder.errorMsg)
+		builder := buildValidEgressServiceTestBuilder()
+		result := builder.WithNodeLabelSelector(map[string]string{})
 
-			assert.Equal(t,
-				testCase.nodeSelector,
-				testEgressServiceBuilder.Definition.Spec.NodeSelector.MatchLabels)
-		} else {
-			assert.Equal(t, testCase.expectedError, testEgressServiceBuilder.errorMsg)
-		}
-	}
+		require.Same(t, builder, result)
+		require.EqualError(t, result.GetError(), "cannot accept empty map as nodeSelector")
+		assert.Empty(t, result.Definition.Spec.NodeSelector)
+	})
 }
 
 func TestWithVRFNetwork(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		name          string
-		namespace     string
-		sourceIPBy    string
-		vrfNetwork    string
-		expectedError string
+		name       string
+		vrfNetwork string
 	}{
 		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			vrfNetwork:    "",
-			expectedError: "cannot use empty VRF network",
+			name:       "numeric VRF network is set",
+			vrfNetwork: "1001",
 		},
 		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			vrfNetwork:    "1001",
-			expectedError: "",
-		},
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			vrfNetwork:    "vrfName",
-			expectedError: "",
+			name:       "named VRF network is set",
+			vrfNetwork: "vrfName",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
+		testCase := testCase
 
-		testEgressServiceBuilder := NewEgressServiceBuilder(testSettings,
-			testCase.name, testCase.namespace, testCase.sourceIPBy)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.NotNil(t, testEgressServiceBuilder.Definition)
+			testEgressServiceModifier(t, func(builder *EgressServiceBuilder) *EgressServiceBuilder {
+				return builder.WithVRFNetwork(testCase.vrfNetwork)
+			}, func(t *testing.T, builder *EgressServiceBuilder) {
+				t.Helper()
 
-		testEgressServiceBuilder = testEgressServiceBuilder.WithVRFNetwork(testCase.vrfNetwork)
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testEgressServiceBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testEgressServiceBuilder.Definition.Namespace)
-			assert.Equal(t, "", testEgressServiceBuilder.errorMsg)
-			assert.Equal(t, testCase.vrfNetwork, testEgressServiceBuilder.Definition.Spec.Network)
-		} else {
-			assert.Equal(t, testCase.expectedError, testEgressServiceBuilder.errorMsg)
-		}
-	}
-}
-
-func TestPull(t *testing.T) {
-	testCases := []struct {
-		name                string
-		nsname              string
-		sourceIPBy          string
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			name:                egressTestSvcName,
-			nsname:              egressTestSvcNamespace,
-			sourceIPBy:          "LoadBalancerIP",
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			name:                "",
-			nsname:              egressTestSvcNamespace,
-			sourceIPBy:          "LoadBalancerIP",
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("egressService's name cannot be empty"),
-		},
-		{
-			name:                egressTestSvcName,
-			nsname:              "",
-			sourceIPBy:          "LoadBalancerIP",
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("egressService's namespace cannot be empty"),
-		},
-		{
-			name:                egressTestSvcName,
-			nsname:              egressTestSvcNamespace,
-			sourceIPBy:          "LoadBalancerIP",
-			addToRuntimeObjects: false,
-			client:              false,
-			expectedError:       fmt.Errorf("egressService's 'apiClient' cannot be empty"),
-		},
-		{
-			name:                egressTestSvcName,
-			nsname:              egressTestSvcNamespace,
-			sourceIPBy:          "LoadBalancerIP",
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError: fmt.Errorf("egressService object %q does not exist in namespace %q",
-				egressTestSvcName, egressTestSvcNamespace),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testEgressService := buildDummyEgressService(testCase.name, testCase.nsname, testCase.sourceIPBy)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testEgressService)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
+				assert.Equal(t, testCase.vrfNetwork, builder.Definition.Spec.Network)
 			})
-		}
-
-		testEgressServiceBuilder, err := Pull(testSettings, testCase.name, testCase.nsname)
-
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, testEgressServiceBuilder.Definition.Name)
-			assert.Equal(t, testCase.nsname, testEgressServiceBuilder.Definition.Namespace)
-			assert.Equal(t, testCase.sourceIPBy, string(testEgressServiceBuilder.Definition.Spec.SourceIPBy))
-		}
-	}
-}
-
-func TestGet(t *testing.T) {
-	testCases := []struct {
-		name                string
-		nsname              string
-		sourceIPBy          string
-		addToRuntimeObjects bool
-		expectedError       error
-	}{
-		{
-			name:                egressTestSvcName,
-			nsname:              egressTestSvcNamespace,
-			sourceIPBy:          "LoadBalancerIP",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-		},
-		{
-			name:                egressTestSvcName,
-			nsname:              egressTestSvcNamespace,
-			sourceIPBy:          "LoadBalancerIP",
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("the name parameter of the EgressService is empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects           []runtime.Object
-			testSettings             *clients.Settings
-			testEgressServiceBuilder *EgressServiceBuilder
-		)
-
-		testEgressService := buildDummyEgressService(testCase.name, testCase.nsname, testCase.sourceIPBy)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testEgressService)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: testSchemes,
 		})
-
-		if testCase.expectedError != nil {
-			testEgressServiceBuilder = buildInvalidDummyEgressServiceBuilder(testSettings)
-		} else {
-			testEgressServiceBuilder = buildDummyEgressServiceBuilder(
-				testSettings, testCase.name, testCase.nsname, testCase.sourceIPBy)
-		}
-
-		testEgressService, err := testEgressServiceBuilder.Get()
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-			assert.Empty(t, testEgressService)
-		} else {
-			assert.Equal(t, testCase.name, testEgressService.Name)
-			assert.Equal(t, testCase.nsname, testEgressService.Namespace)
-			assert.Equal(t, testCase.sourceIPBy, string(testEgressService.Spec.SourceIPBy))
-		}
-	}
-}
-
-func TestUpdate(t *testing.T) {
-	testCases := []struct {
-		name          string
-		nsname        string
-		sourceIPBy    string
-		newVrfNetwork string
-		nodeSelector  map[string]string
-		expectedError error
-	}{
-		{
-			name:          egressTestSvcName,
-			nsname:        egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			newVrfNetwork: "5678",
-			nodeSelector:  map[string]string{},
-			expectedError: nil,
-		},
-		{
-			name:          egressTestSvcName,
-			nsname:        egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			newVrfNetwork: " ",
-			nodeSelector:  map[string]string{},
-			expectedError: fmt.Errorf("cannot use empty VRF network"),
-		},
 	}
 
-	for _, testCase := range testCases {
-		testEgressServiceBuilder, err := Pull(buildTestClientWithDummyEgressService(),
-			testCase.name, testCase.nsname)
+	t.Run("empty VRF network returns error", func(t *testing.T) {
+		t.Parallel()
 
-		assert.Nil(t, err)
+		builder := buildValidEgressServiceTestBuilder()
+		result := builder.WithVRFNetwork(" ")
 
-		testEgressServiceBuilder = testEgressServiceBuilder.WithVRFNetwork(testCase.newVrfNetwork)
-
-		testEgressServiceBuilder, err = testEgressServiceBuilder.Update()
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError, err)
-		} else {
-			assert.Equal(t, testCase.name, testEgressServiceBuilder.Object.Name)
-			assert.Equal(t, testCase.nsname, testEgressServiceBuilder.Object.Namespace)
-
-			assert.Equal(t, testCase.newVrfNetwork, testEgressServiceBuilder.Object.Spec.Network)
-			assert.Equal(t,
-				testEgressServiceBuilder.Definition.Spec.Network,
-				testEgressServiceBuilder.Object.Spec.Network)
-		}
-	}
-}
-
-func TestCreate(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		sourceIPBy    string
-		expectedError error
-	}{
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "Network",
-			expectedError: nil,
-		},
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "LoadBalancerIP",
-			expectedError: nil,
-		},
-		{
-			name:          egressTestSvcName,
-			namespace:     egressTestSvcNamespace,
-			sourceIPBy:    "fake",
-			expectedError: fmt.Errorf(errInvalidSourceIPBy),
-		},
-	}
-
-	for _, testCase := range testCases {
-		testEgressServiceBuilder := buildDummyEgressServiceBuilder(buildTestClientWithCustomizedEgressService(
-			testCase.name, testCase.namespace, testCase.sourceIPBy),
-			testCase.name, testCase.namespace, testCase.sourceIPBy)
-
-		createdEgressService, err := testEgressServiceBuilder.Create()
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError, err)
-		} else {
-			assert.Equal(t, testCase.name, createdEgressService.Definition.Name)
-			assert.Equal(t, testCase.namespace, createdEgressService.Definition.Namespace)
-			assert.Equal(t, testCase.sourceIPBy, string(createdEgressService.Definition.Spec.SourceIPBy))
-		}
-	}
-}
-
-// buildDummyEgressService generates EgressService definition.
-func buildDummyEgressService(name, nsname, sourceIPBy string) *egresssvcv1.EgressService {
-	return &egresssvcv1.EgressService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nsname,
-		},
-		Spec: egresssvcv1.EgressServiceSpec{
-			SourceIPBy: egresssvcv1.SourceIPMode(sourceIPBy),
-		},
-	}
-}
-
-func buildDummyEgressServiceBuilder(
-	apiClient *clients.Settings, name, nsname, sourceIPBy string) *EgressServiceBuilder {
-	return NewEgressServiceBuilder(apiClient, name, nsname, sourceIPBy)
-}
-
-func buildInvalidDummyEgressServiceBuilder(
-	apiClient *clients.Settings) *EgressServiceBuilder {
-	return NewEgressServiceBuilder(apiClient, "", egressTestSvcName, "LoadBalancerIP")
-}
-
-// buildTestClientWithDummyPod returns a client with a dummy Pod.
-func buildTestClientWithDummyEgressService() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyEgressService(egressTestSvcName, egressTestSvcNamespace, "LoadBalancerIP"),
-		},
-		SchemeAttachers: testSchemes,
+		require.Same(t, builder, result)
+		require.EqualError(t, result.GetError(), "cannot use empty VRF network")
+		assert.Empty(t, result.Definition.Spec.Network)
 	})
 }
 
-func buildTestClientWithCustomizedEgressService(name, nsname, sourceIPBy string) *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyEgressService(name, nsname, sourceIPBy),
-		},
-		SchemeAttachers: testSchemes,
+func testEgressServiceModifier(
+	t *testing.T,
+	modify func(*EgressServiceBuilder) *EgressServiceBuilder,
+	verify func(*testing.T, *EgressServiceBuilder),
+) {
+	t.Helper()
+
+	t.Run("applies to valid builder", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidEgressServiceTestBuilder()
+		result := modify(builder)
+
+		require.Same(t, builder, result)
+		require.NoError(t, result.GetError())
+		verify(t, result)
 	})
+
+	t.Run("invalid builder short circuits", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildInvalidEgressServiceTestBuilder()
+		before := builder.Definition.DeepCopy()
+		result := modify(builder)
+
+		require.Same(t, builder, result)
+		require.Truef(t, commonerrors.IsBuilderNameEmpty(result.GetError()), "unexpected error: %v", result.GetError())
+		assert.Equal(t, before, result.Definition)
+	})
+}
+
+func newEgressServiceCommonTestConfig() testhelper.CommonTestConfig[
+	egresssvcv1.EgressService,
+	EgressServiceBuilder,
+	*egresssvcv1.EgressService,
+	*EgressServiceBuilder,
+] {
+	return testhelper.NewCommonTestConfig[egresssvcv1.EgressService, EgressServiceBuilder](
+		egresssvcv1.AddToScheme,
+		egressServiceGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+}
+
+func buildValidEgressServiceTestBuilder() *EgressServiceBuilder {
+	return NewEgressServiceBuilder(
+		getTestEgressServiceAPIClient(),
+		defaultEgressServiceName,
+		defaultEgressServiceNamespace,
+		string(egresssvcv1.SourceIPLoadBalancer),
+	)
+}
+
+func buildInvalidEgressServiceTestBuilder() *EgressServiceBuilder {
+	return NewEgressServiceBuilder(
+		getTestEgressServiceAPIClient(),
+		"",
+		defaultEgressServiceNamespace,
+		string(egresssvcv1.SourceIPLoadBalancer),
+	)
+}
+
+func getTestEgressServiceAPIClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{})
 }
