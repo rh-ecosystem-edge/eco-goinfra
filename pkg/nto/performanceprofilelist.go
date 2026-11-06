@@ -54,11 +54,12 @@ func ListProfiles(apiClient *clients.Settings, options ...goclient.ListOptions) 
 
 	for _, perfProfile := range performanceProfiles.Items {
 		copiedPerfProfile := perfProfile
-		perfProfileBuilder := &Builder{
-			apiClient:  apiClient.Client,
-			Object:     &copiedPerfProfile,
-			Definition: &copiedPerfProfile,
-		}
+		perfProfileBuilder := &Builder{}
+		perfProfileBuilder.AttachMixins()
+		perfProfileBuilder.SetGVK(perfProfileBuilder.GetGVK())
+		perfProfileBuilder.SetClient(apiClient)
+		perfProfileBuilder.SetObject(&copiedPerfProfile)
+		perfProfileBuilder.SetDefinition(&copiedPerfProfile)
 
 		perfProfilesObjects = append(perfProfilesObjects, perfProfileBuilder)
 	}
