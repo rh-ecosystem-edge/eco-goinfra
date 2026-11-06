@@ -1,12 +1,14 @@
 package sriovvrb
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 	sriovvrbtypes "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/fec/vrbtypes"
-	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -15,64 +17,18 @@ func ListNodeConfig(
 	apiClient *clients.Settings,
 	nsname string,
 	options ...client.ListOptions) ([]*NodeConfigBuilder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("SriovVrbNodeConfigList 'apiClient' parameter can not be empty")
-
-		return nil, fmt.Errorf("failed to list SriovVrbNodeConfig, 'apiClient' parameter is empty")
-	}
-
-	err := apiClient.AttachScheme(sriovvrbtypes.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add sriov-vrb scheme to client schemes")
-
-		return nil, err
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("SriovVrbNodeConfigList 'nsname' parameter can not be empty")
-
-		return nil, fmt.Errorf("failed to list SriovVrbNodeConfig, 'nsname' parameter is empty")
-	}
-
-	logMessage := fmt.Sprintf("Listing SriovVrbNodeConfig in the namespace %s", nsname)
-	passedOptions := client.ListOptions{}
-
 	if len(options) > 1 {
-		klog.V(100).Info("'options' parameter must be empty or single-valued")
-
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
+	if nsname == "" {
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey("SriovVrbNodeConfig", "", ""), commonerrors.BuilderFieldNamespace)
 	}
 
-	klog.V(100).Infof("%v", logMessage)
+	listOptions := common.ConvertListOptionsToOptions(options)
+	listOptions = append(listOptions, client.InNamespace(nsname))
 
-	passedOptions.Namespace = nsname
-
-	sfncList := new(sriovvrbtypes.SriovVrbNodeConfigList)
-
-	err = apiClient.List(logging.DiscardContext(), sfncList, &passedOptions)
-	if err != nil {
-		klog.V(100).Infof("Failed to list SriovVrbNodeConfigs in the namespace %s due to %s", nsname, err.Error())
-
-		return nil, err
-	}
-
-	var sfncBuilderList []*NodeConfigBuilder
-
-	for _, sfnc := range sfncList.Items {
-		copiedObject := sfnc
-		sfncBuilder := &NodeConfigBuilder{
-			apiClient:  apiClient.Client,
-			Object:     &copiedObject,
-			Definition: &copiedObject,
-		}
-
-		sfncBuilderList = append(sfncBuilderList, sfncBuilder)
-	}
-
-	return sfncBuilderList, nil
+	return common.List[sriovvrbtypes.SriovVrbNodeConfig, sriovvrbtypes.SriovVrbNodeConfigList, NodeConfigBuilder](
+		context.TODO(), apiClient, sriovvrbtypes.AddToScheme, listOptions...)
 }

@@ -1,14 +1,13 @@
 package sriovvrb
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	sriovvrbtypes "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/fec/vrbtypes"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -16,368 +15,104 @@ const (
 	defaultClusterConfigNamespace = "test-ns"
 )
 
+var clusterConfigGVK = sriovvrbtypes.GroupVersion.WithKind("SriovVrbClusterConfig")
+
 func TestVrbNewClusterConfigBuilder(t *testing.T) {
-	testCases := []struct {
-		name          string
-		nsname        string
-		client        bool
-		expectedError string
-	}{
-		{
-			name:          defaultClusterConfigName,
-			nsname:        defaultClusterConfigNamespace,
-			client:        true,
-			expectedError: "",
-		},
-		{
-			name:          "",
-			nsname:        defaultClusterConfigNamespace,
-			client:        true,
-			expectedError: "SriovVrbClusterConfig 'name' cannot be empty",
-		},
-		{
-			name:          defaultClusterConfigName,
-			nsname:        "",
-			client:        true,
-			expectedError: errEmptyVrbClusterConfigNsname,
-		},
-		{
-			name:          defaultClusterConfigName,
-			nsname:        defaultClusterConfigNamespace,
-			client:        false,
-			expectedError: "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
-
-		testBuilder := NewClusterConfigBuilder(testSettings, testCase.name, testCase.nsname)
-
-		if testCase.client {
-			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-
-			if testCase.expectedError == "" {
-				assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-				assert.Equal(t, testCase.nsname, testBuilder.Definition.Namespace)
-			}
-		} else {
-			assert.Nil(t, testBuilder)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewClusterConfigBuilder,
+		sriovvrbtypes.AddToScheme,
+		clusterConfigGVK,
+	).ExecuteTests(t)
 }
 
 func TestVrbPullClusterConfig(t *testing.T) {
-	testCases := []struct {
-		name                string
-		nsname              string
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			name:                defaultClusterConfigName,
-			nsname:              defaultClusterConfigNamespace,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			name:                "",
-			nsname:              defaultClusterConfigNamespace,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       fmt.Errorf("SriovVrbClusterConfig 'name' cannot be empty"),
-		},
-		{
-			name:                defaultClusterConfigName,
-			nsname:              "",
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       fmt.Errorf(errEmptyVrbClusterConfigNsname),
-		},
-		{
-			name:                defaultClusterConfigName,
-			nsname:              defaultClusterConfigNamespace,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError: fmt.Errorf(
-				"SriovVrbClusterConfig object %s does not exist in namespace %s",
-				defaultClusterConfigName, defaultClusterConfigNamespace),
-		},
-		{
-			name:                defaultClusterConfigName,
-			nsname:              defaultClusterConfigNamespace,
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("SriovVrbClusterConfig 'apiClient' cannot be nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testClusterConfig := buildDummyClusterConfig(testCase.name, testCase.nsname)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testClusterConfig)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		testBuilder, err := PullClusterConfig(testSettings, testCase.name, testCase.nsname)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testCase.nsname, testBuilder.Definition.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullClusterConfig,
+		sriovvrbtypes.AddToScheme,
+		clusterConfigGVK,
+	).ExecuteTests(t)
 }
 
-func TestVrbClusterConfigGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ClusterConfigBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedError: errEmptyVrbClusterConfigNsname,
-		},
-	}
+func TestVrbClusterConfigMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		clusterConfig, err := testCase.testBuilder.Get()
+	commonTestConfig := newClusterConfigCommonTestConfig()
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, clusterConfig)
-			assert.Nil(t, err)
-			assert.Equal(t, defaultClusterConfigName, clusterConfig.Name)
-			assert.Equal(t, defaultClusterConfigNamespace, clusterConfig.Namespace)
-		} else {
-			assert.Nil(t, clusterConfig)
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), testCase.expectedError)
-		}
-	}
-}
-
-func TestVrbClusterConfigExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ClusterConfigBuilder
-		expectedExist bool
-	}{
-		{
-			testBuilder:   buildValidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedExist: true,
-		},
-		{
-			testBuilder:   buildValidClusterConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedExist: false,
-		},
-		{
-			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedExist: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.expectedExist, exists)
-	}
-}
-
-func TestVrbClusterConfigCreate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ClusterConfigBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidClusterConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildInvalidClusterConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: errEmptyVrbClusterConfigNsname,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder, err := testCase.testBuilder.Create()
-
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.NotNil(t, testBuilder)
-			assert.NotNil(t, testBuilder.Object)
-		} else {
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), testCase.expectedError)
-		}
-	}
-}
-
-func TestVrbClusterConfigDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ClusterConfigBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildValidClusterConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			expectedError: errEmptyVrbClusterConfigNsname,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder, err := testCase.testBuilder.Delete()
-
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.NotNil(t, testBuilder)
-			assert.Nil(t, testBuilder.Object)
-		} else {
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), testCase.expectedError)
-		}
-	}
-}
-
-func TestVrbClusterConfigUpdate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ClusterConfigBuilder
-		force         bool
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			force:         false,
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildValidClusterConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			force:         false,
-			expectedError: "cannot update non-existent SriovVrbClusterConfig",
-		},
-		{
-			testBuilder:   buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			force:         false,
-			expectedError: errEmptyVrbClusterConfigNsname,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder, err := testCase.testBuilder.Update(testCase.force)
-
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.NotNil(t, testBuilder)
-		} else {
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), testCase.expectedError)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestVrbClusterConfigWithOptions(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ClusterConfigBuilder
-		options       ClusterAdditionalOptions
-		expectedError string
-	}{
-		{
-			testBuilder: buildValidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			options: func(builder *ClusterConfigBuilder) (*ClusterConfigBuilder, error) {
-				// Add some test modification
-				builder.Definition.Spec = sriovvrbtypes.SriovVrbClusterConfigSpec{}
+	t.Parallel()
 
-				return builder, nil
-			},
-			expectedError: "",
-		},
-		{
-			testBuilder: buildInvalidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			options: func(builder *ClusterConfigBuilder) (*ClusterConfigBuilder, error) {
-				return builder, nil
-			},
-			expectedError: errEmptyVrbClusterConfigNsname,
-		},
-		{
-			testBuilder: buildValidClusterConfigBuilder(buildTestClientWithDummyClusterConfig()),
-			options: func(builder *ClusterConfigBuilder) (*ClusterConfigBuilder, error) {
-				return builder, fmt.Errorf("error adding additional option")
-			},
-			expectedError: "error adding additional option",
-		},
-	}
+	testhelper.NewWithOptionsTestConfig(newClusterConfigCommonTestConfig()).ExecuteTests(t)
+}
 
-	for _, testCase := range testCases {
-		testBuilder := testCase.testBuilder.WithOptions(testCase.options)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+func TestVrbClusterConfigWithOptionsMutatesSpec(t *testing.T) {
+	t.Parallel()
 
-		if testCase.expectedError == "" {
-			// Verify the option was applied
-			assert.NotNil(t, testBuilder.Definition.Spec)
-		}
-	}
+	builder := buildValidClusterConfigTestBuilder(buildClusterConfigTestClient())
+	builder = builder.WithOptions(func(builder *ClusterConfigBuilder) (*ClusterConfigBuilder, error) {
+		builder.Definition.Spec.Priority = 10
+
+		return builder, nil
+	})
+
+	assert.NoError(t, builder.GetError())
+	assert.Equal(t, 10, builder.Definition.Spec.Priority)
+
+	builder = buildInvalidClusterConfigTestBuilder(buildClusterConfigTestClient())
+	builder = builder.WithOptions(func(builder *ClusterConfigBuilder) (*ClusterConfigBuilder, error) {
+		builder.Definition.Spec.Priority = 10
+
+		return builder, nil
+	})
+
+	assert.True(t, commonerrors.IsBuilderNamespaceEmpty(builder.GetError()))
+	assert.Zero(t, builder.Definition.Spec.Priority)
 }
 
 func TestVrbClusterConfigGetGVR(t *testing.T) {
+	t.Parallel()
+
 	gvr := GetSriovVrbClusterConfigIoGVR()
 	assert.Equal(t, APIGroup, gvr.Group)
 	assert.Equal(t, APIVersion, gvr.Version)
 	assert.Equal(t, ClusterConfigsResource, gvr.Resource)
 }
 
-// buildDummyClusterConfig returns a ClusterConfig with the provided name and namespace.
-func buildDummyClusterConfig(name, nsname string) *sriovvrbtypes.SriovVrbClusterConfig {
-	return &sriovvrbtypes.SriovVrbClusterConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nsname,
-		},
-	}
+// newClusterConfigCommonTestConfig returns the shared test configuration for SriovVrbClusterConfig.
+func newClusterConfigCommonTestConfig() testhelper.CommonTestConfig[
+	sriovvrbtypes.SriovVrbClusterConfig, ClusterConfigBuilder, *sriovvrbtypes.SriovVrbClusterConfig,
+	*ClusterConfigBuilder,
+] {
+	return testhelper.NewCommonTestConfig[
+		sriovvrbtypes.SriovVrbClusterConfig, ClusterConfigBuilder,
+	](sriovvrbtypes.AddToScheme, clusterConfigGVK, testhelper.ResourceScopeNamespaced)
 }
 
-// buildTestClientWithDummyClusterConfig returns a client with a dummy ClusterConfig.
-// It uses the default name and namespace.
-func buildTestClientWithDummyClusterConfig() *clients.Settings {
+// buildClusterConfigTestClient returns a test client with the SriovVrbClusterConfig scheme attached.
+func buildClusterConfigTestClient() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyClusterConfig(defaultClusterConfigName, defaultClusterConfigNamespace),
-		},
-		SchemeAttachers: testSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{sriovvrbtypes.AddToScheme},
 	})
 }
 
-// buildValidClusterConfigBuilder returns a valid ClusterConfigBuilder for testing.
-func buildValidClusterConfigBuilder(apiClient *clients.Settings) *ClusterConfigBuilder {
+// buildValidClusterConfigTestBuilder returns a valid SriovVrbClusterConfig builder for testing.
+func buildValidClusterConfigTestBuilder(apiClient *clients.Settings) *ClusterConfigBuilder {
 	return NewClusterConfigBuilder(apiClient, defaultClusterConfigName, defaultClusterConfigNamespace)
 }
 
-// buildInvalidClusterConfigBuilder returns an invalid ClusterConfigBuilder for testing, missing the nsname.
-func buildInvalidClusterConfigBuilder(apiClient *clients.Settings) *ClusterConfigBuilder {
+// buildInvalidClusterConfigTestBuilder returns a SriovVrbClusterConfig builder with an empty namespace.
+func buildInvalidClusterConfigTestBuilder(apiClient *clients.Settings) *ClusterConfigBuilder {
 	return NewClusterConfigBuilder(apiClient, defaultClusterConfigName, "")
 }
