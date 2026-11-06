@@ -1,175 +1,166 @@
 package poddisruptionbudget
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var (
-	testSchemes = []clients.SchemeAttacher{
+const (
+	testPDBLabelKey       = "app"
+	otherPDBName          = "other-poddisruptionbudget"
+	otherPDBNamespace     = "other-namespace"
+	matchingPDBLabelValue = "match"
+)
+
+var matchingPDBListOptions = metav1.ListOptions{LabelSelector: testPDBLabelKey + "=" + matchingPDBLabelValue}
+
+func TestList(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedListTestConfig(
+		func(apiClient *clients.Settings, nsname string, _ ...runtimeclient.ListOptions) ([]*Builder, error) {
+			return List(apiClient, nsname)
+		},
 		policyv1.AddToScheme,
-	}
-	defaultPDBName   = "pdbtest"
-	defaultPDBNsName = "pdbnamespace"
-)
+		pdbGVK,
+	).ExecuteTests(t)
+}
 
-func TestPDBList(t *testing.T) {
+func TestListInAllNamespaces(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewListTestConfig(ListInAllNamespaces, policyv1.AddToScheme, pdbGVK).ExecuteTests(t)
+}
+
+func TestListOptionsAndScoping(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		pdb           []*Builder
-		nsName        string
+		name          string
+		listAll       bool
+		nsname        string
 		listOptions   []metav1.ListOptions
-		expectedError error
-		client        bool
+		expectedNames []types.NamespacedName
 	}{
 		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        defaultPDBNsName,
-			expectedError: nil,
-			client:        true,
+			name:          "only pod disruption budgets in requested namespace",
+			nsname:        otherPDBNamespace,
+			expectedNames: []types.NamespacedName{{Name: otherPDBName, Namespace: otherPDBNamespace}},
 		},
 		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        defaultPDBNsName,
-			listOptions:   []metav1.ListOptions{{LabelSelector: "test1"}},
-			expectedError: nil,
-			client:        true,
+			name:          "label selector excludes non-matching pod disruption budget",
+			nsname:        defaultPDBNamespace,
+			listOptions:   []metav1.ListOptions{matchingPDBListOptions},
+			expectedNames: []types.NamespacedName{{Name: defaultPDBName, Namespace: defaultPDBNamespace}},
 		},
 		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        defaultPDBNsName,
-			listOptions:   []metav1.ListOptions{{LabelSelector: ""}},
-			expectedError: nil,
-			client:        true,
+			name:    "pod disruption budgets from all namespaces",
+			listAll: true,
+			expectedNames: []types.NamespacedName{
+				{Name: defaultPDBName, Namespace: defaultPDBNamespace},
+				{Name: otherPDBName, Namespace: otherPDBNamespace},
+			},
 		},
 		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        defaultPDBNsName,
-			listOptions:   []metav1.ListOptions{{LabelSelector: "test1"}, {LabelSelector: "test2"}},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
-		},
-		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        "",
-			expectedError: fmt.Errorf("failed to list podDisruptionBudgets, 'nsname' parameter is empty"),
-			client:        true,
-		},
-		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        defaultPDBNsName,
-			expectedError: fmt.Errorf("podDisruptionBudget 'apiClient' cannot be empty"),
-			client:        false,
+			name:          "label selector filters all namespaces",
+			listAll:       true,
+			listOptions:   []metav1.ListOptions{matchingPDBListOptions},
+			expectedNames: []types.NamespacedName{{Name: defaultPDBName, Namespace: defaultPDBNamespace}},
 		},
 	}
+
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyPDBObject(),
-				SchemeAttachers: testSchemes,
-			})
-		}
+			testClient := getPDBTestClient(buildPDBTestObjects()...)
 
-		pdbBuilders, err := List(testSettings, testCase.nsName, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+			var (
+				result []*Builder
+				err    error
+			)
+			if testCase.listAll {
+				result, err = ListInAllNamespaces(testClient, testCase.listOptions...)
+			} else {
+				result, err = List(testClient, testCase.nsname, testCase.listOptions...)
+			}
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(pdbBuilders), len(testCase.pdb))
-		}
+			require.NoError(t, err)
+			assert.ElementsMatch(t, testCase.expectedNames, pdbKeys(result))
+		})
 	}
 }
 
-func TestPDBListInAllNamespaces(t *testing.T) {
-	testCases := []struct {
-		pdb           []*Builder
-		listOptions   []metav1.ListOptions
-		expectedError error
-		client        bool
-	}{
-		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			listOptions:   []metav1.ListOptions{{LabelSelector: "test1"}},
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			listOptions:   []metav1.ListOptions{{LabelSelector: ""}},
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			listOptions:   []metav1.ListOptions{{LabelSelector: "test1"}, {LabelSelector: "test2"}},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
-		},
-		{
-			pdb: []*Builder{
-				buildValidPDBTestBuilder(buildTestClientWithDummyObject())},
-			expectedError: fmt.Errorf("podDisruptionBudget 'apiClient' cannot be empty"),
-			client:        false,
-		},
-	}
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+func TestListRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyPDBObject(),
-				SchemeAttachers: testSchemes,
-			})
-		}
+	testClient := getPDBTestClient()
+	options := []metav1.ListOptions{{}, {}}
 
-		pdbBuilders, err := ListInAllNamespaces(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+	_, err := List(testClient, defaultPDBNamespace, options...)
+	require.EqualError(t, err, "error: more than one ListOptions was passed")
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(pdbBuilders), len(testCase.pdb))
-		}
-	}
+	_, err = ListInAllNamespaces(testClient, options...)
+	require.EqualError(t, err, "error: more than one ListOptions was passed")
 }
 
-// buildValidTestBuilder returns a valid Builder for testing purposes.
-func buildValidPDBTestBuilder(apiClient *clients.Settings) *Builder {
-	return NewBuilder(apiClient, defaultPDBName, defaultPDBNsName)
+func TestListRejectsInvalidSelectors(t *testing.T) {
+	t.Parallel()
+
+	testClient := getPDBTestClient()
+	invalidOptions := []metav1.ListOptions{{LabelSelector: "invalid in (selector"}}
+
+	_, err := List(testClient, defaultPDBNamespace, invalidOptions...)
+	require.Error(t, err)
+
+	_, err = ListInAllNamespaces(testClient, invalidOptions...)
+	require.Error(t, err)
 }
 
-func buildTestClientWithDummyObject() *clients.Settings {
+// getPDBTestClient returns a test client with the PodDisruptionBudget scheme attached.
+func getPDBTestClient(objects ...runtime.Object) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyPDBObject(),
-		SchemeAttachers: testSchemes,
+		K8sMockObjects:  objects,
+		SchemeAttachers: []clients.SchemeAttacher{policyv1.AddToScheme},
 	})
 }
 
-func buildDummyPDBObject() []runtime.Object {
-	return append([]runtime.Object{}, &policyv1.PodDisruptionBudget{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultPDBName,
-			Namespace: defaultPDBNsName,
-		},
-		Spec: policyv1.PodDisruptionBudgetSpec{},
-	})
+// buildPDBTestObjects returns PodDisruptionBudgets used to verify list scoping and selectors.
+func buildPDBTestObjects() []runtime.Object {
+	return []runtime.Object{
+		buildDummyPDBWithLabel(defaultPDBName, defaultPDBNamespace, matchingPDBLabelValue),
+		buildDummyPDBWithLabel(otherPDBName, otherPDBNamespace, "other"),
+	}
+}
+
+// buildDummyPDBWithLabel returns a PodDisruptionBudget with the provided metadata and label value.
+func buildDummyPDBWithLabel(name, namespace, labelValue string) *policyv1.PodDisruptionBudget {
+	return &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{
+		Name:      name,
+		Namespace: namespace,
+		Labels:    map[string]string{testPDBLabelKey: labelValue},
+	}}
+}
+
+// pdbKeys returns the namespaced names of the listed PodDisruptionBudget builders.
+func pdbKeys(builders []*Builder) []types.NamespacedName {
+	keys := make([]types.NamespacedName, 0, len(builders))
+
+	for _, builder := range builders {
+		keys = append(keys, types.NamespacedName{
+			Name:      builder.GetObject().Name,
+			Namespace: builder.GetObject().Namespace,
+		})
+	}
+
+	return keys
 }
