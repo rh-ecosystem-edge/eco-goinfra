@@ -5,395 +5,215 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	kmmv1beta2 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/kmm/v1beta2"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"github.com/stretchr/testify/require"
 )
 
-var (
-	testSchemes = []clients.SchemeAttacher{
-		kmmv1beta2.AddToScheme,
-	}
+const (
 	defaultPreflightName      = "preflight"
 	defaultPreflightNamespace = "preflightns"
 )
 
 func TestNewPreflightValidationBuilder(t *testing.T) {
-	testCases := []struct {
-		name              string
-		namespace         string
-		expectedPreflight *kmmv1beta2.PreflightValidation
-		expectedErr       string
-	}{
-		{
-			name:      defaultPreflightName,
-			namespace: defaultPreflightNamespace,
-			expectedPreflight: &kmmv1beta2.PreflightValidation{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      defaultPreflightName,
-					Namespace: defaultPreflightNamespace,
-				},
-			},
-			expectedErr: "",
-		},
-		{
-			name:              defaultPreflightName,
-			namespace:         "",
-			expectedPreflight: nil,
-			expectedErr:       errEmptyPreflightNsname,
-		},
-		{
-			name:              "",
-			namespace:         defaultPreflightNamespace,
-			expectedPreflight: nil,
-			expectedErr:       "PreflightValidation 'name' cannot be empty",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewPreflightValidationBuilder,
+		kmmv1beta2.AddToScheme,
+		preflightValidationGVK,
+	).ExecuteTests(t)
+}
 
-		testBuilder := NewPreflightValidationBuilder(testSettings, testCase.name, testCase.namespace)
+func TestPullPreflightValidation(t *testing.T) {
+	t.Parallel()
 
-		if testCase.expectedErr == "" {
-			assert.NotNil(t, testBuilder)
-			assert.Equal(t, testCase.expectedPreflight.Name, testBuilder.Definition.Name)
-			assert.Equal(t, testCase.expectedPreflight.Namespace, testBuilder.Definition.Namespace)
-		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullPreflightValidation,
+		kmmv1beta2.AddToScheme,
+		preflightValidationGVK,
+	).ExecuteTests(t)
+}
+
+func TestPreflightValidationBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(preflightValidationCommonTestConfig())).
+		With(testhelper.NewExistsTestConfig(preflightValidationCommonTestConfig())).
+		With(testhelper.NewCreateTestConfig(preflightValidationCommonTestConfig())).
+		With(testhelper.NewDeleteReturnerTestConfig(preflightValidationCommonTestConfig())).
+		With(testhelper.NewUpdateTestConfig(preflightValidationCommonTestConfig())).
+		Run(t)
+}
+
+func TestPreflightValidationWithOptions(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewWithOptionsTestConfig[
+		kmmv1beta2.PreflightValidation,
+		PreflightValidationBuilder,
+		*kmmv1beta2.PreflightValidation,
+		*PreflightValidationBuilder,
+		PreflightValidationAdditionalOptions,
+	](preflightValidationCommonTestConfig()).ExecuteTests(t)
+}
+
+func TestPreflightValidationWithOptionsAppliesResourceOption(t *testing.T) {
+	t.Parallel()
+
+	builder := buildValidPreflightValidationBuilder(newPreflightValidationTestClient())
+	builder = builder.WithOptions(func(builder *PreflightValidationBuilder) (*PreflightValidationBuilder, error) {
+		builder.Definition.Spec.KernelVersion = "custom-kernel"
+
+		return builder, nil
+	})
+
+	require.NoError(t, builder.GetError())
+	assert.Equal(t, "custom-kernel", builder.Definition.Spec.KernelVersion)
 }
 
 func TestPreflightValidationWithKernelVersion(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		kernelVersion string
-		expectedErr   string
+		valid         bool
+		expectedError error
 	}{
 		{
+			name:          "sets kernel version",
 			kernelVersion: "some-kernel",
-			expectedErr:   "",
+			valid:         true,
 		},
 		{
+			name:          "empty kernel version",
 			kernelVersion: "",
-			expectedErr:   errNilKernelVersion,
+			valid:         true,
+			expectedError: fmt.Errorf("%s", errNilKernelVersion),
+		},
+		{
+			name:          "invalid builder",
+			kernelVersion: "some-kernel",
+			valid:         false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidTestPreflight(buildPreflightTestClientWithDummyObject())
-		testBuilder.WithKernelVersion(testCase.kernelVersion)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErr == "" {
-			assert.Equal(t, testBuilder.Definition.Spec.KernelVersion, testCase.kernelVersion)
-		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
-		}
+			builder := buildPreflightValidationBuilderForTestCase(testCase.valid)
+			builder = builder.WithKernelVersion(testCase.kernelVersion)
+
+			assertPreflightValidationModifierResult(
+				t, builder, testCase.valid, testCase.expectedError,
+				builder.Definition.Spec.KernelVersion, testCase.kernelVersion)
+		})
 	}
 }
 
 func TestPreflightValidationWithPushBuiltImage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		push bool
+		name  string
+		push  bool
+		valid bool
 	}{
 		{
-			push: true,
+			name:  "enables pushing built images",
+			push:  true,
+			valid: true,
 		},
 		{
-			push: false,
+			name:  "disables pushing built images",
+			push:  false,
+			valid: true,
+		},
+		{
+			name:  "invalid builder",
+			push:  true,
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidTestPreflight(buildPreflightTestClientWithDummyObject())
-		testBuilder.WithPushBuiltImage(testCase.push)
-		assert.Equal(t, testCase.push, testBuilder.Definition.Spec.PushBuiltImage)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildPreflightValidationBuilderForTestCase(testCase.valid)
+			builder = builder.WithPushBuiltImage(testCase.push)
+
+			assertPreflightValidationModifierResult(
+				t, builder, testCase.valid, nil, builder.Definition.Spec.PushBuiltImage, testCase.push)
+		})
 	}
 }
 
-func TestPreflightValidationWithOptions(t *testing.T) {
-	testBuilder := buildValidTestPreflight(buildPreflightTestClientWithDummyObject())
-
-	testBuilder.WithOptions(func(builder *PreflightValidationBuilder) (*PreflightValidationBuilder, error) {
-		return builder, nil
-	})
-
-	assert.Equal(t, "", testBuilder.errorMsg)
-
-	testBuilder.WithOptions(func(builder *PreflightValidationBuilder) (*PreflightValidationBuilder, error) {
-		return builder, fmt.Errorf("error")
-	})
-
-	assert.Equal(t, "error", testBuilder.errorMsg)
+// preflightValidationCommonTestConfig returns the shared testhelper configuration for the builder.
+func preflightValidationCommonTestConfig() testhelper.CommonTestConfig[
+	kmmv1beta2.PreflightValidation,
+	PreflightValidationBuilder,
+	*kmmv1beta2.PreflightValidation,
+	*PreflightValidationBuilder,
+] {
+	return testhelper.NewCommonTestConfig[
+		kmmv1beta2.PreflightValidation,
+		PreflightValidationBuilder,
+	](kmmv1beta2.AddToScheme, preflightValidationGVK, testhelper.ResourceScopeNamespaced)
 }
 
-func TestPullPreflightValidation(t *testing.T) {
-	testCases := []struct {
-		name                string
-		namespace           string
-		expectedError       error
-		addToRuntimeObjects bool
-		client              bool
-	}{
-		{
-			name:                "test",
-			namespace:           "testns",
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "testns",
-			expectedError:       fmt.Errorf("preflightvalidation 'name' cannot be empty"),
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "test",
-			namespace:           "",
-			expectedError:       fmt.Errorf("preflightvalidation 'nsname' cannot be empty"),
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "test",
-			namespace:           "testns",
-			expectedError:       fmt.Errorf("preflightvalidation object test doesn't exist in namespace testns"),
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-		{
-			name:                "test",
-			namespace:           "testns",
-			expectedError:       fmt.Errorf("preflightvalidation 'apiClient' cannot be empty"),
-			addToRuntimeObjects: true,
-			client:              false,
-		},
+// buildPreflightValidationBuilderForTestCase returns a valid or invalid builder for modifier tests.
+func buildPreflightValidationBuilderForTestCase(valid bool) *PreflightValidationBuilder {
+	if valid {
+		return buildValidPreflightValidationBuilder(newPreflightValidationTestClient())
 	}
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+	return buildInvalidPreflightValidationBuilder(newPreflightValidationTestClient())
+}
 
-		testPreflight := generatePreflight(testCase.name, testCase.namespace)
+// assertPreflightValidationModifierResult checks the error and field value after a modifier is applied.
+func assertPreflightValidationModifierResult[T any](
+	t *testing.T,
+	builder *PreflightValidationBuilder,
+	valid bool,
+	expectedError error,
+	actualValue T,
+	expectedValue T,
+) {
+	t.Helper()
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testPreflight)
-		}
+	if !valid {
+		require.Error(t, builder.GetError())
+		assert.True(t, commonerrors.IsBuilderNamespaceEmpty(builder.GetError()))
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
+		return
+	}
 
-		builderResult, err := PullPreflightValidation(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
+	assert.Equal(t, expectedError, builder.GetError())
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Definition.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Definition.Namespace)
-		}
+	if expectedError == nil {
+		assert.Equal(t, expectedValue, actualValue)
 	}
 }
 
-func TestPreflightValidationCreate(t *testing.T) {
-	testCases := []struct {
-		testPreflight *PreflightValidationBuilder
-		expectedError string
-	}{
-		{
-			testPreflight: buildValidTestPreflight(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "resourceVersion can not be set for Create requests",
-		},
-		{
-			testPreflight: buildInValidTestPreflight(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: errEmptyPreflightNsname,
-		},
-		{
-			testPreflight: buildValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedError: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testPreflightBuilder, err := testCase.testPreflight.Create()
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testPreflightBuilder.Definition, testPreflightBuilder.Object)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
+// buildValidPreflightValidationBuilder returns a valid PreflightValidationBuilder for testing.
+func buildValidPreflightValidationBuilder(apiClient *clients.Settings) *PreflightValidationBuilder {
+	return NewPreflightValidationBuilder(apiClient, defaultPreflightName, defaultPreflightNamespace)
 }
 
-func TestPreflightValidationUpdate(t *testing.T) {
-	testCases := []struct {
-		testPreflight *PreflightValidationBuilder
-		expectedError error
-		kernelVersion string
-	}{
-		{
-			testPreflight: buildInValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyPreflightNsname),
-			kernelVersion: "testkernel",
-		},
-		{
-			testPreflight: buildValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedError: nil,
-			kernelVersion: "testkernel",
-		},
-		{
-			testPreflight: buildValidTestPreflight(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("preflightvalidations.kmm.sigs.x-k8s.io \"preflight\" not found"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, "", testCase.testPreflight.Definition.Spec.KernelVersion)
-		testCase.testPreflight.Definition.ResourceVersion = "999"
-		assert.Equal(t, "", testCase.testPreflight.Definition.Spec.KernelVersion)
-		testCase.testPreflight.Definition.Spec.KernelVersion = testCase.kernelVersion
-		_, err := testCase.testPreflight.Update()
-
-		if errors.IsNotFound(err) {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testCase.expectedError, err)
-		}
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.kernelVersion, testCase.testPreflight.Object.Spec.KernelVersion)
-			assert.Equal(t, testCase.testPreflight.Object, testCase.testPreflight.Definition)
-		}
-	}
+// buildInvalidPreflightValidationBuilder returns an invalid PreflightValidationBuilder for testing.
+func buildInvalidPreflightValidationBuilder(apiClient *clients.Settings) *PreflightValidationBuilder {
+	return NewPreflightValidationBuilder(apiClient, defaultPreflightName, "")
 }
 
-func TestPreflightValidationExists(t *testing.T) {
-	testCases := []struct {
-		testPreflight  *PreflightValidationBuilder
-		expectedStatus bool
-	}{
-		{
-			testPreflight:  buildValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testPreflight:  buildInValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedStatus: false,
-		},
-		{
-			testPreflight:  buildInValidTestPreflight(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.testPreflight.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
-
-func TestPreflightValidationDelete(t *testing.T) {
-	testCases := []struct {
-		testPreflight *PreflightValidationBuilder
-		expectedError error
-	}{
-		{
-			testPreflight: buildValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testPreflight: buildInValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyPreflightNsname),
-		},
-		{
-			testPreflight: buildValidTestPreflight(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testPreflight.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testPreflight.Object)
-		}
-	}
-}
-
-func TestPreflightValidationGet(t *testing.T) {
-	testCases := []struct {
-		testPreflight *PreflightValidationBuilder
-		expectedError error
-	}{
-		{
-			testPreflight: buildValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testPreflight: buildInValidTestPreflight(buildPreflightTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyPreflightNsname),
-		},
-	}
-
-	for _, testCase := range testCases {
-		preflight, err := testCase.testPreflight.Get()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, preflight.Name, testCase.testPreflight.Definition.Name)
-			assert.Equal(t, preflight.Namespace, testCase.testPreflight.Definition.Namespace)
-		}
-	}
-}
-
-func buildValidTestPreflight(apiClient *clients.Settings) *PreflightValidationBuilder {
-	preflightBuilder := NewPreflightValidationBuilder(apiClient, defaultPreflightName, defaultPreflightNamespace)
-	preflightBuilder.Definition.ResourceVersion = "999"
-
-	return preflightBuilder
-}
-
-func buildInValidTestPreflight(apiClient *clients.Settings) *PreflightValidationBuilder {
-	preflightBuilder := NewPreflightValidationBuilder(apiClient, defaultPreflightName, "")
-	preflightBuilder.Definition.ResourceVersion = "999"
-
-	return preflightBuilder
-}
-
-func buildPreflightTestClientWithDummyObject() *clients.Settings {
+// newPreflightValidationTestClient returns a test client with the KMM v1beta2 scheme attached.
+func newPreflightValidationTestClient() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyPreflight(),
-		SchemeAttachers: testSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{kmmv1beta2.AddToScheme},
 	})
-}
-
-func buildDummyPreflight() []runtime.Object {
-	return append([]runtime.Object{}, &kmmv1beta2.PreflightValidation{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultPreflightName,
-			Namespace: defaultPreflightNamespace,
-		},
-
-		Spec: kmmv1beta2.PreflightValidationSpec{
-			KernelVersion: "",
-		},
-	})
-}
-
-func generatePreflight(name, nsname string) *kmmv1beta2.PreflightValidation {
-	return &kmmv1beta2.PreflightValidation{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nsname,
-		},
-	}
 }
