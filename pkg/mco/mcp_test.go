@@ -2,13 +2,15 @@ package mco
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	mcv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -16,285 +18,146 @@ import (
 
 const defaultMCPName = "test-machine-config-pool"
 
-var (
-	updatingMCPCondition = mcv1.MachineConfigPoolCondition{
-		Type:   mcv1.MachineConfigPoolUpdating,
-		Status: corev1.ConditionTrue,
-	}
-)
+var updatingMCPCondition = mcv1.MachineConfigPoolCondition{
+	Type:   mcv1.MachineConfigPoolUpdating,
+	Status: corev1.ConditionTrue,
+}
 
 func TestNewMCPBuilder(t *testing.T) {
-	testCases := []struct {
-		name              string
-		client            bool
-		expectedErrorText string
-	}{
-		{
-			name:              defaultMCPName,
-			client:            true,
-			expectedErrorText: "",
-		},
-		{
-			name:              "",
-			client:            true,
-			expectedErrorText: errEmptyMCPName,
-		},
-		{
-			name:              defaultMCPName,
-			client:            false,
-			expectedErrorText: "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
-
-		testBuilder := NewMCPBuilder(testSettings, testCase.name)
-
-		if testCase.client {
-			assert.Equal(t, testCase.expectedErrorText, testBuilder.errorMsg)
-
-			if testCase.expectedErrorText == "" {
-				assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			}
-		} else {
-			assert.Nil(t, testBuilder)
-		}
-	}
+	testhelper.NewClusterScopedBuilderTestConfig(
+		NewMCPBuilder, mcv1.Install, mcpGVK).ExecuteTests(t)
 }
 
 func TestPullMachineConfigPool(t *testing.T) {
-	testCases := []struct {
-		name                string
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			name:                defaultMCPName,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			name:                "",
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       fmt.Errorf(errEmptyMCPName),
-		},
-		{
-			name:                defaultMCPName,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("machineconfigpool object %s does not exist", defaultMCPName),
-		},
-		{
-			name:                defaultMCPName,
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("machineconfigpool 'apiClient' cannot be nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testMC := buildDummyMCP(testCase.name)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testMC)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		testBuilder, err := Pull(testSettings, testCase.name)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testMC.Name, testBuilder.Definition.Name)
-		}
-	}
+	testhelper.NewClusterScopedPullTestConfig(
+		Pull, mcv1.Install, mcpGVK).ExecuteTests(t)
 }
 
-func TestMachineConfigPoolGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *MCPBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildInvalidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			expectedError: errEmptyMCPName,
-		},
-		{
-			testBuilder:   buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "machineconfigpools.machineconfiguration.openshift.io \"test-machine-config-pool\" not found",
-		},
-	}
+func TestMachineConfigPoolBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		machineConfig, err := testCase.testBuilder.Get()
+	commonTestConfig := testhelper.NewCommonTestConfig[mcv1.MachineConfigPool, MCPBuilder](
+		mcv1.Install,
+		mcpGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.testBuilder.Definition.Name, machineConfig.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		Run(t)
 }
 
-func TestMachineConfigPoolCreate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *MCPBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			expectedError: fmt.Errorf(errEmptyMCPName),
-		},
-		{
-			testBuilder:   buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
+func TestMachineConfigPoolWithOptions(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testBuilder, err := testCase.testBuilder.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testBuilder.Definition.Name, testBuilder.Object.Name)
-		}
-	}
-}
-
-func TestMachineConfigPoolDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *MCPBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			expectedError: fmt.Errorf(errEmptyMCPName),
-		},
-		{
-			testBuilder:   buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
-	}
-}
-
-func TestMachineConfigPoolExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *MCPBuilder
-		exists      bool
-	}{
-		{
-			testBuilder: buildValidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			exists:      true,
-		},
-		{
-			testBuilder: buildInvalidMCPTestBuilder(buildTestClientWithDummyMCP()),
-			exists:      false,
-		},
-		{
-			testBuilder: buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
+	testhelper.NewWithOptionsTestConfig(
+		testhelper.NewCommonTestConfig[mcv1.MachineConfigPool, MCPBuilder](
+			mcv1.Install,
+			mcpGVK,
+			testhelper.ResourceScopeClusterScoped,
+		)).ExecuteTests(t)
 }
 
 func TestMachineConfigPoolWithMCSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		mcSelector    map[string]string
-		expectedError string
+		name                string
+		selector            map[string]string
+		invalidBuilder      bool
+		expectedError       string
+		expectedMatchLabels map[string]string
 	}{
 		{
-			mcSelector:    map[string]string{"test": "test"},
-			expectedError: "",
+			name:                "sets selector on valid builder",
+			selector:            map[string]string{"test": "test"},
+			expectedMatchLabels: map[string]string{"test": "test"},
 		},
 		{
-			mcSelector:    nil,
+			name:          "nil selector sets builder error",
+			selector:      nil,
 			expectedError: "machineConfigSelector 'MatchLabels' field cannot be empty",
+		},
+		{
+			name:          "empty selector sets builder error",
+			selector:      map[string]string{},
+			expectedError: "machineConfigSelector 'MatchLabels' field cannot be empty",
+		},
+		{
+			name:           "invalid builder short circuits",
+			selector:       map[string]string{"test": "test"},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder = testBuilder.WithMcSelector(testCase.mcSelector)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			testSettings := buildTestClientWithDummyMCP()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.mcSelector, testBuilder.Definition.Spec.MachineConfigSelector.MatchLabels)
-		}
+			var testBuilder *MCPBuilder
+			if testCase.invalidBuilder {
+				testBuilder = buildInvalidMCPTestBuilder(testSettings)
+			} else {
+				testBuilder = buildValidMCPTestBuilder(testSettings)
+			}
+
+			result := testBuilder.WithMcSelector(testCase.selector)
+			require.Same(t, testBuilder, result)
+
+			switch {
+			case testCase.invalidBuilder:
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.MachineConfigSelector)
+			case testCase.expectedError != "":
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+			default:
+				require.NoError(t, result.GetError())
+				assert.Equal(t, testCase.expectedMatchLabels, result.Definition.Spec.MachineConfigSelector.MatchLabels)
+			}
+		})
 	}
 }
 
 func TestMachineConfigPoolWaitToBeInCondition(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		exists        bool
 		valid         bool
 		hasCondition  bool
 		expectedError error
 	}{
 		{
-			exists:        true,
-			valid:         true,
-			hasCondition:  true,
-			expectedError: nil,
+			name:         "condition met",
+			exists:       true,
+			valid:        true,
+			hasCondition: true,
 		},
 		{
+			name:          "missing pool times out",
 			exists:        false,
 			valid:         true,
 			hasCondition:  true,
 			expectedError: context.DeadlineExceeded,
 		},
 		{
-			exists:        true,
-			valid:         false,
-			hasCondition:  true,
-			expectedError: fmt.Errorf(errEmptyMCPName),
+			name:         "invalid builder returns validation error",
+			exists:       true,
+			valid:        false,
+			hasCondition: true,
 		},
 		{
+			name:          "condition absent times out",
 			exists:        true,
 			valid:         true,
 			hasCondition:  false,
@@ -303,85 +166,114 @@ func TestMachineConfigPoolWaitToBeInCondition(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildMCPBuilderWithUpdatingCondition(testCase.exists, testCase.hasCondition, testCase.valid)
-		err := testBuilder.WaitToBeInCondition(updatingMCPCondition.Type, updatingMCPCondition.Status, time.Second)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, err)
+			testBuilder := buildMCPBuilderWithUpdatingCondition(
+				testCase.exists, testCase.hasCondition, testCase.valid)
+			err := testBuilder.WaitToBeInCondition(
+				updatingMCPCondition.Type, updatingMCPCondition.Status, time.Second)
+
+			switch {
+			case !testCase.valid:
+				assert.True(t, commonerrors.IsBuilderNameEmpty(err))
+			case testCase.expectedError != nil:
+				assert.ErrorIs(t, err, testCase.expectedError)
+			default:
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 
 func TestMachineConfigPoolWaitForUpdate(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		valid         bool
 		exists        bool
 		updating      bool
 		expectedError error
 	}{
 		{
-			valid:         true,
-			exists:        true,
-			updating:      false,
-			expectedError: nil,
+			name:     "pool is not updating",
+			valid:    true,
+			exists:   true,
+			updating: false,
 		},
 		{
+			name:          "pool never finishes updating",
 			valid:         true,
 			exists:        true,
 			updating:      true,
 			expectedError: context.DeadlineExceeded,
 		},
 		{
-			valid:         false,
-			exists:        true,
-			updating:      true,
-			expectedError: fmt.Errorf(errEmptyMCPName),
+			name:     "invalid builder returns validation error",
+			valid:    false,
+			exists:   true,
+			updating: true,
 		},
 		{
+			name:     "missing pool returns get error",
 			valid:    true,
 			exists:   false,
 			updating: true,
-			expectedError: fmt.Errorf(
-				"machineconfigpools.machineconfiguration.openshift.io \"test-machine-config-pool\" not found"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildMCPBuilderWithUpdatingCondition(testCase.exists, testCase.updating, testCase.valid)
-		err := testBuilder.WaitForUpdate(time.Second)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
+			testBuilder := buildMCPBuilderWithUpdatingCondition(testCase.exists, testCase.updating, testCase.valid)
+			err := testBuilder.WaitForUpdate(time.Second)
+
+			switch {
+			case !testCase.valid:
+				assert.True(t, commonerrors.IsBuilderNameEmpty(err))
+			case !testCase.exists:
+				assert.True(t, commonerrors.IsAPICallFailedWithVerb(err, "get"))
+			case testCase.expectedError != nil:
+				assert.ErrorIs(t, err, testCase.expectedError)
+			default:
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 
 func TestMachineConfigPoolWaitToBeStableFor(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		valid         bool
 		exists        bool
 		stable        bool
 		expectedError error
 	}{
 		{
-			valid:         true,
-			exists:        true,
-			stable:        true,
-			expectedError: nil,
+			name:   "pool is stable",
+			valid:  true,
+			exists: true,
+			stable: true,
 		},
 		{
-			valid:         false,
-			exists:        true,
-			stable:        true,
-			expectedError: fmt.Errorf(errEmptyMCPName),
+			name:   "invalid builder returns validation error",
+			valid:  false,
+			exists: true,
+			stable: true,
 		},
 		{
-			valid:         true,
-			exists:        false,
-			stable:        true,
-			expectedError: nil,
+			name:   "missing pool is treated as stable",
+			valid:  true,
+			exists: false,
+			stable: true,
 		},
 		{
+			name:          "unstable pool times out",
 			valid:         true,
 			exists:        true,
 			stable:        false,
@@ -390,104 +282,80 @@ func TestMachineConfigPoolWaitToBeStableFor(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testBuilder    *MCPBuilder
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			mcp := buildDummyMCP(defaultMCPName)
+			var runtimeObjects []runtime.Object
 
-			if !testCase.stable {
-				mcp.Status.DegradedMachineCount = 1
+			if testCase.exists {
+				mcp := buildDummyMCP()
+
+				if !testCase.stable {
+					mcp.Status.DegradedMachineCount = 1
+				}
+
+				runtimeObjects = append(runtimeObjects, mcp)
 			}
 
-			runtimeObjects = append(runtimeObjects, mcp)
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  runtimeObjects,
+				SchemeAttachers: []clients.SchemeAttacher{mcv1.Install},
+			})
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: testSchemes,
+			var testBuilder *MCPBuilder
+			if testCase.valid {
+				testBuilder = buildValidMCPTestBuilder(testSettings)
+			} else {
+				testBuilder = buildInvalidMCPTestBuilder(testSettings)
+			}
+
+			err := testBuilder.WaitToBeStableFor(500*time.Millisecond, time.Second)
+
+			switch {
+			case !testCase.valid:
+				assert.True(t, commonerrors.IsBuilderNameEmpty(err))
+			case testCase.expectedError != nil:
+				assert.ErrorIs(t, err, testCase.expectedError)
+			default:
+				require.NoError(t, err)
+			}
 		})
-
-		if testCase.valid {
-			testBuilder = buildValidMCPTestBuilder(testSettings)
-		} else {
-			testBuilder = buildInvalidMCPTestBuilder(testSettings)
-		}
-
-		err := testBuilder.WaitToBeStableFor(500*time.Millisecond, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
-	}
-}
-
-func TestMachineConfigPoolWithOptions(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *MCPBuilder
-		options       MCPAdditionalOptions
-		expectedError string
-	}{
-		{
-			testBuilder: buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			options: func(builder *MCPBuilder) (*MCPBuilder, error) {
-				builder.Definition.Spec.Paused = true
-
-				return builder, nil
-			},
-			expectedError: "",
-		},
-		{
-			testBuilder: buildInvalidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			options: func(builder *MCPBuilder) (*MCPBuilder, error) {
-				return builder, nil
-			},
-			expectedError: errEmptyMCPName,
-		},
-		{
-			testBuilder: buildValidMCPTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			options: func(builder *MCPBuilder) (*MCPBuilder, error) {
-				return builder, fmt.Errorf("error adding additional option")
-			},
-			expectedError: "error adding additional option",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := testCase.testBuilder.WithOptions(testCase.options)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-
-		if testCase.expectedError == "" {
-			assert.True(t, testBuilder.Definition.Spec.Paused)
-		}
 	}
 }
 
 func TestMachineConfigPoolIsInCondition(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		exists        bool
 		valid         bool
 		hasCondition  bool
 		isInCondition bool
 	}{
 		{
+			name:          "condition present",
 			exists:        true,
 			valid:         true,
 			hasCondition:  true,
 			isInCondition: true,
 		},
 		{
+			name:          "invalid builder",
 			exists:        true,
 			valid:         false,
 			hasCondition:  true,
 			isInCondition: false,
 		},
 		{
+			name:          "pool missing",
 			exists:        false,
 			valid:         true,
 			hasCondition:  true,
 			isInCondition: false,
 		},
 		{
+			name:          "condition absent",
 			exists:        true,
 			valid:         true,
 			hasCondition:  false,
@@ -496,18 +364,22 @@ func TestMachineConfigPoolIsInCondition(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildMCPBuilderWithUpdatingCondition(testCase.exists, testCase.hasCondition, testCase.valid)
-		isInCondition := testBuilder.IsInCondition(updatingMCPCondition.Type)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.isInCondition, isInCondition)
+			testBuilder := buildMCPBuilderWithUpdatingCondition(
+				testCase.exists, testCase.hasCondition, testCase.valid)
+
+			assert.Equal(t, testCase.isInCondition, testBuilder.IsInCondition(updatingMCPCondition.Type))
+		})
 	}
 }
 
-// buildDummyMCP returns a MachineConfigPool with the provided name.
-func buildDummyMCP(name string) *mcv1.MachineConfigPool {
+// buildDummyMCP returns a dummy MachineConfigPool.
+func buildDummyMCP() *mcv1.MachineConfigPool {
 	return &mcv1.MachineConfigPool{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name: defaultMCPName,
 		},
 	}
 }
@@ -516,9 +388,9 @@ func buildDummyMCP(name string) *mcv1.MachineConfigPool {
 func buildTestClientWithDummyMCP() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects: []runtime.Object{
-			buildDummyMCP(defaultMCPName),
+			buildDummyMCP(),
 		},
-		SchemeAttachers: testSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{mcv1.Install},
 	})
 }
 
@@ -527,7 +399,7 @@ func buildValidMCPTestBuilder(apiClient *clients.Settings) *MCPBuilder {
 	return NewMCPBuilder(apiClient, defaultMCPName)
 }
 
-// buildInvalidMCPTestBuilder returns a valid MCPBuilder for testing.
+// buildInvalidMCPTestBuilder returns an invalid MCPBuilder for testing.
 func buildInvalidMCPTestBuilder(apiClient *clients.Settings) *MCPBuilder {
 	return NewMCPBuilder(apiClient, "")
 }
@@ -535,13 +407,10 @@ func buildInvalidMCPTestBuilder(apiClient *clients.Settings) *MCPBuilder {
 // buildMCPBuilderWithUpdatingCondition returns an MCPBuilder for testing, with the ability to configure whether it
 // exists on the test client, has the updating condition, and is valid.
 func buildMCPBuilderWithUpdatingCondition(exists, hasCondition, valid bool) *MCPBuilder {
-	var (
-		runtimeObjects []runtime.Object
-		testBuilder    *MCPBuilder
-	)
+	var runtimeObjects []runtime.Object
 
 	if exists {
-		mcp := buildDummyMCP(defaultMCPName)
+		mcp := buildDummyMCP()
 
 		if hasCondition {
 			mcp.Status.Conditions = []mcv1.MachineConfigPoolCondition{updatingMCPCondition}
@@ -552,14 +421,12 @@ func buildMCPBuilderWithUpdatingCondition(exists, hasCondition, valid bool) *MCP
 
 	testSettings := clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  runtimeObjects,
-		SchemeAttachers: testSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{mcv1.Install},
 	})
 
 	if valid {
-		testBuilder = buildValidMCPTestBuilder(testSettings)
-	} else {
-		testBuilder = buildInvalidMCPTestBuilder(testSettings)
+		return buildValidMCPTestBuilder(testSettings)
 	}
 
-	return testBuilder
+	return buildInvalidMCPTestBuilder(testSettings)
 }

@@ -7,7 +7,9 @@ import (
 
 	mcv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 	"k8s.io/klog/v2"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -16,58 +18,14 @@ import (
 
 // ListMCP returns a list of MachineConfigPoolBuilder.
 func ListMCP(apiClient *clients.Settings, options ...runtimeclient.ListOptions) ([]*MCPBuilder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("MachineConfigPool 'apiClient' can not be empty")
-
-		return nil, fmt.Errorf("failed to list MachineConfigPools, 'apiClient' parameter is empty")
-	}
-
-	err := apiClient.AttachScheme(mcv1.Install)
-	if err != nil {
-		klog.V(100).Info("Failed to add machineconfig v1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	passedOptions := runtimeclient.ListOptions{}
-	logMessage := "Listing all MCP resources"
-
 	if len(options) > 1 {
 		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
-
-	klog.V(100).Infof("%v", logMessage)
-
-	mcpList := new(mcv1.MachineConfigPoolList)
-
-	err = apiClient.List(logging.DiscardContext(), mcpList, &passedOptions)
-	if err != nil {
-		klog.V(100).Infof("Failed to list MCP objects due to %s", err.Error())
-
-		return nil, err
-	}
-
-	var mcpObjects []*MCPBuilder
-
-	for _, mcp := range mcpList.Items {
-		copiedMcp := mcp
-		mcpBuilder := &MCPBuilder{
-			apiClient:  apiClient.Client,
-			Object:     &copiedMcp,
-			Definition: &copiedMcp,
-		}
-
-		mcpObjects = append(mcpObjects, mcpBuilder)
-	}
-
-	return mcpObjects, nil
+	return common.List[mcv1.MachineConfigPool, mcv1.MachineConfigPoolList, MCPBuilder](
+		context.TODO(), apiClient, mcv1.Install, common.ConvertListOptionsToOptions(options)...)
 }
 
 // ListMCPByMachineConfigSelector returns a list of MachineConfigurationPoolBuilders for given selector.
@@ -109,7 +67,7 @@ func ListMCPWaitToBeStableFor(
 	if apiClient == nil {
 		klog.V(100).Info("MachineConfigPool 'apiClient' can not be empty")
 
-		return fmt.Errorf("failed to list MachineConfigPools, 'apiClient' parameter is empty")
+		return commonerrors.NewAPIClientNil(commonkey.NewResourceKey(mcpGVK.Kind, "", ""))
 	}
 
 	klog.V(100).Infof("WaitForMcpListToBeStableFor waits up to duration of %v for "+
