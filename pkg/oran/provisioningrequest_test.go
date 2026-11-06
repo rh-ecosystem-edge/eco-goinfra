@@ -8,7 +8,10 @@ import (
 
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -29,520 +32,441 @@ var (
 	provisioningTestSchemes = []clients.SchemeAttacher{
 		provisioningv1alpha1.AddToScheme,
 	}
+
+	provisioningRequestGVK = provisioningv1alpha1.GroupVersion.WithKind("ProvisioningRequest")
 )
 
 func TestNewPRBuilder(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		testName        string
 		name            string
 		templateName    string
 		templateVersion string
 		client          bool
-		expectedError   string
+		assertError     func(error) bool
 	}{
 		{
+			testName:        "valid builder",
 			name:            defaultPRName,
 			templateName:    defaultPRTemplateName,
 			templateVersion: defaultPRTemplateVersion,
 			client:          true,
-			expectedError:   "",
+			assertError:     func(err error) bool { return err == nil },
 		},
 		{
+			testName:        "empty name",
 			name:            "",
 			templateName:    defaultPRTemplateName,
 			templateVersion: defaultPRTemplateVersion,
 			client:          true,
-			expectedError:   "provisioningRequest 'name' must be a valid UUID",
+			assertError:     commonerrors.IsBuilderNameEmpty,
 		},
 		{
+			testName:        "invalid uuid",
+			name:            "not-a-uuid",
+			templateName:    defaultPRTemplateName,
+			templateVersion: defaultPRTemplateVersion,
+			client:          true,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "provisioningRequest 'name' must be a valid UUID"
+			},
+		},
+		{
+			testName:        "empty template name",
 			name:            defaultPRName,
 			templateName:    "",
 			templateVersion: defaultPRTemplateVersion,
 			client:          true,
-			expectedError:   errEmptyTemplateName,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == errEmptyTemplateName
+			},
 		},
 		{
+			testName:        "empty template version",
 			name:            defaultPRName,
 			templateName:    defaultPRTemplateName,
 			templateVersion: "",
 			client:          true,
-			expectedError:   "provisioningRequest 'templateVersion' cannot be empty",
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "provisioningRequest 'templateVersion' cannot be empty"
+			},
 		},
 		{
+			testName:        "nil client",
 			name:            defaultPRName,
 			templateName:    defaultPRTemplateName,
 			templateVersion: defaultPRTemplateVersion,
 			client:          false,
-			expectedError:   "",
+			assertError:     commonerrors.IsAPIClientNil,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.testName, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
-
-		testBuilder := NewPRBuilder(
-			testSettings, testCase.name, testCase.templateName, testCase.templateVersion)
-
-		if testCase.client {
-			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-
-			if testCase.expectedError == "" {
-				assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-				assert.Equal(t, testCase.name, testBuilder.Definition.Spec.Name)
-				assert.Equal(t, testCase.templateName, testBuilder.Definition.Spec.TemplateName)
-				assert.Equal(t, testCase.templateVersion, testBuilder.Definition.Spec.TemplateVersion)
+			var testSettings *clients.Settings
+			if testCase.client {
+				testSettings = clients.GetTestClients(clients.TestClientParams{})
 			}
-		} else {
-			assert.Nil(t, testBuilder)
-		}
+
+			builder := NewPRBuilder(
+				testSettings, testCase.name, testCase.templateName, testCase.templateVersion)
+
+			require.NotNil(t, builder)
+			require.Truef(t, testCase.assertError(builder.GetError()), "unexpected error, got: %v", builder.GetError())
+
+			if builder.GetError() == nil {
+				assert.Equal(t, testCase.name, builder.Definition.Name)
+				assert.Equal(t, testCase.name, builder.Definition.Spec.Name)
+				assert.Equal(t, testCase.templateName, builder.Definition.Spec.TemplateName)
+				assert.Equal(t, testCase.templateVersion, builder.Definition.Spec.TemplateVersion)
+				assert.Equal(t, provisioningRequestGVK, builder.GetGVK())
+			}
+		})
 	}
 }
 
 func TestPRWithTemplateParameter(t *testing.T) {
-	testCases := []struct {
-		key           string
-		expectedError string
-	}{
-		{
-			key:           "nodeClusterName",
-			expectedError: "",
-		},
-		{
-			key:           "",
-			expectedError: "provisioningRequest TemplateParameter 'key' cannot be empty",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testBuilder := buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder = testBuilder.WithTemplateParameter(testCase.key, nil)
+	t.Run("sets template parameter", func(t *testing.T) {
+		t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-	}
+		builder := buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+		builder = builder.WithTemplateParameter("nodeClusterName", "cluster-1")
+
+		require.NoError(t, builder.GetError())
+
+		templateParameters, err := builder.GetTemplateParameters()
+		require.NoError(t, err)
+		assert.Equal(t, "cluster-1", templateParameters["nodeClusterName"])
+	})
+
+	t.Run("rejects empty key", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+		builder = builder.WithTemplateParameter("", nil)
+
+		assert.EqualError(t, builder.GetError(), "provisioningRequest TemplateParameter 'key' cannot be empty")
+	})
+
+	t.Run("invalid builder short-circuits", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildInvalidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+		builder = builder.WithTemplateParameter("nodeClusterName", "cluster-1")
+
+		assert.EqualError(t, builder.GetError(), errEmptyTemplateName)
+	})
 }
 
 func TestPRGetTemplateParameters(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ProvisioningRequestBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf(errEmptyTemplateName),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		templateParams, err := testCase.testBuilder.GetTemplateParameters()
-		assert.Equal(t, testCase.expectedError, err)
+	t.Run("empty template parameters", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Empty(t, templateParams)
-		}
-	}
+		builder := buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+		templateParameters, err := builder.GetTemplateParameters()
+
+		require.NoError(t, err)
+		assert.Empty(t, templateParameters)
+	})
+
+	t.Run("unmarshals template parameters", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+		builder.Definition.Spec.TemplateParameters.Raw = []byte(`{"nodeClusterName":"cluster-1"}`)
+
+		templateParameters, err := builder.GetTemplateParameters()
+
+		require.NoError(t, err)
+		assert.Equal(t, "cluster-1", templateParameters["nodeClusterName"])
+	})
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildInvalidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+		templateParameters, err := builder.GetTemplateParameters()
+
+		assert.EqualError(t, err, "failed to validate: "+errEmptyTemplateName)
+		assert.Nil(t, templateParameters)
+	})
 }
 
 func TestPRWithTemplateParameters(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ProvisioningRequestBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildInvalidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: errEmptyTemplateName,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testBuilder := testCase.testBuilder.WithTemplateParameters(nil)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+	t.Run("nil map becomes empty object", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, []byte("{}"), testBuilder.Definition.Spec.TemplateParameters.Raw)
-		}
-	}
+		builder := buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+		builder = builder.WithTemplateParameters(nil)
+
+		require.NoError(t, builder.GetError())
+		assert.JSONEq(t, `{}`, string(builder.Definition.Spec.TemplateParameters.Raw))
+	})
+
+	t.Run("marshals map", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+		builder = builder.WithTemplateParameters(map[string]any{"nodeClusterName": "cluster-1"})
+
+		require.NoError(t, builder.GetError())
+		assert.JSONEq(t, `{"nodeClusterName":"cluster-1"}`, string(builder.Definition.Spec.TemplateParameters.Raw))
+	})
+
+	t.Run("invalid builder short-circuits", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildInvalidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+		builder = builder.WithTemplateParameters(nil)
+
+		assert.EqualError(t, builder.GetError(), errEmptyTemplateName)
+		assert.Empty(t, builder.Definition.Spec.TemplateParameters.Raw)
+	})
 }
 
 func TestPullPR(t *testing.T) {
-	testCases := []struct {
-		name                string
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			name:                defaultPRName,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			name:                "",
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       fmt.Errorf("provisioningRequest 'name' cannot be empty"),
-		},
-		{
-			name:                defaultPRName,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("provisioningRequest object %s does not exist", defaultPRName),
-		},
-		{
-			name:                defaultPRName,
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("provisioningRequest 'apiClient' cannot be nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, buildDummyPR(defaultPRName))
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: provisioningTestSchemes,
-			})
-		}
-
-		testBuilder, err := PullPR(testSettings, testCase.name)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-		}
-	}
+	testhelper.NewClusterScopedPullTestConfig(
+		pullPRForTest,
+		provisioningv1alpha1.AddToScheme,
+		provisioningRequestGVK,
+	).ExecuteTests(t)
 }
 
-func TestPRGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ProvisioningRequestBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: errEmptyTemplateName,
-		},
-		{
-			testBuilder:   buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Sprintf("provisioningrequests.clcm.openshift.io \"%s\" not found", defaultPRName),
-		},
-	}
+func TestProvisioningRequestBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		provisioningRequest, err := testCase.testBuilder.Get()
+	commonTestConfig := testhelper.NewCommonTestConfig[
+		provisioningv1alpha1.ProvisioningRequest, ProvisioningRequestBuilder](
+		provisioningv1alpha1.AddToScheme,
+		provisioningRequestGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.testBuilder.Definition.Name, provisioningRequest.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestPRExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *ProvisioningRequestBuilder
-		exists      bool
-	}{
-		{
-			testBuilder: buildValidPRTestBuilder(buildTestClientWithDummyPR()),
-			exists:      true,
-		},
-		{
-			testBuilder: buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			exists:      false,
-		},
-		{
-			testBuilder: buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
-}
-
-func TestPRCreate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ProvisioningRequestBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: fmt.Errorf(errEmptyTemplateName),
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder, err := testCase.testBuilder.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testBuilder.Definition.Name, testBuilder.Object.Name)
-		}
-	}
-}
-
-func TestPRUpdate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ProvisioningRequestBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("cannot update non-existent provisioningRequest"),
-		},
-		{
-			testBuilder:   buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: fmt.Errorf(errEmptyTemplateName),
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Empty(t, testCase.testBuilder.Definition.Spec.Description)
-
-		testCase.testBuilder.Definition.Spec.Description = "test"
-		testCase.testBuilder.Definition.ResourceVersion = "999"
-
-		testBuilder, err := testCase.testBuilder.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, "test", testBuilder.Object.Spec.Description)
-		}
-	}
-}
-
-func TestPRDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ProvisioningRequestBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: fmt.Errorf(errEmptyTemplateName),
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestPRDeleteAndWait(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBuilder   *ProvisioningRequestBuilder
-		expectedError error
+		name          string
+		valid         bool
+		objectExists  bool
+		expectedError string
 	}{
 		{
-			testBuilder:   buildValidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: nil,
+			name:         "deletes existing resource",
+			valid:        true,
+			objectExists: true,
 		},
 		{
-			testBuilder:   buildValidPRTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
+			name:         "missing resource is a no-op",
+			valid:        true,
+			objectExists: false,
 		},
 		{
-			testBuilder:   buildInvalidPRTestBuilder(buildTestClientWithDummyPR()),
-			expectedError: fmt.Errorf(errEmptyTemplateName),
+			name:          "invalid builder returns error",
+			valid:         false,
+			objectExists:  true,
+			expectedError: "failed to validate: " + errEmptyTemplateName,
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testBuilder.DeleteAndWait(time.Second)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
+			var objects []runtime.Object
+			if testCase.objectExists {
+				objects = append(objects, buildDummyPR(defaultPRName))
+			}
+
+			settings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  objects,
+				SchemeAttachers: provisioningTestSchemes,
+			})
+
+			var builder *ProvisioningRequestBuilder
+			if testCase.valid {
+				builder = buildValidPRTestBuilder(settings)
+			} else {
+				builder = buildInvalidPRTestBuilder(settings)
+			}
+
+			err := builder.DeleteAndWait(time.Second)
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+			} else {
+				require.NoError(t, err)
+				assert.Nil(t, builder.Object)
+			}
+		})
 	}
 }
 
 func TestPRWaitForCondition(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		conditionMet  bool
 		exists        bool
 		valid         bool
-		expectedError error
+		expectedError string
 	}{
 		{
-			conditionMet:  true,
-			exists:        true,
-			valid:         true,
-			expectedError: nil,
+			conditionMet: true,
+			exists:       true,
+			valid:        true,
 		},
 		{
-			conditionMet:  false,
 			exists:        true,
 			valid:         true,
-			expectedError: context.DeadlineExceeded,
+			expectedError: context.DeadlineExceeded.Error(),
 		},
 		{
 			conditionMet:  true,
-			exists:        false,
 			valid:         true,
-			expectedError: fmt.Errorf("cannot wait for non-existent ProvisioningRequest"),
+			expectedError: "cannot wait for non-existent ProvisioningRequest",
 		},
 		{
 			conditionMet:  true,
 			exists:        true,
-			valid:         false,
-			expectedError: fmt.Errorf(errEmptyTemplateName),
+			expectedError: "failed to validate: " + errEmptyTemplateName,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testBuilder    *ProvisioningRequestBuilder
-		)
+		t.Run(fmt.Sprintf("conditionMet=%t/exists=%t/valid=%t", testCase.conditionMet, testCase.exists, testCase.valid), func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			provisioningRequest := buildDummyPR(defaultPRName)
+			var objects []runtime.Object
 
-			if testCase.conditionMet {
-				provisioningRequest.Status.Conditions = append(provisioningRequest.Status.Conditions, defaultPRCondition)
+			if testCase.exists {
+				provisioningRequest := buildDummyPR(defaultPRName)
+				if testCase.conditionMet {
+					provisioningRequest.Status.Conditions = append(
+						provisioningRequest.Status.Conditions, defaultPRCondition)
+				}
+
+				objects = append(objects, provisioningRequest)
 			}
 
-			runtimeObjects = append(runtimeObjects, provisioningRequest)
-		}
+			settings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  objects,
+				SchemeAttachers: provisioningTestSchemes,
+			})
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: provisioningTestSchemes,
+			var builder *ProvisioningRequestBuilder
+			if testCase.valid {
+				builder = buildValidPRTestBuilder(settings)
+			} else {
+				builder = buildInvalidPRTestBuilder(settings)
+			}
+
+			_, err := builder.WaitForCondition(defaultPRCondition, time.Second)
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+			} else {
+				require.NoError(t, err)
+			}
 		})
-
-		if testCase.valid {
-			testBuilder = buildValidPRTestBuilder(testSettings)
-		} else {
-			testBuilder = buildInvalidPRTestBuilder(testSettings)
-		}
-
-		_, err := testBuilder.WaitForCondition(defaultPRCondition, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
 func TestPRWaitUntilFulfilled(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		fulfilled     bool
 		exists        bool
 		valid         bool
-		expectedError error
+		expectedError string
 	}{
 		{
-			fulfilled:     true,
-			exists:        true,
-			valid:         true,
-			expectedError: nil,
+			fulfilled: true,
+			exists:    true,
+			valid:     true,
 		},
 		{
-			fulfilled:     false,
 			exists:        true,
 			valid:         true,
-			expectedError: context.DeadlineExceeded,
+			expectedError: context.DeadlineExceeded.Error(),
 		},
 		{
 			fulfilled:     true,
-			exists:        false,
 			valid:         true,
-			expectedError: fmt.Errorf("cannot wait for non-existent ProvisioningRequest"),
+			expectedError: "cannot wait for non-existent ProvisioningRequest",
 		},
 		{
 			fulfilled:     true,
 			exists:        true,
-			valid:         false,
-			expectedError: fmt.Errorf(errEmptyTemplateName),
+			expectedError: "failed to validate: " + errEmptyTemplateName,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testBuilder    *ProvisioningRequestBuilder
-		)
+		t.Run(fmt.Sprintf("fulfilled=%t/exists=%t/valid=%t", testCase.fulfilled, testCase.exists, testCase.valid), func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			provisioningRequest := buildDummyPR(defaultPRName)
+			var objects []runtime.Object
 
-			if testCase.fulfilled {
-				provisioningRequest.Status.ProvisioningStatus.ProvisioningPhase = provisioningv1alpha1.StateFulfilled
+			if testCase.exists {
+				provisioningRequest := buildDummyPR(defaultPRName)
+				if testCase.fulfilled {
+					provisioningRequest.Status.ProvisioningStatus.ProvisioningPhase = provisioningv1alpha1.StateFulfilled
+				}
+
+				objects = append(objects, provisioningRequest)
 			}
 
-			runtimeObjects = append(runtimeObjects, provisioningRequest)
-		}
+			settings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  objects,
+				SchemeAttachers: provisioningTestSchemes,
+			})
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: provisioningTestSchemes,
+			var builder *ProvisioningRequestBuilder
+			if testCase.valid {
+				builder = buildValidPRTestBuilder(settings)
+			} else {
+				builder = buildInvalidPRTestBuilder(settings)
+			}
+
+			_, err := builder.WaitUntilFulfilled(time.Second)
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+			} else {
+				require.NoError(t, err)
+			}
 		})
-
-		if testCase.valid {
-			testBuilder = buildValidPRTestBuilder(testSettings)
-		} else {
-			testBuilder = buildInvalidPRTestBuilder(testSettings)
-		}
-
-		_, err := testBuilder.WaitUntilFulfilled(time.Second)
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
-// Since the rest of the WaitForPhaseAfter method is tested by the WaitUntilFulfilled test, we only cover the case here
-// where the update time is non-zero. It should not affect coverage since WaitUntilFulfilled calls WaitForPhaseAfter.
+// TestPRWaitForPhaseAfter covers the non-zero update time branch. The remaining WaitForPhaseAfter behavior is covered by
+// TestPRWaitUntilFulfilled.
 func TestPRWaitForPhaseAfter(t *testing.T) {
+	t.Parallel()
+
 	testDummyPR := buildDummyPR(defaultPRName)
 	testDummyPR.Status.ProvisioningStatus.ProvisioningPhase = provisioningv1alpha1.StateFulfilled
 	testDummyPR.Status.ProvisioningStatus.UpdateTime = metav1.Now()
@@ -555,20 +479,23 @@ func TestPRWaitForPhaseAfter(t *testing.T) {
 	go func() {
 		t.Helper()
 
-		// Simulate a delay before updating the ProvisioningRequest's update time. Also wait on the test context
-		// to avoid leaking the goroutine.
+		// Delay the update long enough for the initial poll to observe the old timestamp.
 		select {
 		case <-time.After(time.Second):
 			testDummyPR.Status.ProvisioningStatus.UpdateTime = metav1.Now()
 			err := testSettings.Update(t.Context(), testDummyPR)
-			assert.NoError(t, err)
+			assert.NoError(t, err, "failed to update ProvisioningRequest update time")
 		case <-t.Context().Done():
 		}
 	}()
 
-	// Since the method only polls every 3 seconds, timeout after 4 seconds to ensure that the second pull happens.
 	err := testBuilder.WaitForPhaseAfter(provisioningv1alpha1.StateFulfilled, time.Now(), 4*time.Second)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+}
+
+// pullPRForTest adapts PullPR's runtimeclient.Client parameter to the testhelper's Settings-based pull signature.
+func pullPRForTest(apiClient *clients.Settings, name string) (*ProvisioningRequestBuilder, error) {
+	return PullPR(apiClient, name)
 }
 
 //nolint:unparam
@@ -582,15 +509,6 @@ func buildDummyPR(name string) *provisioningv1alpha1.ProvisioningRequest {
 			TemplateVersion: defaultPRTemplateVersion,
 		},
 	}
-}
-
-func buildTestClientWithDummyPR() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyPR(defaultPRName),
-		},
-		SchemeAttachers: provisioningTestSchemes,
-	})
 }
 
 func buildValidPRTestBuilder(apiClient *clients.Settings) *ProvisioningRequestBuilder {
