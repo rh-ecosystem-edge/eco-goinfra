@@ -9,103 +9,39 @@ import (
 	"github.com/Masterminds/semver/v3"
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const clusterVersionName = "version"
 
 // Builder provides a struct for clusterversion object from the cluster and a clusterversion definition.
 type Builder struct {
-	// clusterversion definition, used to create the clusterversion object.
-	Definition *configv1.ClusterVersion
-	// Created clusterversion object.
-	Object *configv1.ClusterVersion
-	// api client to interact with the cluster.
-	apiClient runtimeclient.Client
-	// Used in functions that define or mutate clusterversion definition. errorMsg is processed before the
-	// clusterversion object is created.
-	errorMsg string
+	common.EmbeddableBuilder[configv1.ClusterVersion, *configv1.ClusterVersion]
+	common.EmbeddableUpdater[configv1.ClusterVersion, Builder, *configv1.ClusterVersion, *Builder]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.SetBase(builder)
+}
+
+// GetGVK returns the ClusterVersion GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return configv1.GroupVersion.WithKind("ClusterVersion")
 }
 
 // Pull loads an existing clusterversion into Builder struct.
 func Pull(apiClient *clients.Settings) (*Builder, error) {
-	klog.V(100).Infof("Pulling existing clusterversion name: %s", clusterVersionName)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient of the ClusterVersion is nil")
-
-		return nil, fmt.Errorf("clusterversion 'apiClient' cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(configv1.Install)
-	if err != nil {
-		klog.V(100).Info("Failed to add config v1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := Builder{
-		apiClient: apiClient.Client,
-		Definition: &configv1.ClusterVersion{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: clusterVersionName,
-			},
-		},
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("clusterversion object %s does not exist", clusterVersionName)
-	}
-
-	builder.Definition = builder.Object
-
-	return &builder, nil
-}
-
-// Get returns the ClusterVersion object from the cluster if it exists.
-func (builder *Builder) Get() (*configv1.ClusterVersion, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting ClusterVersion object %s", builder.Definition.Name)
-
-	clusterVersion := &configv1.ClusterVersion{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), runtimeclient.ObjectKey{Name: builder.Definition.Name}, clusterVersion)
-	if err != nil {
-		klog.V(100).Infof("Failed to get ClusterVersion %s: %s", builder.Definition.Name, err)
-
-		return nil, err
-	}
-
-	return clusterVersion, nil
-}
-
-// Exists checks whether the given clusterversion exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if ClusterVersion %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
+	return common.PullClusterScopedBuilder[configv1.ClusterVersion, Builder](
+		context.TODO(), apiClient, configv1.Install, clusterVersionName)
 }
 
 // WithDesiredUpdateImage adds the desired image to the clusterversion struct.
 func (builder *Builder) WithDesiredUpdateImage(desiredUpdateImage string, force bool) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -115,7 +51,7 @@ func (builder *Builder) WithDesiredUpdateImage(desiredUpdateImage string, force 
 	if desiredUpdateImage == "" {
 		klog.V(100).Info("The desiredUpdateImage is empty")
 
-		builder.errorMsg = "clusterversion 'desiredUpdateImage' cannot be empty"
+		builder.SetError(fmt.Errorf("clusterversion 'desiredUpdateImage' cannot be empty"))
 
 		return builder
 	}
@@ -127,7 +63,7 @@ func (builder *Builder) WithDesiredUpdateImage(desiredUpdateImage string, force 
 
 // WithDesiredUpdateChannel adds the desired channel to the clusterversion struct.
 func (builder *Builder) WithDesiredUpdateChannel(updateChannel string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -137,7 +73,7 @@ func (builder *Builder) WithDesiredUpdateChannel(updateChannel string) *Builder 
 	if updateChannel == "" {
 		klog.V(100).Info("The updateChannel is empty")
 
-		builder.errorMsg = "clusterversion 'updateChannel' cannot be empty"
+		builder.SetError(fmt.Errorf("clusterversion 'updateChannel' cannot be empty"))
 
 		return builder
 	}
@@ -145,33 +81,6 @@ func (builder *Builder) WithDesiredUpdateChannel(updateChannel string) *Builder 
 	builder.Definition.Spec.Channel = updateChannel
 
 	return builder
-}
-
-// Update renovates the existing clusterversion object with the clusterversion definition in builder.
-func (builder *Builder) Update() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating ClusterVersion %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("clusterversion object %s does not exist", builder.Definition.Name)
-	}
-
-	builder.Definition.ResourceVersion = builder.Object.ResourceVersion
-	builder.Definition.CreationTimestamp = metav1.Time{}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		klog.V(100).Infof("Failed to update ClusterVersion %s: %s", builder.Definition.Name, err)
-
-		return nil, err
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
 }
 
 // WaitUntilProgressing waits for timeout duration or until clusterversion is in Progressing state.
@@ -187,7 +96,7 @@ func (builder *Builder) WaitUntilAvailable(timeout time.Duration) error {
 // WaitUntilConditionTrue waits for timeout duration or until clusterversion gets to a specific status.
 func (builder *Builder) WaitUntilConditionTrue(
 	conditionType configv1.ClusterStatusConditionType, timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -229,7 +138,7 @@ func (builder *Builder) WaitUntilUpdateIsCompleted(timeout time.Duration) error 
 // WaitUntilUpdateHistoryStateTrue waits until there is a history entry indicating an updateHistoryState.
 func (builder *Builder) WaitUntilUpdateHistoryStateTrue(
 	updateHistoryState configv1.UpdateState, timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -262,7 +171,7 @@ func (builder *Builder) WaitUntilUpdateHistoryStateTrue(
 
 // GetNextUpdateVersionImage fetches the next recommended or conditional update for the cluster.
 func (builder *Builder) GetNextUpdateVersionImage(stream string, acceptConditionalVersions bool) (string, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return "", err
 	}
 
@@ -344,36 +253,4 @@ func (builder *Builder) isStreamUpdate(version, updateVersion, stream string) (i
 
 		return false, nil
 	}
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "ClusterVersion"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
