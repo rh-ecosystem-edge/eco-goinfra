@@ -6,12 +6,10 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	agentInstallV1Beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/models"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -21,17 +19,38 @@ const (
 	nonExistentMsg = "cannot update non-existent agent"
 )
 
+var agentGVK = agentInstallV1Beta1.GroupVersion.WithKind("Agent")
+
 // agentBuilder provides struct for the agent object containing connection to
 // the cluster and the agent definitions.
 type agentBuilder struct {
-	Definition *agentInstallV1Beta1.Agent
-	Object     *agentInstallV1Beta1.Agent
-	errorMsg   string
-	apiClient  goclient.Client
+	common.EmbeddableBuilder[agentInstallV1Beta1.Agent, *agentInstallV1Beta1.Agent]
+	common.EmbeddableUpdater[
+		agentInstallV1Beta1.Agent, agentBuilder, *agentInstallV1Beta1.Agent, *agentBuilder]
+	common.EmbeddableDeleter[agentInstallV1Beta1.Agent, *agentInstallV1Beta1.Agent]
+	common.EmbeddableWithOptions[
+		agentInstallV1Beta1.Agent, agentBuilder, *agentInstallV1Beta1.Agent, *agentBuilder, AgentAdditionalOptions]
 }
 
 // AgentAdditionalOptions additional options for agent object.
 type AgentAdditionalOptions func(builder *agentBuilder) (*agentBuilder, error)
+
+// runtimeClientPointer ensures clients held by other assisted builders are wrapped in a pointer for common.Validate.
+type runtimeClientPointer struct {
+	goclient.Client
+}
+
+// AttachMixins wires the embedded CRUD and options mixins to this builder instance.
+func (builder *agentBuilder) AttachMixins() {
+	builder.EmbeddableUpdater.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the Agent GVK for this builder.
+func (builder *agentBuilder) GetGVK() schema.GroupVersionKind {
+	return agentGVK
+}
 
 // newAgentBuilder creates a new instance of agentBuilder
 // Users cannot create agent resources themselves as they are generated from the operator.
@@ -43,59 +62,29 @@ func newAgentBuilder(apiClient goclient.Client, definition *agentInstallV1Beta1.
 	klog.V(100).Infof("Initializing new agent structure for the following agent %s",
 		definition.Name)
 
-	builder := agentBuilder{
-		apiClient:  apiClient,
-		Definition: definition,
-		Object:     definition,
+	var client goclient.Client
+	if apiClient != nil {
+		client = &runtimeClientPointer{Client: apiClient}
 	}
 
-	return &builder
+	builder := common.NewNamespacedBuilder[agentInstallV1Beta1.Agent, agentBuilder](
+		client, agentInstallV1Beta1.AddToScheme, definition.Name, definition.Namespace)
+
+	builder.Definition = definition
+	builder.Object = definition
+
+	return builder
 }
 
 // PullAgent pulls existing agent from cluster.
 func PullAgent(apiClient *clients.Settings, name, nsname string) (*agentBuilder, error) {
-	klog.V(100).Infof("Pulling existing agent name %s under namespace %s from cluster", name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil, fmt.Errorf("the apiClient is nil")
-	}
-
-	builder := &agentBuilder{
-		apiClient: apiClient.Client,
-		Definition: &agentInstallV1Beta1.Agent{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the agent is empty")
-
-		return nil, fmt.Errorf("agent 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the agent is empty")
-
-		return nil, fmt.Errorf("agent 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("agent object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
+	return common.PullNamespacedBuilder[agentInstallV1Beta1.Agent, agentBuilder](
+		context.TODO(), apiClient, agentInstallV1Beta1.AddToScheme, name, nsname)
 }
 
 // WithHostName sets the hostname of the agent resource.
 func (builder *agentBuilder) WithHostName(hostname string) *agentBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -106,7 +95,7 @@ func (builder *agentBuilder) WithHostName(hostname string) *agentBuilder {
 		klog.V(100).Infof("agent %s in namespace %s does not exist",
 			builder.Definition.Name, builder.Definition.Namespace)
 
-		builder.errorMsg = nonExistentMsg
+		builder.SetError(fmt.Errorf("%s", nonExistentMsg))
 
 		return builder
 	}
@@ -118,7 +107,7 @@ func (builder *agentBuilder) WithHostName(hostname string) *agentBuilder {
 
 // WithRole sets the role of the agent resource.
 func (builder *agentBuilder) WithRole(role string) *agentBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -129,7 +118,7 @@ func (builder *agentBuilder) WithRole(role string) *agentBuilder {
 		klog.V(100).Infof("agent %s in namespace %s does not exist",
 			builder.Definition.Name, builder.Definition.Namespace)
 
-		builder.errorMsg = nonExistentMsg
+		builder.SetError(fmt.Errorf("%s", nonExistentMsg))
 
 		return builder
 	}
@@ -141,7 +130,7 @@ func (builder *agentBuilder) WithRole(role string) *agentBuilder {
 
 // WithInstallationDisk sets the installationDiskID of the agent.
 func (builder *agentBuilder) WithInstallationDisk(diskID string) *agentBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -155,7 +144,7 @@ func (builder *agentBuilder) WithInstallationDisk(diskID string) *agentBuilder {
 
 // WithIgnitionConfigOverride sets the ignitionConfigOverrides of the agent.
 func (builder *agentBuilder) WithIgnitionConfigOverride(override string) *agentBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -169,7 +158,7 @@ func (builder *agentBuilder) WithIgnitionConfigOverride(override string) *agentB
 
 // WithApproval sets the approved field of the agent.
 func (builder *agentBuilder) WithApproval(approved bool) *agentBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -183,7 +172,7 @@ func (builder *agentBuilder) WithApproval(approved bool) *agentBuilder {
 
 // WaitForState waits the specified timeout for the agent to report the specified state.
 func (builder *agentBuilder) WaitForState(state string, timeout time.Duration) (*agentBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -211,7 +200,7 @@ func (builder *agentBuilder) WaitForState(state string, timeout time.Duration) (
 
 // WaitForStateInfo waits the specified timeout for the agent to report the specified stateInfo.
 func (builder *agentBuilder) WaitForStateInfo(stateInfo string, timeout time.Duration) (*agentBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -235,151 +224,4 @@ func (builder *agentBuilder) WaitForStateInfo(stateInfo string, timeout time.Dur
 	}
 
 	return nil, err
-}
-
-// WithOptions creates agent with generic mutation options.
-func (builder *agentBuilder) WithOptions(options ...AgentAdditionalOptions) *agentBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting agent additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
-// Get fetches the defined agent from the cluster.
-func (builder *agentBuilder) Get() (*agentInstallV1Beta1.Agent, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting agent %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	agent := &agentInstallV1Beta1.Agent{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name:      builder.Definition.Name,
-		Namespace: builder.Definition.Namespace,
-	}, agent)
-	if err != nil {
-		return nil, err
-	}
-
-	return agent, nil
-}
-
-// Update modifies the agent resource on the cluster
-// to match what is defined in the local definition of the builder.
-func (builder *agentBuilder) Update() (*agentBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating agent %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("agent %s in namespace %s does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, fmt.Errorf("%s", nonExistentMsg)
-	}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err == nil {
-		builder.Object = builder.Definition
-	}
-
-	return builder, err
-}
-
-// Exists checks if the defined agent has already been created.
-func (builder *agentBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if agent %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Delete removes an agent from the cluster.
-func (builder *agentBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting the agent %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("agent %s in namespace %s does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return fmt.Errorf("cannot delete agent: %w", err)
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *agentBuilder) validate() (bool, error) {
-	resourceCRD := "Agent"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
