@@ -3,10 +3,10 @@ package assisted
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	agentInstallV1Beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,14 +28,17 @@ var (
 	errSimulatedInfraEnvList = errors.New("simulated list failure")
 )
 
+//nolint:funlen // Table-driven cases cover list options, validation, and error propagation.
 func TestListInfraEnvsInAllNamespaces(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name             string
 		infraEnvs        []*agentInstallV1Beta1.InfraEnv
 		listOptions      []runtimeclient.ListOption
 		client           bool
 		interceptorFuncs interceptor.Funcs
-		expectedError    error
+		assertError      func(error) bool
 		expectedNames    []string
 	}{
 		{
@@ -46,7 +49,6 @@ func TestListInfraEnvsInAllNamespaces(t *testing.T) {
 			},
 			listOptions:   nil,
 			client:        true,
-			expectedError: nil,
 			expectedNames: []string{testInfraEnvName, "another-infraenv"},
 		},
 		{
@@ -59,7 +61,6 @@ func TestListInfraEnvsInAllNamespaces(t *testing.T) {
 				&runtimeclient.ListOptions{Namespace: testInfraEnvNamespace},
 			},
 			client:        true,
-			expectedError: nil,
 			expectedNames: []string{testInfraEnvName},
 		},
 		{
@@ -67,7 +68,7 @@ func TestListInfraEnvsInAllNamespaces(t *testing.T) {
 			infraEnvs:     nil,
 			listOptions:   nil,
 			client:        false,
-			expectedError: fmt.Errorf("the apiClient is nil"),
+			assertError:   commonerrors.IsAPIClientNil,
 			expectedNames: nil,
 		},
 		{
@@ -86,13 +87,17 @@ func TestListInfraEnvsInAllNamespaces(t *testing.T) {
 					return errSimulatedInfraEnvList
 				},
 			},
-			expectedError: errSimulatedInfraEnvList,
+			assertError: func(err error) bool {
+				return errors.Is(err, errSimulatedInfraEnvList)
+			},
 			expectedNames: nil,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			var testSettings *clients.Settings
 
 			if testCase.client {
@@ -100,13 +105,15 @@ func TestListInfraEnvsInAllNamespaces(t *testing.T) {
 			}
 
 			builders, err := ListInfraEnvsInAllNamespaces(testSettings, testCase.listOptions...)
-			assert.Equal(t, testCase.expectedError, err)
 
-			if testCase.expectedError != nil {
+			if testCase.assertError != nil {
+				assert.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
 				assert.Nil(t, builders)
 
 				return
 			}
+
+			assert.NoError(t, err)
 
 			names := make([]string, 0, len(builders))
 			for _, builder := range builders {
@@ -118,14 +125,17 @@ func TestListInfraEnvsInAllNamespaces(t *testing.T) {
 	}
 }
 
+//nolint:funlen // Table-driven cases cover namespace filtering, validation, and error propagation.
 func TestListInfraEnvs(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name             string
 		namespace        string
 		infraEnvs        []*agentInstallV1Beta1.InfraEnv
 		client           bool
 		interceptorFuncs interceptor.Funcs
-		expectedError    error
+		assertError      func(error) bool
 		expectedNames    []string
 	}{
 		{
@@ -137,15 +147,16 @@ func TestListInfraEnvs(t *testing.T) {
 				buildDummyInfraEnv("other-ns-infraenv", testInfraEnvNamespace2),
 			},
 			client:        true,
-			expectedError: nil,
 			expectedNames: []string{testInfraEnvName, "node-infraenv"},
 		},
 		{
-			name:          "empty namespace",
-			namespace:     "",
-			infraEnvs:     nil,
-			client:        true,
-			expectedError: fmt.Errorf("namespace to list infraenvs cannot be empty"),
+			name:      "empty namespace",
+			namespace: "",
+			infraEnvs: nil,
+			client:    true,
+			assertError: func(err error) bool {
+				return errors.Is(err, errEmptyInfraEnvListNamespace)
+			},
 			expectedNames: nil,
 		},
 		{
@@ -153,7 +164,7 @@ func TestListInfraEnvs(t *testing.T) {
 			namespace:     testInfraEnvNamespace,
 			infraEnvs:     nil,
 			client:        false,
-			expectedError: fmt.Errorf("the apiClient is nil"),
+			assertError:   commonerrors.IsAPIClientNil,
 			expectedNames: nil,
 		},
 		{
@@ -173,13 +184,17 @@ func TestListInfraEnvs(t *testing.T) {
 					return errSimulatedInfraEnvList
 				},
 			},
-			expectedError: errSimulatedInfraEnvList,
+			assertError: func(err error) bool {
+				return errors.Is(err, errSimulatedInfraEnvList)
+			},
 			expectedNames: nil,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			var testSettings *clients.Settings
 
 			if testCase.client {
@@ -187,13 +202,15 @@ func TestListInfraEnvs(t *testing.T) {
 			}
 
 			builders, err := ListInfraEnvs(testSettings, testCase.namespace)
-			assert.Equal(t, testCase.expectedError, err)
 
-			if testCase.expectedError != nil {
+			if testCase.assertError != nil {
+				assert.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
 				assert.Nil(t, builders)
 
 				return
 			}
+
+			assert.NoError(t, err)
 
 			names := make([]string, 0, len(builders))
 			for _, builder := range builders {
