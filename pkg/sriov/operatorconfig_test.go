@@ -1,418 +1,352 @@
 package sriov
 
 import (
-	"fmt"
 	"testing"
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-var (
-	defaultOperatorConfigNsName = "testnamespace"
-)
+const defaultOperatorConfigNsName = "operatorconfig-testnamespace"
 
-func TestPullOperatorConfig(t *testing.T) {
-	generatePolicy := func(namespace string) *srIovV1.SriovOperatorConfig {
-		return &srIovV1.SriovOperatorConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      sriovOperatorConfigName,
-				Namespace: namespace,
-			},
-			Spec: srIovV1.SriovOperatorConfigSpec{},
-		}
-	}
-
-	testCases := []struct {
-		operatorConfigNamespace string
-		expectedError           bool
-		addToRuntimeObjects     bool
-		expectedErrorText       string
-		client                  bool
-	}{
-		{
-			operatorConfigNamespace: "test-namespace",
-			expectedError:           false,
-			addToRuntimeObjects:     true,
-			client:                  true,
-		},
-		{
-			operatorConfigNamespace: "test-namespace",
-			expectedError:           true,
-			expectedErrorText:       "SriovOperatorConfig 'apiClient' cannot be empty",
-			addToRuntimeObjects:     true,
-			client:                  false,
-		},
-		{
-			operatorConfigNamespace: "test-namespace",
-			expectedError:           true,
-			addToRuntimeObjects:     false,
-			expectedErrorText:       "SriovOperatorConfig object default does not exist in namespace test-namespace",
-			client:                  true,
-		},
-		{
-			operatorConfigNamespace: "",
-			expectedError:           true,
-			addToRuntimeObjects:     true,
-			expectedErrorText:       "SriovOperatorConfig 'nsname' cannot be empty",
-			client:                  true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testPolicy := generatePolicy(testCase.operatorConfigNamespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testPolicy)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		// Test the Pull method
-		builderResult, err := PullOperatorConfig(testSettings, testPolicy.Namespace)
-
-		// Check the error
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			// Check the error message
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testPolicy.Name, builderResult.Object.Name)
-			assert.Equal(t, testPolicy.Namespace, builderResult.Object.Namespace)
-		}
-	}
-}
+var operatorConfigGVK = srIovV1.GroupVersion.WithKind("SriovOperatorConfig")
 
 func TestNewOperatorConfigBuilder(t *testing.T) {
-	generatePolicyBuilder := NewOperatorConfigBuilder
+	t.Parallel()
 
-	testCases := []struct {
-		operatorConfigNamespace string
-		expectedErrorText       string
-	}{
-		{
-			operatorConfigNamespace: "test-namespace",
-			expectedErrorText:       "",
-		},
-		{
-			operatorConfigNamespace: "",
-			expectedErrorText:       "SriovOperatorConfig 'nsname' is empty",
-		},
-	}
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		testPolicyStructure := generatePolicyBuilder(testSettings, testCase.operatorConfigNamespace)
-		assert.NotNil(t, testPolicyStructure)
-		assert.Equal(t, testCase.expectedErrorText, testPolicyStructure.errorMsg)
-	}
+	t.Run("valid builder creation", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewOperatorConfigBuilder(newOperatorConfigTestClient(), defaultOperatorConfigNsName)
+
+		require.NotNil(t, builder)
+		require.NoError(t, builder.GetError())
+		assert.Equal(t, sriovOperatorConfigName, builder.Definition.Name)
+		assert.Equal(t, defaultOperatorConfigNsName, builder.Definition.Namespace)
+		assert.Equal(t, operatorConfigGVK, builder.GetGVK())
+	})
+
+	t.Run("nil client returns error-bearing builder", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewOperatorConfigBuilder(nil, defaultOperatorConfigNsName)
+
+		require.NotNil(t, builder)
+		assert.True(t, commonerrors.IsAPIClientNil(builder.GetError()))
+	})
+
+	t.Run("empty namespace returns error-bearing builder", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewOperatorConfigBuilder(newOperatorConfigTestClient(), "")
+
+		require.NotNil(t, builder)
+		assert.True(t, commonerrors.IsBuilderNamespaceEmpty(builder.GetError()))
+	})
 }
 
-func TestOperatorConfigCreate(t *testing.T) {
-	testCases := []struct {
-		testOperatorConfig *OperatorConfigBuilder
-		expectedError      error
-	}{
-		{
-			testOperatorConfig: NewOperatorConfigBuilder(
-				buildTestClientWithDummyOperatorConfigObject(),
-				defaultOperatorConfigNsName),
-			expectedError: nil,
-		},
-		{
-			testOperatorConfig: NewOperatorConfigBuilder(buildTestClientWithDummyOperatorConfigObject(), ""),
-			expectedError:      fmt.Errorf("SriovOperatorConfig 'nsname' is empty"),
-		},
-	}
+func TestPullOperatorConfig(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		oCBuilder, err := testCase.testOperatorConfig.Create()
+	t.Run("valid pull existing resource", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.Equal(t, oCBuilder.Definition.Name, oCBuilder.Object.Name)
-		} else {
-			assert.Equal(t, testCase.expectedError, err)
-		}
-	}
+		client := newOperatorConfigTestClient(buildDummyOperatorConfig(defaultOperatorConfigNsName))
+		builder, err := PullOperatorConfig(client, defaultOperatorConfigNsName)
+
+		require.NoError(t, err)
+		require.NotNil(t, builder)
+		require.NotNil(t, builder.Object)
+		assert.Equal(t, sriovOperatorConfigName, builder.Definition.Name)
+		assert.Equal(t, defaultOperatorConfigNsName, builder.Definition.Namespace)
+		assert.Equal(t, operatorConfigGVK, builder.GetGVK())
+	})
+
+	t.Run("nil client returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder, err := PullOperatorConfig(nil, defaultOperatorConfigNsName)
+
+		assert.Nil(t, builder)
+		assert.True(t, commonerrors.IsAPIClientNil(err))
+	})
+
+	t.Run("non-existent resource returns not found", func(t *testing.T) {
+		t.Parallel()
+
+		builder, err := PullOperatorConfig(newOperatorConfigTestClient(), defaultOperatorConfigNsName)
+
+		assert.Nil(t, builder)
+		assert.True(t, k8serrors.IsNotFound(err))
+	})
+
+	t.Run("empty namespace returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder, err := PullOperatorConfig(newOperatorConfigTestClient(), "")
+
+		assert.Nil(t, builder)
+		assert.True(t, commonerrors.IsBuilderNamespaceEmpty(err))
+	})
 }
 
-func TestOperatorConfigExistGet(t *testing.T) {
-	testCases := []struct {
-		operatorConfig *OperatorConfigBuilder
-		expectedError  error
-	}{
-		{
-			operatorConfig: NewOperatorConfigBuilder(
-				buildTestClientWithDummyOperatorConfigObject(),
-				defaultOperatorConfigNsName),
-			expectedError: nil,
-		},
-		{
-			operatorConfig: NewOperatorConfigBuilder(buildTestClientWithDummyOperatorConfigObject(), ""),
-			expectedError:  fmt.Errorf("SriovOperatorConfig 'nsname' is empty"),
-		},
-	}
+func TestOperatorConfigBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		operatorConfig, err := testCase.operatorConfig.Get()
-		assert.Equal(t, testCase.expectedError, err)
+	commonTestConfig := testhelper.NewCommonTestConfig[srIovV1.SriovOperatorConfig, OperatorConfigBuilder](
+		srIovV1.AddToScheme,
+		operatorConfigGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, operatorConfig.Name, testCase.operatorConfig.Definition.Name)
-		}
-	}
-}
-
-func TestOperatorConfigExist(t *testing.T) {
-	testCases := []struct {
-		testOperatorConfig *OperatorConfigBuilder
-		expectedStatus     bool
-	}{
-		{
-			testOperatorConfig: NewOperatorConfigBuilder(
-				buildTestClientWithDummyOperatorConfigObject(),
-				defaultOperatorConfigNsName),
-			expectedStatus: true,
-		},
-		{
-			testOperatorConfig: NewOperatorConfigBuilder(buildTestClientWithDummyOperatorConfigObject(), ""),
-			expectedStatus:     false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, testCase.expectedStatus, testCase.testOperatorConfig.Exists())
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestOperatorConfigWithInjector(t *testing.T) {
-	testCases := []struct {
-		enableInjector bool
-	}{
-		{
-			enableInjector: true,
-		},
-		{
-			enableInjector: false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyPolicyObject()
-		operatorConfigBuilder := NewOperatorConfigBuilder(testSettings, "testnamespace").
-			WithInjector(testCase.enableInjector)
-		assert.Equal(t, operatorConfigBuilder.errorMsg, "")
-		assert.Equal(t, testCase.enableInjector, operatorConfigBuilder.Definition.Spec.EnableInjector)
-	}
+	t.Run("valid values", func(t *testing.T) {
+		t.Parallel()
+
+		for _, injector := range []bool{true, false} {
+			testBuilder := buildValidOperatorConfigTestBuilder().WithInjector(injector)
+
+			require.NoError(t, testBuilder.GetError())
+			assert.Equal(t, injector, testBuilder.Definition.Spec.EnableInjector)
+		}
+	})
+
+	t.Run("invalid builder short-circuits", func(t *testing.T) {
+		t.Parallel()
+
+		testBuilder := buildInvalidOperatorConfigTestBuilder().WithInjector(true)
+
+		assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+		assert.False(t, testBuilder.Definition.Spec.EnableInjector)
+	})
 }
 
 func TestOperatorConfigWithOperatorWebhook(t *testing.T) {
-	testCases := []struct {
-		webhook bool
-	}{
-		{
-			webhook: true,
-		},
-		{
-			webhook: false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyPolicyObject()
-		operatorConfigBuilder := NewOperatorConfigBuilder(testSettings, "testnamespace").
-			WithOperatorWebhook(testCase.webhook)
-		assert.Equal(t, operatorConfigBuilder.errorMsg, "")
-		assert.Equal(t, testCase.webhook, operatorConfigBuilder.Definition.Spec.EnableOperatorWebhook)
-	}
+	t.Run("valid values", func(t *testing.T) {
+		t.Parallel()
+
+		for _, webhook := range []bool{true, false} {
+			testBuilder := buildValidOperatorConfigTestBuilder().WithOperatorWebhook(webhook)
+
+			require.NoError(t, testBuilder.GetError())
+			assert.Equal(t, webhook, testBuilder.Definition.Spec.EnableOperatorWebhook)
+		}
+	})
+
+	t.Run("invalid builder short-circuits", func(t *testing.T) {
+		t.Parallel()
+
+		testBuilder := buildInvalidOperatorConfigTestBuilder().WithOperatorWebhook(true)
+
+		assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+		assert.False(t, testBuilder.Definition.Spec.EnableOperatorWebhook)
+	})
 }
 
 func TestOperatorConfigWithConfigDaemonNodeSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		configDaemonNodeSelector map[string]string
-		expectedErrorText        string
+		name                      string
+		configDaemonNodeSelector  map[string]string
+		invalidBuilder            bool
+		expectedError             string
+		expectedConfigDaemonNodes map[string]string
 	}{
 		{
-			configDaemonNodeSelector: map[string]string{"test-node-selector-key": "test-node-selector-value"},
-			expectedErrorText:        "",
+			name:                      "valid selector",
+			configDaemonNodeSelector:  map[string]string{"test-node-selector-key": "test-node-selector-value"},
+			expectedConfigDaemonNodes: map[string]string{"test-node-selector-key": "test-node-selector-value"},
 		},
 		{
-			configDaemonNodeSelector: map[string]string{"test-node-selector-key": ""},
-			expectedErrorText:        "",
+			name:                      "empty selector value is allowed",
+			configDaemonNodeSelector:  map[string]string{"test-node-selector-key": ""},
+			expectedConfigDaemonNodes: map[string]string{"test-node-selector-key": ""},
 		},
 		{
-			configDaemonNodeSelector: map[string]string{"": "test-node-selector-value"},
-			expectedErrorText:        "can not apply configDaemonNodeSelector with an empty selectorKey value",
-		},
-		{
+			name:                     "empty selector returns error",
 			configDaemonNodeSelector: map[string]string{},
-			expectedErrorText:        "can not apply empty configDaemonNodeSelector",
+			expectedError:            "can not apply empty configDaemonNodeSelector",
+		},
+		{
+			name:                     "empty selector key returns error",
+			configDaemonNodeSelector: map[string]string{"": "test-node-selector-value"},
+			expectedError:            "can not apply configDaemonNodeSelector with an empty selectorKey value",
+		},
+		{
+			name:                     "invalid builder short-circuits",
+			configDaemonNodeSelector: map[string]string{"test-node-selector-key": "test-node-selector-value"},
+			invalidBuilder:           true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyPolicyObject()
-		operatorConfigBuilder := NewOperatorConfigBuilder(testSettings, "testnamespace").
-			WithConfigDaemonNodeSelector(testCase.configDaemonNodeSelector)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedErrorText, operatorConfigBuilder.errorMsg)
+			testBuilder := buildValidOperatorConfigTestBuilder()
+			if testCase.invalidBuilder {
+				testBuilder = buildInvalidOperatorConfigTestBuilder()
+			}
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, testCase.configDaemonNodeSelector,
-				operatorConfigBuilder.Definition.Spec.ConfigDaemonNodeSelector)
-		}
+			testBuilder.WithConfigDaemonNodeSelector(testCase.configDaemonNodeSelector)
+
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+				assert.Nil(t, testBuilder.Definition.Spec.ConfigDaemonNodeSelector)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+				assert.Nil(t, testBuilder.Definition.Spec.ConfigDaemonNodeSelector)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			assert.Equal(t, testCase.expectedConfigDaemonNodes,
+				testBuilder.Definition.Spec.ConfigDaemonNodeSelector)
+		})
 	}
 }
 
 func TestOperatorConfigWithDisablePlugins(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		plugins           []string
-		expectedErrorText string
+		name            string
+		plugins         []string
+		invalidBuilder  bool
+		expectedError   string
+		expectedPlugins srIovV1.PluginNameSlice
 	}{
 		{
-			plugins:           []string{pluginMellanox},
-			expectedErrorText: "",
+			name:            "valid plugin",
+			plugins:         []string{pluginMellanox},
+			expectedPlugins: srIovV1.PluginNameSlice{srIovV1.PluginNameValue(pluginMellanox)},
 		},
 		{
-			plugins:           []string{"test"},
-			expectedErrorText: "invalid plugin parameter",
+			name:    "empty plugin list is allowed",
+			plugins: []string{},
+		},
+		{
+			name:          "invalid plugin returns error",
+			plugins:       []string{"test"},
+			expectedError: "invalid plugin parameter",
+		},
+		{
+			name:           "invalid builder short-circuits",
+			plugins:        []string{pluginMellanox},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyPolicyObject()
-		operatorConfigBuilder := NewOperatorConfigBuilder(testSettings, "testnamespace").
-			WithDisablePlugins(testCase.plugins)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedErrorText, operatorConfigBuilder.errorMsg)
-
-		if testCase.expectedErrorText == "" {
-			var pluginSlice srIovV1.PluginNameSlice
-			for _, plugin := range testCase.plugins {
-				pluginSlice = append(pluginSlice, srIovV1.PluginNameValue(plugin))
+			testBuilder := buildValidOperatorConfigTestBuilder()
+			if testCase.invalidBuilder {
+				testBuilder = buildInvalidOperatorConfigTestBuilder()
 			}
 
-			assert.Equal(t, pluginSlice,
-				operatorConfigBuilder.Definition.Spec.DisablePlugins)
-		}
+			testBuilder.WithDisablePlugins(testCase.plugins)
+
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+				assert.Nil(t, testBuilder.Definition.Spec.DisablePlugins)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+				assert.Nil(t, testBuilder.Definition.Spec.DisablePlugins)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			assert.Equal(t, testCase.expectedPlugins, testBuilder.Definition.Spec.DisablePlugins)
+		})
 	}
 }
 
 func TestOperatorConfigRemoveDisablePlugins(t *testing.T) {
-	testCases := []struct {
-		testOperatorConfig *OperatorConfigBuilder
-	}{
-		{
-			testOperatorConfig: NewOperatorConfigBuilder(
-				buildTestClientWithDummyOperatorConfigObject(),
-				defaultOperatorConfigNsName).WithDisablePlugins([]string{pluginMellanox}),
-		},
-	}
-	for _, testCase := range testCases {
-		operatorConfigBuilder, _ := testCase.testOperatorConfig.Create()
+	t.Parallel()
 
-		operatorConfigBuilder.RemoveDisablePlugins()
-		assert.Nil(t, operatorConfigBuilder.Definition.Spec.DisablePlugins)
-	}
-}
+	t.Run("removes configured plugins", func(t *testing.T) {
+		t.Parallel()
 
-func TestOperatorConfigUpdate(t *testing.T) {
-	testCases := []struct {
-		testOperatorConfig *OperatorConfigBuilder
-		webhook            bool
-	}{
-		{
-			testOperatorConfig: NewOperatorConfigBuilder(
-				buildTestClientWithDummyOperatorConfigObject(),
-				defaultOperatorConfigNsName),
-		},
-		{
-			testOperatorConfig: NewOperatorConfigBuilder(
-				buildTestClientWithDummyOperatorConfigObject(),
-				defaultOperatorConfigNsName),
-			webhook: true,
-		},
-	}
-	for _, testCase := range testCases {
-		operatorConfigBuilder, err := testCase.testOperatorConfig.WithOperatorWebhook(testCase.webhook).Create()
-		assert.Nil(t, err)
-		assert.Equal(t, testCase.webhook, operatorConfigBuilder.Definition.Spec.EnableOperatorWebhook)
+		testBuilder := buildValidOperatorConfigTestBuilder().WithDisablePlugins([]string{pluginMellanox})
+		require.NoError(t, testBuilder.GetError())
 
-		if testCase.webhook {
-			testCase.webhook = false
-		} else {
-			testCase.webhook = true
+		testBuilder.RemoveDisablePlugins()
+
+		require.NoError(t, testBuilder.GetError())
+		assert.Nil(t, testBuilder.Definition.Spec.DisablePlugins)
+	})
+
+	t.Run("invalid builder short-circuits", func(t *testing.T) {
+		t.Parallel()
+
+		testBuilder := buildInvalidOperatorConfigTestBuilder()
+		testBuilder.Definition.Spec.DisablePlugins = srIovV1.PluginNameSlice{
+			srIovV1.PluginNameValue(pluginMellanox),
 		}
 
-		operatorConfigBuilder.Definition.ResourceVersion = "999"
-		operatorConfigBuilder, err = operatorConfigBuilder.WithOperatorWebhook(testCase.webhook).Update()
-		assert.Equal(t, nil, err)
-		assert.Equal(t, testCase.webhook, testCase.testOperatorConfig.Object.Spec.EnableOperatorWebhook)
-		assert.Equal(t, operatorConfigBuilder.Definition, operatorConfigBuilder.Object)
-	}
-}
+		testBuilder.RemoveDisablePlugins()
 
-func TestOperatorConfigDelete(t *testing.T) {
-	testCases := []struct {
-		testOperatorConfig *OperatorConfigBuilder
-		expectedError      error
-	}{
-		{
-			testOperatorConfig: NewOperatorConfigBuilder(
-				buildTestClientWithDummyOperatorConfigObject(),
-				defaultOperatorConfigNsName),
-		},
-		{
-			testOperatorConfig: NewOperatorConfigBuilder(
-				buildTestClientWithDummyOperatorConfigObject(),
-				""),
-			expectedError: fmt.Errorf("SriovOperatorConfig 'nsname' is empty"),
-		},
-	}
-	for _, testCase := range testCases {
-		operatorConfigBuilder, err := testCase.testOperatorConfig.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, operatorConfigBuilder.Object)
-		}
-
-		operatorConfigBuilder, err = operatorConfigBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-		assert.Nil(t, operatorConfigBuilder.Object)
-	}
-}
-
-func buildTestClientWithDummyOperatorConfigObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummySrIovOperatorConfigObject(),
-		SchemeAttachers: testSchemes,
+		assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+		assert.Equal(t, srIovV1.PluginNameSlice{srIovV1.PluginNameValue(pluginMellanox)},
+			testBuilder.Definition.Spec.DisablePlugins)
 	})
 }
 
-func buildDummySrIovOperatorConfigObject() []runtime.Object {
-	return append([]runtime.Object{}, &srIovV1.SriovOperatorConfig{
+func newOperatorConfigTestClient(objects ...runtime.Object) *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: objects,
+		SchemeAttachers: []clients.SchemeAttacher{
+			srIovV1.AddToScheme,
+		},
+	})
+}
+
+func buildDummyOperatorConfig(namespace string) *srIovV1.SriovOperatorConfig {
+	return &srIovV1.SriovOperatorConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      sriovOperatorConfigName,
-			Namespace: defaultOperatorConfigNsName,
+			Namespace: namespace,
 		},
-		Spec: srIovV1.SriovOperatorConfigSpec{},
-	})
+	}
+}
+
+func buildValidOperatorConfigTestBuilder() *OperatorConfigBuilder {
+	return NewOperatorConfigBuilder(newOperatorConfigTestClient(), defaultOperatorConfigNsName)
+}
+
+func buildInvalidOperatorConfigTestBuilder() *OperatorConfigBuilder {
+	return NewOperatorConfigBuilder(newOperatorConfigTestClient(), "")
 }
