@@ -1,78 +1,33 @@
 package sriovfec
 
 import (
-	"fmt"
+	"context"
+	"errors"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 	sriovfectypes "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/fec/fectypes"
-	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ListClusterConfig returns SriovFecClusterConfigList from given namespace.
 func ListClusterConfig(
 	apiClient *clients.Settings,
 	nsname string,
-	options ...client.ListOptions) ([]*ClusterConfigBuilder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("SriovFecClusterConfigList 'apiClient' parameter can not be empty")
-
-		return nil, fmt.Errorf("failed to list SriovFecClusterConfig, 'apiClient' parameter is empty")
-	}
-
-	err := apiClient.AttachScheme(sriovfectypes.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add sriov-fec scheme to client schemes")
-
-		return nil, err
-	}
-
+	options ...runtimeclient.ListOptions) ([]*ClusterConfigBuilder, error) {
 	if nsname == "" {
-		klog.V(100).Info("SriovFecClusterConfigList 'nsname' parameter can not be empty")
-
-		return nil, fmt.Errorf("failed to list SriovFecClusterConfig, 'nsname' parameter is empty")
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey("SriovFecClusterConfig", "", ""), commonerrors.BuilderFieldNamespace)
 	}
-
-	logMessage := fmt.Sprintf("Listing SriovFecClusterConfig in the namespace %s", nsname)
-	passedOptions := client.ListOptions{}
 
 	if len(options) > 1 {
-		klog.V(100).Info("'options' parameter must be empty or single-valued")
-
-		return nil, fmt.Errorf("error: more than one ListOptions was passed")
+		return nil, errors.New("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
+	allOptions := append(common.ConvertListOptionsToOptions(options), runtimeclient.InNamespace(nsname))
 
-	klog.V(100).Infof("%v", logMessage)
-
-	passedOptions.Namespace = nsname
-
-	sfncList := new(sriovfectypes.SriovFecClusterConfigList)
-
-	err = apiClient.List(logging.DiscardContext(), sfncList, &passedOptions)
-	if err != nil {
-		klog.V(100).Infof("Failed to list SriovFecClusterConfigs in the namespace %s due to %s", nsname, err.Error())
-
-		return nil, err
-	}
-
-	var sfncBuilderList []*ClusterConfigBuilder
-
-	for _, sfnc := range sfncList.Items {
-		copiedObject := sfnc
-		sfncBuilder := &ClusterConfigBuilder{
-			apiClient:  apiClient.Client,
-			Object:     &copiedObject,
-			Definition: &copiedObject,
-		}
-
-		sfncBuilderList = append(sfncBuilderList, sfncBuilder)
-	}
-
-	return sfncBuilderList, nil
+	return common.List[sriovfectypes.SriovFecClusterConfig, sriovfectypes.SriovFecClusterConfigList, ClusterConfigBuilder](
+		context.TODO(), apiClient, sriovfectypes.AddToScheme, allOptions...)
 }
