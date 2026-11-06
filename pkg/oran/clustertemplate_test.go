@@ -2,13 +2,16 @@ package oran
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 	"time"
 
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/stretchr/testify/assert"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -18,213 +21,124 @@ const (
 	defaultClusterTemplateNamespace = "test-namespace"
 )
 
-var defaultClusterTemplateCondition = metav1.Condition{
-	Type:   string(provisioningv1alpha1.CTconditionTypes.Validated),
-	Reason: string(provisioningv1alpha1.CTconditionReasons.Completed),
-	Status: metav1.ConditionTrue,
-}
+var (
+	clusterTemplateGVK = provisioningv1alpha1.GroupVersion.WithKind("ClusterTemplate")
+
+	defaultClusterTemplateCondition = metav1.Condition{
+		Type:   string(provisioningv1alpha1.CTconditionTypes.Validated),
+		Reason: string(provisioningv1alpha1.CTconditionReasons.Completed),
+		Status: metav1.ConditionTrue,
+	}
+)
 
 func TestPullClusterTemplate(t *testing.T) {
-	testCases := []struct {
-		name                string
-		nsname              string
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			name:                defaultClusterTemplateName,
-			nsname:              defaultClusterTemplateNamespace,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			name:                "",
-			nsname:              defaultClusterTemplateNamespace,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       fmt.Errorf("clusterTemplate 'name' cannot be empty"),
-		},
-		{
-			name:                defaultClusterTemplateName,
-			nsname:              "",
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       fmt.Errorf("clusterTemplate 'nsname' cannot be empty"),
-		},
-		{
-			name:                defaultClusterTemplateName,
-			nsname:              defaultClusterTemplateNamespace,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError: fmt.Errorf("clusterTemplate object %s does not exist in namespace %s",
-				defaultClusterTemplateName, defaultClusterTemplateNamespace),
-		},
-		{
-			name:                defaultClusterTemplateName,
-			nsname:              defaultClusterTemplateNamespace,
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("clusterTemplate 'apiClient' cannot be nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects,
-				buildDummyClusterTemplate(defaultClusterTemplateName, defaultClusterTemplateNamespace))
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: provisioningTestSchemes,
-			})
-		}
-
-		testBuilder, err := PullClusterTemplate(testSettings, testCase.name, testCase.nsname)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testCase.nsname, testBuilder.Definition.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullClusterTemplate,
+		provisioningv1alpha1.AddToScheme,
+		clusterTemplateGVK,
+	).ExecuteTests(t)
 }
 
-func TestClusterTemplateGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *ClusterTemplateBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidClusterTemplateTestBuilder(buildTestClientWithDummyClusterTemplate()),
-			expectedError: "",
-		},
-		{
-			testBuilder: buildValidClusterTemplateTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Sprintf(
-				"clustertemplates.clcm.openshift.io \"%s\" not found", defaultClusterTemplateName),
-		},
-	}
+func TestClusterTemplateMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		clusterTemplate, err := testCase.testBuilder.Get()
+	commonTestConfig := testhelper.NewCommonTestConfig[provisioningv1alpha1.ClusterTemplate, ClusterTemplateBuilder](
+		provisioningv1alpha1.AddToScheme,
+		clusterTemplateGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.testBuilder.Definition.Name, clusterTemplate.Name)
-			assert.Equal(t, testCase.testBuilder.Definition.Namespace, clusterTemplate.Namespace)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestClusterTemplateExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *ClusterTemplateBuilder
-		exists      bool
-	}{
-		{
-			testBuilder: buildValidClusterTemplateTestBuilder(buildTestClientWithDummyClusterTemplate()),
-			exists:      true,
-		},
-		{
-			testBuilder: buildValidClusterTemplateTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestClusterTemplateWaitForCondition(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		conditionMet  bool
-		exists        bool
-		expectedError error
+		name         string
+		conditionMet bool
+		exists       bool
+		valid        bool
+		assertError  func(error) bool
 	}{
 		{
-			conditionMet:  true,
-			exists:        true,
-			expectedError: nil,
+			name:         "condition met",
+			conditionMet: true,
+			exists:       true,
+			valid:        true,
+			assertError:  func(err error) bool { return err == nil },
 		},
 		{
-			conditionMet:  false,
-			exists:        true,
-			expectedError: context.DeadlineExceeded,
+			name:         "condition not met",
+			conditionMet: false,
+			exists:       true,
+			valid:        true,
+			assertError:  func(err error) bool { return errors.Is(err, context.DeadlineExceeded) },
 		},
 		{
-			conditionMet:  true,
-			exists:        false,
-			expectedError: fmt.Errorf("cannot wait for non-existent ClusterTemplate"),
+			name:         "cluster template does not exist",
+			conditionMet: true,
+			exists:       false,
+			valid:        true,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "cannot wait for non-existent ClusterTemplate"
+			},
+		},
+		{
+			name:        "invalid builder",
+			exists:      true,
+			valid:       false,
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			clusterTemplate := buildDummyClusterTemplate(defaultClusterTemplateName, defaultClusterTemplateNamespace)
+			var runtimeObjects []runtime.Object
 
-			if testCase.conditionMet {
-				clusterTemplate.Status.Conditions = append(clusterTemplate.Status.Conditions, defaultClusterTemplateCondition)
+			if testCase.exists {
+				clusterTemplate := buildDummyClusterTemplate(defaultClusterTemplateName, defaultClusterTemplateNamespace)
+				if testCase.conditionMet {
+					clusterTemplate.Status.Conditions = append(clusterTemplate.Status.Conditions, defaultClusterTemplateCondition)
+				}
+
+				runtimeObjects = append(runtimeObjects, clusterTemplate)
 			}
 
-			runtimeObjects = append(runtimeObjects, clusterTemplate)
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  runtimeObjects,
+				SchemeAttachers: provisioningTestSchemes,
+			})
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: provisioningTestSchemes,
+			name := defaultClusterTemplateName
+			if !testCase.valid {
+				name = ""
+			}
+
+			testBuilder := common.NewNamespacedBuilder[
+				provisioningv1alpha1.ClusterTemplate,
+				ClusterTemplateBuilder,
+			](testSettings, provisioningv1alpha1.AddToScheme, name, defaultClusterTemplateNamespace)
+
+			_, err := testBuilder.WaitForCondition(defaultClusterTemplateCondition, time.Second)
+			require.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
 		})
-		testBuilder := buildValidClusterTemplateTestBuilder(testSettings)
-
-		_, err := testBuilder.WaitForCondition(defaultClusterTemplateCondition, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
-// buildDummyClusterTemplate returns a ClusterTemplate with the provided name and nsname.
-//
-//nolint:unparam
+// buildDummyClusterTemplate returns a ClusterTemplate with the provided name and namespace.
 func buildDummyClusterTemplate(name, nsname string) *provisioningv1alpha1.ClusterTemplate {
 	return &provisioningv1alpha1.ClusterTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: nsname,
 		},
-	}
-}
-
-// buildTestClientWithDummyClusterTemplate returns an apiClient with the correct schemes and a ClusterTemplate with
-// default name and namespace.
-func buildTestClientWithDummyClusterTemplate() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyClusterTemplate(defaultClusterTemplateName, defaultClusterTemplateNamespace),
-		},
-		SchemeAttachers: provisioningTestSchemes,
-	})
-}
-
-// buildValidClusterTemplateTestBuilder returns a valid ClusterTemplateBuilder with all defaults and the provided
-// apiClient.
-func buildValidClusterTemplateTestBuilder(apiClient *clients.Settings) *ClusterTemplateBuilder {
-	_ = apiClient.AttachScheme(provisioningv1alpha1.AddToScheme)
-
-	return &ClusterTemplateBuilder{
-		Definition: buildDummyClusterTemplate(defaultClusterTemplateName, defaultClusterTemplateNamespace),
-		apiClient:  apiClient,
 	}
 }
