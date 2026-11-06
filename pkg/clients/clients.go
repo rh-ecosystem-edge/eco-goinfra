@@ -35,7 +35,6 @@ import (
 	netv1 "k8s.io/api/networking/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	storagev1 "k8s.io/api/storage/v1"
 	k8sFakeClient "k8s.io/client-go/kubernetes/fake"
 	fakeRuntimeClient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -264,8 +263,6 @@ func GetModifiableTestClients(tcp TestClientParams) (*Settings, *fakeRuntimeClie
 		case *policyv1.PodDisruptionBudget:
 			k8sClientObjects = append(k8sClientObjects, v)
 		case *scalingv1.HorizontalPodAutoscaler:
-			k8sClientObjects = append(k8sClientObjects, v)
-		case *storagev1.StorageClass:
 			k8sClientObjects = append(k8sClientObjects, v)
 		case *corev1.ConfigMap:
 			k8sClientObjects = append(k8sClientObjects, v)
