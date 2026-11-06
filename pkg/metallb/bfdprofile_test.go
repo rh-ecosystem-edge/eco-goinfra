@@ -1,12 +1,14 @@
 package metallb
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/mlbtypes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -17,445 +19,334 @@ var (
 	defaultBFDProfileNsName = "test-namespace"
 )
 
-func TestPullBFDProfile(t *testing.T) {
-	generateBFDProfile := func(name, namespace string) *mlbtypes.BFDProfile {
-		return &mlbtypes.BFDProfile{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: mlbtypes.BFDProfileSpec{},
-		}
-	}
-
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "bfdprofile",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("bfdprofile 'name' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "bfdprofile",
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("bfdprofile 'namespace' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "bfdprofile",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("bfdprofile object bfdprofile does not exist in namespace test-namespace"),
-			client:              true,
-		},
-		{
-			name:                "bfdprofile",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("bfdprofile 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testBFDProfile := generateBFDProfile(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testBFDProfile)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		builderResult, err := PullBFDProfile(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Object.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Object.Namespace)
-		}
-	}
-}
-
 func TestNewBFDBuilder(t *testing.T) {
-	generateBFDProfile := NewBFDBuilder
+	t.Parallel()
 
-	testCases := []struct {
-		name          string
-		namespace     string
-		expectedError string
-	}{
-		{
-			name:          "bfdprofile",
-			namespace:     "test-namespace",
-			expectedError: "",
-		},
-		{
-			name:          "",
-			namespace:     "test-namespace",
-			expectedError: "BFDProfile 'name' cannot be empty",
-		},
-		{
-			name:          "bfdprofile",
-			namespace:     "",
-			expectedError: "BFDProfile 'nsname' cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			SchemeAttachers: testSchemes,
-		})
-		testBFDProfileBuilder := generateBFDProfile(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, testBFDProfileBuilder.errorMsg)
-		assert.NotNil(t, testBFDProfileBuilder.Definition)
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testBFDProfileBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testBFDProfileBuilder.Definition.Namespace)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewBFDBuilder,
+		mlbtypes.AddToScheme,
+		bfdProfileGVK,
+	).ExecuteTests(t)
 }
 
-func TestBFDProfileGet(t *testing.T) {
-	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		expectedError  error
-	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			expectedError:  nil,
-		},
-		{
-			testBFDProfile: buildInValidBFDProfileBuilder(buildTestClientWithDummyObject()),
-			expectedError:  fmt.Errorf("BFDProfile 'nsname' cannot be empty"),
-		},
-	}
+func TestPullBFDProfile(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		bfdProfile, err := testCase.testBFDProfile.Get()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, bfdProfile.Name, testCase.testBFDProfile.Definition.Name)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullBFDProfile,
+		mlbtypes.AddToScheme,
+		bfdProfileGVK,
+	).ExecuteTests(t)
 }
 
-func TestBFDProfileExist(t *testing.T) {
-	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		expectedStatus bool
-	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testBFDProfile: buildInValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			expectedStatus: false,
-		},
-	}
+func TestBFDProfileMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exist := testCase.testBFDProfile.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
+	commonTestConfig := testhelper.NewCommonTestConfig[mlbtypes.BFDProfile, BFDBuilder](
+		mlbtypes.AddToScheme,
+		bfdProfileGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
-func TestBFDProfileCreate(t *testing.T) {
-	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		expectedError  error
-	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			expectedError:  nil,
-		},
-		{
-			testBFDProfile: buildInValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			expectedError:  fmt.Errorf("BFDProfile 'nsname' cannot be empty"),
-		},
-	}
+func TestBFDProfileWithOptions(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		BFDProfileBuilder, err := testCase.testBFDProfile.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, BFDProfileBuilder.Definition, BFDProfileBuilder.Object)
-		}
-	}
-}
-
-func TestBFDProfileDelete(t *testing.T) {
-	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		expectedError  error
-	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			expectedError:  nil,
-		},
-		{
-			testBFDProfile: buildInValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			expectedError:  fmt.Errorf("BFDProfile 'nsname' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testBFDProfile.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBFDProfile.Object)
-		}
-	}
-}
-
-func TestBFDProfileUpdate(t *testing.T) {
-	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		expectedError  error
-		echoMode       bool
-	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			expectedError:  nil,
-			echoMode:       true,
-		},
-		{
-			testBFDProfile: buildInValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			expectedError:  fmt.Errorf("BFDProfile 'nsname' cannot be empty"),
-			echoMode:       false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Nil(t, testCase.testBFDProfile.Definition.Spec.EchoMode)
-		assert.Nil(t, nil, testCase.testBFDProfile.Object)
-		testCase.testBFDProfile.WithEchoMode(true)
-		testCase.testBFDProfile.Definition.ResourceVersion = "999"
-		_, err := testCase.testBFDProfile.Update(false)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, &testCase.echoMode, testCase.testBFDProfile.Definition.Spec.EchoMode)
-		}
-	}
+	testhelper.NewWithOptionsTestConfig(
+		testhelper.NewCommonTestConfig[mlbtypes.BFDProfile, BFDBuilder](
+			mlbtypes.AddToScheme,
+			bfdProfileGVK,
+			testhelper.ResourceScopeNamespaced,
+		),
+	).ExecuteTests(t)
 }
 
 func TestBFDProfileWithRcvInterval(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		interval       uint32
+		name     string
+		interval uint32
+		valid    bool
 	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			interval:       10,
-		},
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			interval:       20,
-		},
+		{name: "receive interval 10", interval: 10, valid: true},
+		{name: "receive interval 20", interval: 20, valid: true},
+		{name: "invalid builder", interval: 10, valid: false},
 	}
 
 	for _, testCase := range testCases {
-		bFDProfileBuilder := testCase.testBFDProfile.WithRcvInterval(testCase.interval)
-		assert.Equal(t, testCase.interval, *bFDProfileBuilder.Definition.Spec.ReceiveInterval)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildBFDProfileBuilderForTest(testCase.valid)
+			builder = builder.WithRcvInterval(testCase.interval)
+
+			if !testCase.valid {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(builder.GetError()))
+				assert.Nil(t, builder.Definition.Spec.ReceiveInterval)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			require.NotNil(t, builder.Definition.Spec.ReceiveInterval)
+			assert.Equal(t, testCase.interval, *builder.Definition.Spec.ReceiveInterval)
+		})
 	}
 }
 
 func TestBFDProfileWithTransmitInterval(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		interval       uint32
+		name     string
+		interval uint32
+		valid    bool
 	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			interval:       10,
-		},
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			interval:       20,
-		},
+		{name: "transmit interval 10", interval: 10, valid: true},
+		{name: "transmit interval 20", interval: 20, valid: true},
+		{name: "invalid builder", interval: 10, valid: false},
 	}
 
 	for _, testCase := range testCases {
-		bFDProfileBuilder := testCase.testBFDProfile.WithTransmitInterval(testCase.interval)
-		assert.Equal(t, testCase.interval, *bFDProfileBuilder.Definition.Spec.TransmitInterval)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildBFDProfileBuilderForTest(testCase.valid)
+			builder = builder.WithTransmitInterval(testCase.interval)
+
+			if !testCase.valid {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(builder.GetError()))
+				assert.Nil(t, builder.Definition.Spec.TransmitInterval)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			require.NotNil(t, builder.Definition.Spec.TransmitInterval)
+			assert.Equal(t, testCase.interval, *builder.Definition.Spec.TransmitInterval)
+		})
 	}
 }
 
 func TestBFDProfileWithEchoInterval(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		interval       uint32
+		name     string
+		interval uint32
+		valid    bool
 	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			interval:       10,
-		},
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			interval:       20,
-		},
+		{name: "echo interval 10", interval: 10, valid: true},
+		{name: "echo interval 20", interval: 20, valid: true},
+		{name: "invalid builder", interval: 10, valid: false},
 	}
 
 	for _, testCase := range testCases {
-		bFDProfileBuilder := testCase.testBFDProfile.WithEchoInterval(testCase.interval)
-		assert.Equal(t, testCase.interval, *bFDProfileBuilder.Definition.Spec.EchoInterval)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildBFDProfileBuilderForTest(testCase.valid)
+			builder = builder.WithEchoInterval(testCase.interval)
+
+			if !testCase.valid {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(builder.GetError()))
+				assert.Nil(t, builder.Definition.Spec.EchoInterval)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			require.NotNil(t, builder.Definition.Spec.EchoInterval)
+			assert.Equal(t, testCase.interval, *builder.Definition.Spec.EchoInterval)
+		})
 	}
 }
 
 func TestBFDProfileWithMultiplier(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		interval       uint32
+		name       string
+		multiplier uint32
+		valid      bool
 	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			interval:       10,
-		},
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			interval:       20,
-		},
+		{name: "multiplier 10", multiplier: 10, valid: true},
+		{name: "multiplier 20", multiplier: 20, valid: true},
+		{name: "invalid builder", multiplier: 10, valid: false},
 	}
 
 	for _, testCase := range testCases {
-		bFDProfileBuilder := testCase.testBFDProfile.WithMultiplier(testCase.interval)
-		assert.Equal(t, testCase.interval, *bFDProfileBuilder.Definition.Spec.DetectMultiplier)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildBFDProfileBuilderForTest(testCase.valid)
+			builder = builder.WithMultiplier(testCase.multiplier)
+
+			if !testCase.valid {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(builder.GetError()))
+				assert.Nil(t, builder.Definition.Spec.DetectMultiplier)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			require.NotNil(t, builder.Definition.Spec.DetectMultiplier)
+			assert.Equal(t, testCase.multiplier, *builder.Definition.Spec.DetectMultiplier)
+		})
 	}
 }
 
 func TestBFDProfileWithEchoMode(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		echoMode       bool
+		name     string
+		echoMode bool
+		valid    bool
 	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			echoMode:       true,
-		},
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			echoMode:       false,
-		},
+		{name: "echo mode true", echoMode: true, valid: true},
+		{name: "echo mode false", echoMode: false, valid: true},
+		{name: "invalid builder", echoMode: true, valid: false},
 	}
 
 	for _, testCase := range testCases {
-		bfdProfileBuilder := testCase.testBFDProfile.WithEchoMode(testCase.echoMode)
-		assert.Equal(t, testCase.echoMode, *bfdProfileBuilder.Definition.Spec.EchoMode)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildBFDProfileBuilderForTest(testCase.valid)
+			builder = builder.WithEchoMode(testCase.echoMode)
+
+			if !testCase.valid {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(builder.GetError()))
+				assert.Nil(t, builder.Definition.Spec.EchoMode)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			require.NotNil(t, builder.Definition.Spec.EchoMode)
+			assert.Equal(t, testCase.echoMode, *builder.Definition.Spec.EchoMode)
+		})
 	}
 }
 
 func TestBFDProfileWithPassiveMode(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		passiveMode    bool
+		name        string
+		passiveMode bool
+		valid       bool
 	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			passiveMode:    true,
-		},
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			passiveMode:    false,
-		},
+		{name: "passive mode true", passiveMode: true, valid: true},
+		{name: "passive mode false", passiveMode: false, valid: true},
+		{name: "invalid builder", passiveMode: true, valid: false},
 	}
 
 	for _, testCase := range testCases {
-		bfdProfileBuilder := testCase.testBFDProfile.WithPassiveMode(testCase.passiveMode)
-		assert.Equal(t, testCase.passiveMode, *bfdProfileBuilder.Definition.Spec.PassiveMode)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildBFDProfileBuilderForTest(testCase.valid)
+			builder = builder.WithPassiveMode(testCase.passiveMode)
+
+			if !testCase.valid {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(builder.GetError()))
+				assert.Nil(t, builder.Definition.Spec.PassiveMode)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			require.NotNil(t, builder.Definition.Spec.PassiveMode)
+			assert.Equal(t, testCase.passiveMode, *builder.Definition.Spec.PassiveMode)
+		})
 	}
 }
 
-func TestBFDProfileWithWithMinimumTTL(t *testing.T) {
+func TestBFDProfileWithMinimumTTL(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBFDProfile *BFDBuilder
-		interval       uint32
+		name       string
+		minimumTTL uint32
+		valid      bool
 	}{
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			interval:       10,
-		},
-		{
-			testBFDProfile: buildValidBFDProfileBuilder(buildBFDProfileTestClientWithDummyObject()),
-			interval:       20,
-		},
+		{name: "minimum TTL 10", minimumTTL: 10, valid: true},
+		{name: "minimum TTL 20", minimumTTL: 20, valid: true},
+		{name: "invalid builder", minimumTTL: 10, valid: false},
 	}
 
 	for _, testCase := range testCases {
-		bFDProfileBuilder := testCase.testBFDProfile.WithMinimumTTL(testCase.interval)
-		assert.Equal(t, testCase.interval, *bFDProfileBuilder.Definition.Spec.MinimumTTL)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildBFDProfileBuilderForTest(testCase.valid)
+			builder = builder.WithMinimumTTL(testCase.minimumTTL)
+
+			if !testCase.valid {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(builder.GetError()))
+				assert.Nil(t, builder.Definition.Spec.MinimumTTL)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			require.NotNil(t, builder.Definition.Spec.MinimumTTL)
+			assert.Equal(t, testCase.minimumTTL, *builder.Definition.Spec.MinimumTTL)
+		})
 	}
-}
-
-func TestBFDProfileWithOptions(t *testing.T) {
-	testSettings := buildBFDProfileTestClientWithDummyObject()
-	testBuilder := buildValidBFDProfileBuilder(testSettings).WithOptions(
-		func(builder *BFDBuilder) (*BFDBuilder, error) {
-			return builder, nil
-		})
-
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidBFDProfileBuilder(testSettings).WithOptions(
-		func(builder *BFDBuilder) (*BFDBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-
-	assert.Equal(t, "error", testBuilder.errorMsg)
 }
 
 func TestBFDProfileGVR(t *testing.T) {
+	t.Parallel()
+
 	assert.Equal(t, GetBFDProfileGVR(),
 		schema.GroupVersionResource{
 			Group: APIGroup, Version: APIVersion, Resource: "bfdprofiles",
 		})
 }
 
+// buildBFDProfileBuilderForTest returns a valid or invalid BFDProfile builder.
+func buildBFDProfileBuilderForTest(valid bool) *BFDBuilder {
+	apiClient := clients.GetTestClients(clients.TestClientParams{})
+
+	if valid {
+		return buildValidBFDProfileBuilder(apiClient)
+	}
+
+	return buildInvalidBFDProfileBuilder(apiClient)
+}
+
+// buildValidBFDProfileBuilder returns a valid BFDProfile builder for testing.
 func buildValidBFDProfileBuilder(apiClient *clients.Settings) *BFDBuilder {
 	return NewBFDBuilder(
 		apiClient, defaultBFDProfileName, defaultBFDProfileNsName)
 }
 
-func buildInValidBFDProfileBuilder(apiClient *clients.Settings) *BFDBuilder {
+// buildInvalidBFDProfileBuilder returns an invalid BFDProfile builder for testing.
+func buildInvalidBFDProfileBuilder(apiClient *clients.Settings) *BFDBuilder {
 	return NewBFDBuilder(
 		apiClient, defaultBFDProfileName, "")
 }
 
-func buildBFDProfileTestClientWithDummyObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyBFDProfile(),
-		SchemeAttachers: testSchemes,
-	})
-}
-
+// buildDummyBFDProfile returns a BFDProfile runtime object for shared package tests.
 func buildDummyBFDProfile() []runtime.Object {
 	return append([]runtime.Object{}, &mlbtypes.BFDProfile{
 		ObjectMeta: metav1.ObjectMeta{
