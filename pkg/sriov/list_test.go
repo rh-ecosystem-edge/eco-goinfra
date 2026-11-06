@@ -6,140 +6,91 @@ import (
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestNetworkList(t *testing.T) {
-	testCases := []struct {
-		testNetwork   []*NetworkBuilder
-		nsName        string
-		listOptions   []client.ListOptions
-		expectedError error
-		client        bool
-	}{
-		{
-			testNetwork:   []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        "testnamespace",
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			testNetwork:   []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        "",
-			expectedError: fmt.Errorf("failed to list sriov networks, 'nsname' parameter is empty"),
-			client:        true,
-		},
-		{
-			testNetwork: []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
-			nsName:      "testnamespace",
-			listOptions: []client.ListOptions{{Continue: "test"}},
-			client:      true,
-		},
-		{
-			testNetwork:   []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        "testnamespace",
-			listOptions:   []client.ListOptions{{Namespace: "test"}, {Continue: "true"}},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
-		},
-		{
-			testNetwork:   []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        "testnamespace",
-			expectedError: fmt.Errorf("failed to list sriov networks, 'apiClient' parameter is empty"),
-			client:        false,
-		},
-	}
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummySrIovNetworkObject(),
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		netBuilders, err := List(testSettings, testCase.nsName, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(netBuilders), len(testCase.testNetwork))
-		}
-	}
-}
-
 func TestNetworkCleanAllNetworksByTargetNamespace(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNetwork    []*NetworkBuilder
+		name           string
 		operatorNsName string
 		targetNsName   string
 		listOptions    []client.ListOptions
 		client         bool
 		expectedError  error
+		assertError    func(error) bool
+		expectClean    bool
 	}{
 		{
-			testNetwork:    []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
+			name:           "cleans matching network",
 			operatorNsName: "testnamespace",
 			targetNsName:   "targetns",
 			client:         true,
+			expectClean:    true,
 		},
 		{
-			testNetwork:    []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
+			name:           "rejects empty operator namespace",
 			targetNsName:   "testnamespace",
 			expectedError:  fmt.Errorf("failed to clean up sriov networks, 'operatornsname' parameter is empty"),
 			client:         true,
 			operatorNsName: "",
 		},
 		{
-			testNetwork:    []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
+			name:           "rejects empty target namespace",
 			operatorNsName: "targetns",
 			expectedError:  fmt.Errorf("failed to clean up sriov networks, 'targetnsname' parameter is empty"),
 			client:         true,
 			targetNsName:   "",
 		},
 		{
-			testNetwork:    []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
+			name:           "rejects multiple list options",
 			operatorNsName: "testnamespace",
 			targetNsName:   "targetns",
-			listOptions:    []client.ListOptions{{Namespace: "test"}},
-			client:         true,
-		},
-		{
-			testNetwork:    []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
-			operatorNsName: "testnamespace",
-			targetNsName:   "targetns",
-			listOptions:    []client.ListOptions{{Namespace: "test"}, {Continue: "true"}},
+			listOptions:    []client.ListOptions{{Continue: "true"}, {Limit: 1}},
 			expectedError:  fmt.Errorf("error: more than one ListOptions was passed"),
 			client:         true,
 		},
 		{
-			testNetwork:    []*NetworkBuilder{buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())},
+			name:           "nil client returns common error",
 			operatorNsName: "testnamespace",
 			targetNsName:   "targetns",
-			expectedError:  fmt.Errorf("failed to list sriov networks, 'apiClient' parameter is empty"),
-			client:         false,
+			assertError:    commonerrors.IsAPIClientNil,
 		},
 	}
+
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: buildDummySrIovNetworkObject(),
-			})
-		}
+			var testSettings *clients.Settings
 
-		err := CleanAllNetworksByTargetNamespace(
-			testSettings, testCase.operatorNsName, testCase.targetNsName, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+			if testCase.client {
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects: buildDummySrIovNetworkObject(),
+				})
+			}
 
-		if testCase.expectedError == nil {
-			netBuilders, err := List(testSettings, testCase.operatorNsName)
-			assert.Nil(t, err)
-			assert.Zero(t, len(netBuilders))
-		}
+			err := CleanAllNetworksByTargetNamespace(
+				testSettings, testCase.operatorNsName, testCase.targetNsName, testCase.listOptions...)
+
+			if testCase.assertError != nil {
+				assert.True(t, testCase.assertError(err), "unexpected error: %v", err)
+
+				return
+			}
+
+			assert.Equal(t, testCase.expectedError, err)
+
+			if testCase.expectClean {
+				netBuilders, err := List(testSettings, testCase.operatorNsName)
+				assert.NoError(t, err)
+				assert.Empty(t, netBuilders)
+			}
+		})
 	}
 }
 

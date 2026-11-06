@@ -7,97 +7,75 @@ import (
 	"slices"
 	"time"
 
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
 	errEmptyTargetNsname = "SrIovNetwork 'targetNsname' cannot be empty"
 	spoofChkOff          = "off"
 	errInvalidLinkState  = "invalid 'linkState' parameters"
+	errInvalidVlanQoS    = "Invalid QoS class. Supported vlan QoS class values are between 0...7"
 )
+
+var sriovNetworkGVK = srIovV1.GroupVersion.WithKind("SriovNetwork")
 
 // NetworkBuilder provides struct for srIovNetwork object which contains connection to cluster and
 // srIovNetwork definition.
 type NetworkBuilder struct {
-	// srIovNetwork definition. Used to create srIovNetwork object.
-	Definition *srIovV1.SriovNetwork
-	// Created srIovNetwork object.
-	Object *srIovV1.SriovNetwork
-	// Used in functions that define or mutate srIovNetwork definitions. errorMsg is processed before srIovNetwork
-	// object is created.
-	errorMsg string
-	// apiClient opens api connection to the cluster.
-	apiClient runtimeClient.Client
+	common.EmbeddableBuilder[srIovV1.SriovNetwork, *srIovV1.SriovNetwork]
+	common.EmbeddableCreator[srIovV1.SriovNetwork, NetworkBuilder, *srIovV1.SriovNetwork, *NetworkBuilder]
+	common.EmbeddableDeleter[srIovV1.SriovNetwork, *srIovV1.SriovNetwork]
+	common.EmbeddableForceUpdater[srIovV1.SriovNetwork, NetworkBuilder, *srIovV1.SriovNetwork, *NetworkBuilder]
+	common.EmbeddableWithOptions[
+		srIovV1.SriovNetwork, NetworkBuilder, *srIovV1.SriovNetwork, *NetworkBuilder, NetworkAdditionalOptions]
 }
 
 // NetworkAdditionalOptions additional options for SriovNetwork object.
 type NetworkAdditionalOptions func(builder *NetworkBuilder) (*NetworkBuilder, error)
 
+// AttachMixins wires the embedded CRUD and option mixins to this builder instance.
+func (builder *NetworkBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the SriovNetwork GVK for this builder.
+func (builder *NetworkBuilder) GetGVK() schema.GroupVersionKind {
+	return sriovNetworkGVK
+}
+
 // NewNetworkBuilder creates new instance of Builder.
 func NewNetworkBuilder(
 	apiClient *clients.Settings, name, nsname, targetNsname, resName string) *NetworkBuilder {
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(srIovV1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add sriovv1 scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &NetworkBuilder{
-		apiClient: apiClient.Client,
-		Definition: &srIovV1.SriovNetwork{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-			Spec: srIovV1.SriovNetworkSpec{
-				ResourceName:     resName,
-				NetworkNamespace: targetNsname,
-			},
-		},
-	}
-
-	if name == "" {
-		builder.errorMsg = "SrIovNetwork 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		builder.errorMsg = "SrIovNetwork 'nsname' cannot be empty"
-
+	builder := common.NewNamespacedBuilder[srIovV1.SriovNetwork, NetworkBuilder](
+		apiClient, srIovV1.AddToScheme, name, nsname)
+	if builder.GetError() != nil {
 		return builder
 	}
 
 	if resName == "" {
-		builder.errorMsg = "SrIovNetwork 'resName' cannot be empty"
+		builder.SetError(fmt.Errorf("SrIovNetwork 'resName' cannot be empty"))
 
 		return builder
 	}
+
+	builder.Definition.Spec.ResourceName = resName
+	builder.Definition.Spec.NetworkNamespace = targetNsname
 
 	return builder
 }
 
 // WithTargetNamespace sets the target namespace for the SriovNetwork.
 func (builder *NetworkBuilder) WithTargetNamespace(targetNsname string) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -107,7 +85,7 @@ func (builder *NetworkBuilder) WithTargetNamespace(targetNsname string) *Network
 	if targetNsname == "" {
 		klog.V(100).Infof(errEmptyTargetNsname)
 
-		builder.errorMsg = errEmptyTargetNsname
+		builder.SetError(fmt.Errorf("%s", errEmptyTargetNsname))
 
 		return builder
 	}
@@ -119,12 +97,12 @@ func (builder *NetworkBuilder) WithTargetNamespace(targetNsname string) *Network
 
 // WithVLAN sets vlan id in the SrIovNetwork definition. Allowed vlanId range is between 0-4094.
 func (builder *NetworkBuilder) WithVLAN(vlanID uint16) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if vlanID > 4094 {
-		builder.errorMsg = "invalid vlanID, allowed vlanID values are between 0-4094"
+		builder.SetError(fmt.Errorf("invalid vlanID, allowed vlanID values are between 0-4094"))
 
 		return builder
 	}
@@ -136,7 +114,7 @@ func (builder *NetworkBuilder) WithVLAN(vlanID uint16) *NetworkBuilder {
 
 // WithVlanProto sets the VLAN protocol for qinq tunneling protocol in the SrIovNetwork definition spec.
 func (builder *NetworkBuilder) WithVlanProto(vlanProtocol string) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -144,7 +122,7 @@ func (builder *NetworkBuilder) WithVlanProto(vlanProtocol string) *NetworkBuilde
 
 	allowedVlanProto := []string{"802.1q", "802.1Q", "802.1ad", "802.1AD"}
 	if !slices.Contains(allowedVlanProto, vlanProtocol) {
-		builder.errorMsg = "invalid 'vlanProtocol' parameters"
+		builder.SetError(fmt.Errorf("invalid 'vlanProtocol' parameters"))
 	}
 
 	builder.Definition.Spec.VlanProto = vlanProtocol
@@ -154,7 +132,7 @@ func (builder *NetworkBuilder) WithVlanProto(vlanProtocol string) *NetworkBuilde
 
 // WithSpoof sets spoof flag based on the given argument in the SrIovNetwork definition spec.
 func (builder *NetworkBuilder) WithSpoof(enabled bool) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -169,7 +147,7 @@ func (builder *NetworkBuilder) WithSpoof(enabled bool) *NetworkBuilder {
 
 // WithMetaPluginAllMultiFlag metaplugin activates allmulti multicast mode on a SriovNetwork configuration.
 func (builder *NetworkBuilder) WithMetaPluginAllMultiFlag(allMultiFlag bool) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -180,7 +158,7 @@ func (builder *NetworkBuilder) WithMetaPluginAllMultiFlag(allMultiFlag bool) *Ne
 
 // WithMetaPluginRdma activates rdma plugin on a SriovNetwork configuration.
 func (builder *NetworkBuilder) WithMetaPluginRdma() *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -191,14 +169,14 @@ func (builder *NetworkBuilder) WithMetaPluginRdma() *NetworkBuilder {
 
 // WithLinkState sets linkState parameters in the SrIovNetwork definition spec.
 func (builder *NetworkBuilder) WithLinkState(linkState string) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	allowedLinkStates := []string{"enable", "disable", "auto"}
 
 	if !slices.Contains(allowedLinkStates, linkState) {
-		builder.errorMsg = errInvalidLinkState
+		builder.SetError(fmt.Errorf("%s", errInvalidLinkState))
 
 		return builder
 	}
@@ -210,7 +188,7 @@ func (builder *NetworkBuilder) WithLinkState(linkState string) *NetworkBuilder {
 
 // WithMaxTxRate sets maxTxRate parameters in the SrIovNetwork definition spec.
 func (builder *NetworkBuilder) WithMaxTxRate(maxTxRate uint16) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -223,7 +201,7 @@ func (builder *NetworkBuilder) WithMaxTxRate(maxTxRate uint16) *NetworkBuilder {
 
 // WithMinTxRate sets minTxRate parameters in the SrIovNetwork definition spec.
 func (builder *NetworkBuilder) WithMinTxRate(minTxRate uint16) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -235,7 +213,7 @@ func (builder *NetworkBuilder) WithMinTxRate(minTxRate uint16) *NetworkBuilder {
 
 // WithTrustFlag sets trust flag based on the given argument in the SrIoVNetwork definition spec.
 func (builder *NetworkBuilder) WithTrustFlag(enabled bool) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -250,12 +228,12 @@ func (builder *NetworkBuilder) WithTrustFlag(enabled bool) *NetworkBuilder {
 
 // WithVlanQoS sets qoSClass parameters in the SrIovNetwork definition spec.
 func (builder *NetworkBuilder) WithVlanQoS(qoSClass uint16) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if qoSClass > 7 {
-		builder.errorMsg = "Invalid QoS class. Supported vlan QoS class values are between 0...7"
+		builder.SetError(fmt.Errorf("%s", errInvalidVlanQoS))
 
 		return builder
 	}
@@ -269,15 +247,15 @@ func (builder *NetworkBuilder) WithVlanQoS(qoSClass uint16) *NetworkBuilder {
 
 // WithLogLevel sets logLevel parameter in the SrIovNetwork definition spec.
 func (builder *NetworkBuilder) WithLogLevel(logLevel string) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	allowedLogLevels := []string{"panic", "error", "warning", "info", "debug", ""}
 
 	if !slices.Contains(allowedLogLevels, logLevel) {
-		builder.errorMsg = "invalid logLevel value, allowed logLevel values are:" +
-			" panic, error, warning, info, debug or empty"
+		builder.SetError(fmt.Errorf("invalid logLevel value, allowed logLevel values are:" +
+			" panic, error, warning, info, debug or empty"))
 
 		return builder
 	}
@@ -304,20 +282,20 @@ func (builder *NetworkBuilder) WithStaticIpam() *NetworkBuilder {
 
 // WithWhereaboutsIPAM sets whereabouts IPAM with range/gateway and optional exclude/network name.
 func (builder *NetworkBuilder) WithWhereaboutsIPAM(ipRange, gateway, exclude, networkName string) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	klog.V(100).Infof("Setting SriovNetwork whereabouts IPAM with range %s and gateway %s", ipRange, gateway)
 
 	if ipRange == "" {
-		builder.errorMsg = "failed to configure IPAM, 'ipRange' parameter is empty"
+		builder.SetError(fmt.Errorf("failed to configure IPAM, 'ipRange' parameter is empty"))
 
 		return builder
 	}
 
 	if gateway == "" {
-		builder.errorMsg = "failed to configure IPAM, 'gateway' parameter is empty"
+		builder.SetError(fmt.Errorf("failed to configure IPAM, 'gateway' parameter is empty"))
 
 		return builder
 	}
@@ -338,7 +316,7 @@ func (builder *NetworkBuilder) WithWhereaboutsIPAM(ipRange, gateway, exclude, ne
 
 	ipamJSON, err := json.Marshal(ipamConfig)
 	if err != nil {
-		builder.errorMsg = fmt.Sprintf("failed to marshal IPAM config: %v", err)
+		builder.SetError(fmt.Errorf("failed to marshal IPAM config: %w", err))
 
 		return builder
 	}
@@ -348,151 +326,17 @@ func (builder *NetworkBuilder) WithWhereaboutsIPAM(ipRange, gateway, exclude, ne
 	return builder
 }
 
-// WithOptions creates SriovNetwork with generic mutation options.
-func (builder *NetworkBuilder) WithOptions(options ...NetworkAdditionalOptions) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting SriovNetwork additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
 // PullNetwork pulls existing sriovnetwork from cluster.
 func PullNetwork(apiClient *clients.Settings, name, nsname string) (*NetworkBuilder, error) {
 	klog.V(100).Infof("Pulling existing sriovnetwork name %s under namespace %s from cluster", name, nsname)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("sriovnetwork 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(srIovV1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add sriovv1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &NetworkBuilder{
-		apiClient: apiClient.Client,
-		Definition: &srIovV1.SriovNetwork{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the sriovnetwork is empty")
-
-		return nil, fmt.Errorf("sriovnetwork 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the sriovnetwork is empty")
-
-		return nil, fmt.Errorf("sriovnetwork 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("sriovnetwork object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Get returns CatalogSource object if found.
-func (builder *NetworkBuilder) Get() (*srIovV1.SriovNetwork, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Collecting SriovNetwork object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	network := &srIovV1.SriovNetwork{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(),
-		runtimeClient.ObjectKey{Name: builder.Definition.Name, Namespace: builder.Definition.Namespace},
-		network)
-	if err != nil {
-		klog.V(100).Infof(
-			"SriovNetwork object %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, err
-	}
-
-	return network, nil
-}
-
-// Create generates SrIovNetwork in a cluster and stores the created object in struct.
-func (builder *NetworkBuilder) Create() (*NetworkBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	if !builder.Exists() {
-		err := builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err != nil {
-			klog.V(100).Info("Failed to create SriovNetwork")
-
-			return nil, err
-		}
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// Delete removes SrIovNetwork object.
-func (builder *NetworkBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	if !builder.Exists() {
-		klog.V(100).Info("SriovNetwork cannot be deleted because it does not exist")
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
+	return common.PullNamespacedBuilder[srIovV1.SriovNetwork, NetworkBuilder](
+		context.TODO(), apiClient, srIovV1.AddToScheme, name, nsname)
 }
 
 // DeleteAndWait deletes the SrIovNetwork resource and waits until it is deleted.
 func (builder *NetworkBuilder) DeleteAndWait(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -509,7 +353,7 @@ func (builder *NetworkBuilder) DeleteAndWait(timeout time.Duration) error {
 
 // WaitUntilDeleted waits for the duration of the defined timeout or until the SrIovNetwork is deleted.
 func (builder *NetworkBuilder) WaitUntilDeleted(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -538,56 +382,6 @@ func (builder *NetworkBuilder) WaitUntilDeleted(timeout time.Duration) error {
 		})
 }
 
-// Exists checks whether the given SrIovNetwork object exists in a cluster.
-func (builder *NetworkBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if SriovNetwork %s exists",
-		builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Update renovates the existing SrIovNetwork object with the SrIovNetwork definition in builder.
-func (builder *NetworkBuilder) Update(force bool) (*NetworkBuilder, error) {
-	if valid, _ := builder.validate(); !valid {
-		return builder, nil
-	}
-
-	klog.V(100).Infof("Updating the SrIovNetwork object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("failed to update SriovNetwork, object does not exist on cluster")
-	}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err == nil {
-		builder.Object = builder.Definition
-	} else if force {
-		klog.V(100).Infof("%v", msg.FailToUpdateNotification("SrIovNetwork", builder.Definition.Name, builder.Definition.Namespace))
-
-		err = builder.Delete()
-		if err != nil {
-			klog.V(100).Infof("%v", msg.FailToUpdateError("SrIovNetwork", builder.Definition.Name, builder.Definition.Namespace))
-
-			return nil, err
-		}
-
-		return builder.Create()
-	}
-
-	return builder, err
-}
-
 // GetSriovNetworksGVR returns SriovNetwork's GroupVersionResource which could be used for Clean function.
 func GetSriovNetworksGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
@@ -596,7 +390,7 @@ func GetSriovNetworksGVR() schema.GroupVersionResource {
 }
 
 func (builder *NetworkBuilder) withCapabilities(capability string) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -612,14 +406,14 @@ func (builder *NetworkBuilder) withCapabilities(capability string) *NetworkBuild
 }
 
 func (builder *NetworkBuilder) withIpam(ipamType string) *NetworkBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if ipamType == "" {
 		klog.V(100).Info("sriov network 'ipamType' parameter can not be empty")
 
-		builder.errorMsg = "failed to configure IPAM, 'ipamType' parameter is empty"
+		builder.SetError(fmt.Errorf("failed to configure IPAM, 'ipamType' parameter is empty"))
 
 		return builder
 	}
@@ -627,36 +421,4 @@ func (builder *NetworkBuilder) withIpam(ipamType string) *NetworkBuilder {
 	builder.Definition.Spec.IPAM = fmt.Sprintf(`{ "type": "%s" }`, ipamType)
 
 	return builder
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *NetworkBuilder) validate() (bool, error) {
-	resourceCRD := "SriovNetwork"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
