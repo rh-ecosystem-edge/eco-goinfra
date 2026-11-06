@@ -1,77 +1,83 @@
 package nvidiagpu
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	nvidiagpuv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/nvidiagpu/nvidiagputypes"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/klog/v2"
-	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var clusterPolicyGVK = nvidiagpuv1.SchemeGroupVersion.WithKind(nvidiagpuv1.ClusterPolicyCRDName)
 
 // Builder provides a struct for ClusterPolicy object
 // from the cluster and a ClusterPolicy definition.
 type Builder struct {
-	// Builder definition. Used to create
-	// Builder object with minimum set of required elements.
-	Definition *nvidiagpuv1.ClusterPolicy
-	// Created Builder object on the cluster.
-	Object *nvidiagpuv1.ClusterPolicy
-	// api client to interact with the cluster.
-	apiClient runtimeClient.Client
-	// errorMsg is processed before Builder object is created.
-	errorMsg string
+	common.EmbeddableBuilder[nvidiagpuv1.ClusterPolicy, *nvidiagpuv1.ClusterPolicy]
+	common.EmbeddableCreator[
+		nvidiagpuv1.ClusterPolicy, Builder, *nvidiagpuv1.ClusterPolicy, *Builder]
+	common.EmbeddableDeleteReturner[
+		nvidiagpuv1.ClusterPolicy, Builder, *nvidiagpuv1.ClusterPolicy, *Builder]
+	common.EmbeddableForceUpdater[
+		nvidiagpuv1.ClusterPolicy, Builder, *nvidiagpuv1.ClusterPolicy, *Builder]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleteReturner.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+}
+
+// GetGVK returns the ClusterPolicy GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return clusterPolicyGVK
 }
 
 // NewBuilderFromObjectString creates a Builder object from CSV alm-examples.
 func NewBuilderFromObjectString(apiClient *clients.Settings, almExample string) *Builder {
-	klog.V(100).Infof(
-		"Initializing new Builder structure from almExample string")
+	klog.V(100).Infof("Initializing new Builder structure from almExample string")
 
 	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
+		klog.V(100).Info("The apiClient of the ClusterPolicy is nil")
 
 		return nil
 	}
 
-	err := apiClient.AttachScheme(nvidiagpuv1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add nvidiagpuv1 scheme to client schemes")
+	if err := apiClient.AttachScheme(nvidiagpuv1.AddToScheme); err != nil {
+		klog.V(100).Infof("Failed to add nvidiagpuv1 scheme to client schemes: %v", err)
 
 		return nil
 	}
+
+	builder := &Builder{}
+	builder.AttachMixins()
+	builder.SetGVK(builder.GetGVK())
+	builder.SetClient(apiClient)
 
 	clusterPolicy, err := getClusterPolicyFromAlmExample(almExample)
 	if err != nil {
-		klog.V(100).Infof(
-			"error initializing ClusterPolicy from alm-examples: %s", err.Error())
+		klog.V(100).Infof("error initializing ClusterPolicy from alm-examples: %s", err.Error())
 
-		return &Builder{
-			apiClient: apiClient.Client,
-			errorMsg:  fmt.Sprintf("error initializing ClusterPolicy from alm-examples: %s", err.Error()),
-		}
+		builder.SetError(fmt.Errorf("error initializing ClusterPolicy from alm-examples: %w", err))
+
+		return builder
 	}
+
+	builder.SetDefinition(clusterPolicy)
 
 	klog.V(100).Infof(
 		"Initializing new Builder structure from almExample string with clusterPolicy name: %s",
 		clusterPolicy.Name)
 
-	builder := &Builder{
-		apiClient:  apiClient.Client,
-		Definition: clusterPolicy,
-	}
-
 	if builder.Definition == nil {
 		klog.V(100).Info("The ClusterPolicy object definition is nil")
 
-		builder.errorMsg = "ClusterPolicy 'Object.Definition' is nil"
-
-		return builder
+		builder.SetError(fmt.Errorf("ClusterPolicy 'Object.Definition' is nil"))
 	}
 
 	return builder
@@ -79,189 +85,8 @@ func NewBuilderFromObjectString(apiClient *clients.Settings, almExample string) 
 
 // Pull loads an existing clusterPolicy into Builder struct.
 func Pull(apiClient *clients.Settings, name string) (*Builder, error) {
-	klog.V(100).Infof("Pulling existing clusterPolicy name: %s", name)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil, fmt.Errorf("clusterPolicy 'apiClient' cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(nvidiagpuv1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add nvidiagpuv1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &Builder{
-		apiClient: apiClient.Client,
-		Definition: &nvidiagpuv1.ClusterPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("ClusterPolicy name is empty")
-
-		return nil, fmt.Errorf("clusterPolicy 'name' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("ClusterPolicy object %s does not exist", name)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Get returns clusterPolicy object if found.
-func (builder *Builder) Get() (*nvidiagpuv1.ClusterPolicy, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Collecting ClusterPolicy object %s", builder.Definition.Name)
-
-	clusterPolicy := &nvidiagpuv1.ClusterPolicy{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), runtimeClient.ObjectKey{Name: builder.Definition.Name}, clusterPolicy)
-	if err != nil {
-		klog.V(100).Infof(
-			"ClusterPolicy object %s does not exist", builder.Definition.Name)
-
-		return nil, err
-	}
-
-	return clusterPolicy, err
-}
-
-// Exists checks whether the given ClusterPolicy exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if ClusterPolicy %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-	if err != nil {
-		klog.V(100).Infof("Failed to collect ClusterPolicy object due to %s", err.Error())
-	}
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Delete removes a ClusterPolicy.
-func (builder *Builder) Delete() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Deleting ClusterPolicy %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Info("clusterpolicy cannot be deleted because it does not exist")
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, fmt.Errorf("cannot delete clusterpolicy: %w", err)
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Create makes a ClusterPolicy in the cluster and stores the created object in struct.
-func (builder *Builder) Create() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the ClusterPolicy %s", builder.Definition.Name)
-
-	if builder.Exists() {
-		return builder, nil
-	}
-
-	err := builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, err
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// Update renovates the existing ClusterPolicy object with the definition in builder.
-func (builder *Builder) Update(force bool) (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the ClusterPolicy object named:  %s", builder.Definition.Name)
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		if force {
-			klog.V(100).Infof("%v", msg.FailToUpdateNotification("clusterpolicy", builder.Definition.Name))
-
-			builder, err := builder.Delete()
-			if err != nil {
-				klog.V(100).Infof("%v", msg.FailToUpdateError("clusterpolicy", builder.Definition.Name))
-
-				return nil, err
-			}
-
-			return builder.Create()
-		}
-	}
-
-	return builder, nil
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "ClusterPolicy"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
+	return common.PullClusterScopedBuilder[nvidiagpuv1.ClusterPolicy, Builder](
+		context.TODO(), apiClient, nvidiagpuv1.AddToScheme, name)
 }
 
 // getClusterPolicyFromAlmExample extracts the ClusterPolicy from the alm-examples block.
