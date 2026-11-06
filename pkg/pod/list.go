@@ -291,6 +291,13 @@ func WaitForPodsRemainingHealthy(
 		namespaces = []string{metav1.NamespaceAll}
 	}
 
+	namespaceDescription := fmt.Sprintf("namespaces %v", namespaces)
+	if len(namespaces) == 1 && namespaces[0] == metav1.NamespaceAll {
+		namespaceDescription = "all namespaces"
+	}
+
+	klog.V(100).Infof("Waiting up to %v for pods in %s to be stable for %v", timeout, namespaceDescription, stableDuration)
+
 	var healthySince time.Time
 
 	consecutiveErrors := 0
@@ -305,6 +312,11 @@ func WaitForPodsRemainingHealthy(
 			if listErr != nil {
 				consecutiveErrors++
 				if consecutiveErrors > 2 {
+					if !healthySince.IsZero() {
+						klog.V(100).Infof("Pods in %s stopped being stable after %v due to repeated list errors, "+
+							"resetting the stable duration of %v", namespaceDescription, time.Since(healthySince), stableDuration)
+					}
+
 					healthySince = time.Time{}
 				}
 
@@ -314,6 +326,11 @@ func WaitForPodsRemainingHealthy(
 			consecutiveErrors = 0
 
 			if !healthy {
+				if !healthySince.IsZero() {
+					klog.V(100).Infof("Pods in %s stopped being stable after %v, resetting the stable duration of %v",
+						namespaceDescription, time.Since(healthySince), stableDuration)
+				}
+
 				healthySince = time.Time{}
 
 				return false, nil
@@ -326,6 +343,9 @@ func WaitForPodsRemainingHealthy(
 			}
 
 			if healthySince.IsZero() {
+				klog.V(100).Infof("Pods in %s became healthy, waiting for them to be stable for %v",
+					namespaceDescription, stableDuration)
+
 				healthySince = now
 			}
 
