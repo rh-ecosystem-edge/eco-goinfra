@@ -1,16 +1,17 @@
 package replicaset
 
 import (
-	"fmt"
 	"testing"
-
-	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 var (
@@ -20,599 +21,440 @@ var (
 	defaultReplicaSetContainer = []corev1.Container{{Name: "test-container"}}
 )
 
-func TestPullReplicaSet(t *testing.T) {
-	generateReplicaSet := func(name, namespace string) *appsv1.ReplicaSet {
-		return &appsv1.ReplicaSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-				Labels:    defaultReplicaSetLabel,
-			},
-			Spec: appsv1.ReplicaSetSpec{
-				Template: corev1.PodTemplateSpec{
-					Spec: corev1.PodSpec{
-						Containers: defaultReplicaSetContainer,
-					},
-				},
-			},
-		}
-	}
-
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		apiClient           bool
-	}{
-		{
-			name:                defaultReplicaSetName,
-			namespace:           defaultReplicaSetNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			apiClient:           true,
-		},
-		{
-			name:                "",
-			namespace:           defaultReplicaSetNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf(errEmptyName),
-			apiClient:           true,
-		},
-		{
-			name:                defaultReplicaSetName,
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("replicaset 'nsname' cannot be empty"),
-			apiClient:           true,
-		},
-		{
-			name:                "replicaset-test",
-			namespace:           defaultReplicaSetNamespace,
-			addToRuntimeObjects: false,
-			expectedError: fmt.Errorf("replicaset object replicaset-test does not exist " +
-				"in namespace test-namespace"),
-			apiClient: true,
-		},
-		{
-			name:                defaultReplicaSetName,
-			namespace:           defaultReplicaSetNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("replicaset 'apiClient' cannot be empty"),
-			apiClient:           false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testReplicaSet := generateReplicaSet(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testReplicaSet)
-		}
-
-		if testCase.apiClient {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
-
-		builderResult, err := Pull(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testReplicaSet.Name, builderResult.Object.Name)
-			assert.Nil(t, err)
-		}
-	}
-}
-
 func TestNewReplicaSetBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedBuilderTestConfig(
+		func(apiClient *clients.Settings, name, nsname string) *Builder {
+			return NewBuilder(apiClient, name, nsname, defaultReplicaSetLabel, defaultReplicaSetContainer)
+		},
+		appsv1.AddToScheme,
+		replicaSetGVK,
+	).ExecuteTests(t)
+
 	testCases := []struct {
-		name          string
-		namespace     string
-		labels        map[string]string
-		container     []corev1.Container
-		expectedError string
-		apiClient     bool
+		name             string
+		labels           map[string]string
+		containers       []corev1.Container
+		expectedErrorMsg string
 	}{
 		{
-			name:          defaultReplicaSetName,
-			namespace:     defaultReplicaSetNamespace,
-			labels:        defaultReplicaSetLabel,
-			container:     defaultReplicaSetContainer,
-			expectedError: "",
-			apiClient:     true,
+			name:             "valid labels and containers",
+			labels:           defaultReplicaSetLabel,
+			containers:       defaultReplicaSetContainer,
+			expectedErrorMsg: "",
 		},
 		{
-			name:          "",
-			namespace:     defaultReplicaSetNamespace,
-			labels:        defaultReplicaSetLabel,
-			container:     defaultReplicaSetContainer,
-			expectedError: errEmptyName,
-			apiClient:     true,
+			name:             "empty labels",
+			labels:           map[string]string{},
+			containers:       defaultReplicaSetContainer,
+			expectedErrorMsg: "replicaset 'labels' cannot be empty",
 		},
 		{
-			name:          defaultReplicaSetName,
-			namespace:     "",
-			labels:        defaultReplicaSetLabel,
-			container:     defaultReplicaSetContainer,
-			expectedError: "replicaset 'nsname' cannot be empty",
-			apiClient:     true,
-		},
-		{
-			name:          defaultReplicaSetName,
-			namespace:     defaultReplicaSetNamespace,
-			labels:        map[string]string{},
-			container:     defaultReplicaSetContainer,
-			expectedError: "replicaset 'labels' cannot be empty",
-			apiClient:     true,
-		},
-		{
-			name:          defaultReplicaSetName,
-			namespace:     defaultReplicaSetNamespace,
-			labels:        defaultReplicaSetLabel,
-			container:     []corev1.Container{},
-			expectedError: "replicaset 'containerSpec' cannot be empty",
-			apiClient:     true,
-		},
-		{
-			name:          defaultReplicaSetName,
-			namespace:     defaultReplicaSetNamespace,
-			labels:        defaultReplicaSetLabel,
-			container:     defaultReplicaSetContainer,
-			expectedError: "",
-			apiClient:     false,
+			name:             "empty containers",
+			labels:           defaultReplicaSetLabel,
+			containers:       []corev1.Container{},
+			expectedErrorMsg: "replicaset 'containerSpec' cannot be empty",
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.apiClient {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
+			builder := NewBuilder(
+				newReplicaSetTestClient(),
+				defaultReplicaSetName,
+				defaultReplicaSetNamespace,
+				testCase.labels,
+				testCase.containers,
+			)
+			require.NotNil(t, builder)
 
-		testReplicaSetBuilder := NewBuilder(testSettings,
-			testCase.name,
-			testCase.namespace,
-			testCase.labels,
-			testCase.container)
+			if testCase.expectedErrorMsg != "" {
+				require.EqualError(t, builder.GetError(), testCase.expectedErrorMsg)
 
-		if testCase.expectedError == "" {
-			if testCase.apiClient {
-				assert.NotNil(t, testReplicaSetBuilder.Definition)
-				assert.Equal(t, testCase.name, testReplicaSetBuilder.Definition.Name)
-				assert.Equal(t, testCase.namespace, testReplicaSetBuilder.Definition.Namespace)
-			} else {
-				assert.Nil(t, testReplicaSetBuilder)
+				return
 			}
-		} else {
-			assert.Equal(t, testCase.expectedError, testReplicaSetBuilder.errorMsg)
-		}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.labels, builder.Definition.Labels)
+			assert.Equal(t, testCase.containers, builder.Definition.Spec.Template.Spec.Containers)
+		})
 	}
 }
 
-func TestReplicaSetExists(t *testing.T) {
-	testCases := []struct {
-		testReplicaSet *Builder
-		expectedStatus bool
-	}{
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testReplicaSet: buildInValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			expectedStatus: false,
-		},
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-	}
+func TestPullReplicaSet(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exist := testCase.testReplicaSet.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		Pull,
+		appsv1.AddToScheme,
+		replicaSetGVK,
+	).ExecuteTests(t)
 }
 
-func TestReplicaSetCreate(t *testing.T) {
-	testCases := []struct {
-		testReplicaSet *Builder
-		expectedError  string
-	}{
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			expectedError:  "",
-		},
-		{
-			testReplicaSet: buildInValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			expectedError:  errEmptyName,
-		},
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:  "",
-		},
-	}
+func TestReplicaSetBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testReplicaSetBuilder, err := testCase.testReplicaSet.Create()
+	commonTestConfig := newReplicaSetCommonTestConfig()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testReplicaSetBuilder.Definition.Name, testReplicaSetBuilder.Object.Name)
-			assert.Equal(t, testReplicaSetBuilder.Definition.Namespace, testReplicaSetBuilder.Object.Namespace)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
-}
-
-func TestReplicaSetDelete(t *testing.T) {
-	testCases := []struct {
-		testReplicaSet *Builder
-		expectedError  error
-	}{
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			expectedError:  nil,
-		},
-		{
-			testReplicaSet: buildInValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			expectedError:  fmt.Errorf(errEmptyName),
-		},
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:  nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testReplicaSet.Delete()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testReplicaSet.Object)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestReplicaSetUpdate(t *testing.T) {
-	testCases := []struct {
-		testReplicaSet *Builder
-		testLabels     map[string]string
-		expectedError  string
-	}{
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			testLabels:     map[string]string{"test-node-selector-key": "test-node-selector-value"},
-			expectedError:  "",
-		},
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			testLabels:     defaultReplicaSetLabel,
-			expectedError:  "",
-		},
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			testLabels: map[string]string{"test-node-selector-key1": "test-node-selector-value1",
-				"test-node-selector-key2": "test-node-selector-value2"},
-			expectedError: "",
-		},
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			testLabels:     map[string]string{"test-node-selector-key": ""},
-			expectedError:  "",
-		},
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			testLabels:     map[string]string{"": "test-node-selector-value"},
-			expectedError:  canNotApplyLabelsWithAn,
-		},
-		{
-			testReplicaSet: buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			testLabels:     map[string]string{},
-			expectedError:  canNotApplyEmptyLabels,
-		},
-		{
-			testReplicaSet: buildInValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject()),
-			expectedError:  errEmptyName,
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, defaultReplicaSetLabel, testCase.testReplicaSet.Definition.Labels)
-		assert.Nil(t, nil, testCase.testReplicaSet.Object)
-		testCase.testReplicaSet.WithLabel(testCase.testLabels)
-		_, err := testCase.testReplicaSet.Update()
-
-		if testCase.expectedError != "" {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.Equal(t, testCase.testLabels, testCase.testReplicaSet.Definition.Labels)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestReplicaSetWithLabel(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		labels         map[string]string
-		expectedErrMsg string
-		emptyLabels    bool
-		originalLabels map[string]string
+		name            string
+		labels          map[string]string
+		invalidBuilder  bool
+		expectedErrText string
 	}{
 		{
+			name:   "valid labels",
+			labels: map[string]string{"test-label-key": "test-label-value"},
+		},
+		{
+			name:   "empty label value is allowed",
+			labels: map[string]string{"test-label-key": ""},
+		},
+		{
+			name:            "empty label key",
+			labels:          map[string]string{"": "test-label-value"},
+			expectedErrText: canNotApplyLabelsWithAn,
+		},
+		{
+			name:            "empty labels",
+			labels:          map[string]string{},
+			expectedErrText: canNotApplyEmptyLabels,
+		},
+		{
+			name:           "invalid builder short circuits",
 			labels:         map[string]string{"test-label-key": "test-label-value"},
-			expectedErrMsg: "",
-			emptyLabels:    true,
-			originalLabels: map[string]string{},
-		},
-		{
-			labels:         map[string]string{"test-label-key": ""},
-			expectedErrMsg: "",
-			emptyLabels:    true,
-			originalLabels: map[string]string{},
-		},
-		{
-			labels:         map[string]string{"": "test-label-value"},
-			expectedErrMsg: canNotApplyLabelsWithAn,
-			emptyLabels:    true,
-			originalLabels: map[string]string{},
-		},
-		{
-			labels:         map[string]string{},
-			expectedErrMsg: canNotApplyEmptyLabels,
-			emptyLabels:    true,
-			originalLabels: map[string]string{},
-		},
-		{
-			labels:         map[string]string{"test-label-key": "test-label-value"},
-			expectedErrMsg: "",
-			emptyLabels:    false,
-			originalLabels: map[string]string{"other-labels": "other-label-value"},
-		},
-		{
-			labels:         map[string]string{"test-label-key": "test-label-value"},
-			expectedErrMsg: "",
-			emptyLabels:    false,
-			originalLabels: map[string]string{"test-label-key": "", "other-labels": "other-label-value"},
-		},
-		{
-			labels:         map[string]string{"test-label-key": ""},
-			expectedErrMsg: "",
-			emptyLabels:    false,
-			originalLabels: map[string]string{"test-label-key": "test-label-value",
-				"other-labels": "other-label-value"},
-		},
-		{
-			labels:         map[string]string{"test-label-key": "test-label-value"},
-			expectedErrMsg: "",
-			emptyLabels:    false,
-			originalLabels: map[string]string{"test-label-key": "test-label-value"},
-		},
-		{
-			labels: map[string]string{"test-label-key1": "test-label-value1",
-				"test-label-key2": "test-label-value2"},
-			expectedErrMsg: "",
-			emptyLabels:    false,
-			originalLabels: map[string]string{"test-label-key": "test-label-value"},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if !testCase.emptyLabels {
-			testBuilder.Definition.Labels = testCase.originalLabels
-		}
+			builder := buildValidReplicaSetTestBuilder()
+			if testCase.invalidBuilder {
+				builder = buildInvalidReplicaSetTestBuilder()
+			}
 
-		testBuilder.WithLabel(testCase.labels)
+			result := builder.WithLabel(testCase.labels)
+			require.Same(t, builder, result)
 
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
+			if testCase.invalidBuilder {
+				require.Error(t, result.GetError())
 
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.labels, testBuilder.Definition.Labels)
-		}
+				return
+			}
+
+			if testCase.expectedErrText != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedErrText)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.labels, result.Definition.Labels)
+		})
 	}
 }
 
 func TestReplicaSetWithNodeSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		nodeSelector         map[string]string
-		expectedErrMsg       string
-		emptyLabels          bool
-		originalNodeSelector map[string]string
+		name            string
+		nodeSelector    map[string]string
+		invalidBuilder  bool
+		expectedErrText string
 	}{
 		{
-			nodeSelector:         map[string]string{"test-node-selector-key": "test-node-selector-value"},
-			expectedErrMsg:       "",
-			emptyLabels:          true,
-			originalNodeSelector: map[string]string{},
+			name:         "valid node selector",
+			nodeSelector: map[string]string{"test-node-selector-key": "test-node-selector-value"},
 		},
 		{
-			nodeSelector:         map[string]string{"test-node-selector-key": ""},
-			expectedErrMsg:       "",
-			emptyLabels:          true,
-			originalNodeSelector: map[string]string{},
+			name:         "empty node selector value is allowed",
+			nodeSelector: map[string]string{"test-node-selector-key": ""},
 		},
 		{
-			nodeSelector:         map[string]string{"": "test-node-selector-value"},
-			expectedErrMsg:       "can not apply a nodeSelector with an empty key value",
-			emptyLabels:          true,
-			originalNodeSelector: map[string]string{},
+			name:            "empty node selector key",
+			nodeSelector:    map[string]string{"": "test-node-selector-value"},
+			expectedErrText: "can not apply a nodeSelector with an empty key value",
 		},
 		{
-			nodeSelector:         map[string]string{},
-			expectedErrMsg:       "can not apply empty nodeSelector",
-			emptyLabels:          true,
-			originalNodeSelector: map[string]string{},
+			name:            "empty node selector",
+			nodeSelector:    map[string]string{},
+			expectedErrText: "can not apply empty nodeSelector",
 		},
 		{
-			nodeSelector:         map[string]string{"test-node-selector-key": "test-node-selector-value"},
-			expectedErrMsg:       "",
-			emptyLabels:          false,
-			originalNodeSelector: map[string]string{"other-node-selector-key": "other-node-selector-value"},
-		},
-		{
+			name:           "invalid builder short circuits",
 			nodeSelector:   map[string]string{"test-node-selector-key": "test-node-selector-value"},
-			expectedErrMsg: "",
-			emptyLabels:    false,
-			originalNodeSelector: map[string]string{"test-node-selector-key": "",
-				"other-node-selector-key": "other-node-selector-value"},
-		},
-		{
-			nodeSelector:   map[string]string{"test-node-selector-key": ""},
-			expectedErrMsg: "",
-			emptyLabels:    false,
-			originalNodeSelector: map[string]string{"test-node-selector-key": "test-node-selector-value",
-				"other-node-selector-key": "other-node-selector-value"},
-		},
-		{
-			nodeSelector:   map[string]string{"test-node-selector-key": "test-node-selector-value"},
-			expectedErrMsg: "",
-			emptyLabels:    false,
-			originalNodeSelector: map[string]string{"test-node-selector-key": "test-node-selector-value",
-				"other-node-selector-key": "other-node-selector-value"},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if !testCase.emptyLabels {
-			testBuilder.Definition.Spec.Template.Spec.NodeSelector = testCase.originalNodeSelector
-		}
+			builder := buildValidReplicaSetTestBuilder()
+			if testCase.invalidBuilder {
+				builder = buildInvalidReplicaSetTestBuilder()
+			}
 
-		testBuilder.WithNodeSelector(testCase.nodeSelector)
+			result := builder.WithNodeSelector(testCase.nodeSelector)
+			require.Same(t, builder, result)
 
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
+			if testCase.invalidBuilder {
+				require.Error(t, result.GetError())
 
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.nodeSelector, testBuilder.Definition.Spec.Template.Spec.NodeSelector)
-		}
+				return
+			}
+
+			if testCase.expectedErrText != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedErrText)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.nodeSelector, result.Definition.Spec.Template.Spec.NodeSelector)
+		})
 	}
 }
 
 func TestReplicaSetWithVolume(t *testing.T) {
+	t.Parallel()
+
+	testVolume := corev1.Volume{
+		Name: "test-volume",
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		},
+	}
+
 	testCases := []struct {
-		testVolume        corev1.Volume
-		expectedError     bool
-		expectedErrorText string
+		name            string
+		volume          corev1.Volume
+		invalidBuilder  bool
+		expectedErrText string
 	}{
 		{
-			testVolume: corev1.Volume{
-				Name: "test-volume",
-				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{},
-				},
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:   "valid volume",
+			volume: testVolume,
 		},
 		{
-			testVolume: corev1.Volume{
-				Name: "",
-				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{},
-				},
-			},
-			expectedError:     true,
-			expectedErrorText: volumeNameParameterIsEmpty,
+			name:            "empty volume name",
+			volume:          corev1.Volume{},
+			expectedErrText: volumeNameParameterIsEmpty,
 		},
 		{
-			testVolume:        corev1.Volume{},
-			expectedError:     true,
-			expectedErrorText: volumeNameParameterIsEmpty,
+			name:           "invalid builder short circuits",
+			volume:         testVolume,
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithVolume(testCase.testVolume)
-
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			builder := buildValidReplicaSetTestBuilder()
+			if testCase.invalidBuilder {
+				builder = buildInvalidReplicaSetTestBuilder()
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testVolume.Name, result.Definition.Spec.Template.Spec.Volumes[0].Name)
-		}
+
+			result := builder.WithVolume(testCase.volume)
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				require.Error(t, result.GetError())
+				assert.Empty(t, result.Definition.Spec.Template.Spec.Volumes)
+
+				return
+			}
+
+			if testCase.expectedErrText != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedErrText)
+				assert.Empty(t, result.Definition.Spec.Template.Spec.Volumes)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.Len(t, result.Definition.Spec.Template.Spec.Volumes, 1)
+			assert.Equal(t, testCase.volume, result.Definition.Spec.Template.Spec.Volumes[0])
+		})
 	}
 }
 
 func TestReplicaSetWithAdditionalContainerSpecs(t *testing.T) {
+	t.Parallel()
+
+	additionalContainer := corev1.Container{Name: "test-additional-container"}
+
 	testCases := []struct {
-		testSpecs         []corev1.Container
-		expectedError     bool
-		expectedErrorText string
+		name            string
+		specs           []corev1.Container
+		invalidBuilder  bool
+		expectedErrText string
 	}{
 		{
-			testSpecs: []corev1.Container{
-				{
-					Name: "test-additional-container",
-				},
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:  "valid container specs",
+			specs: []corev1.Container{additionalContainer},
 		},
 		{
-			testSpecs:         []corev1.Container{},
-			expectedError:     true,
-			expectedErrorText: "cannot accept empty list as container specs",
+			name:            "empty container specs",
+			specs:           []corev1.Container{},
+			expectedErrText: "cannot accept empty list as container specs",
+		},
+		{
+			name:           "invalid builder short circuits",
+			specs:          []corev1.Container{additionalContainer},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidReplicaSetBuilder(buildReplicaSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithAdditionalContainerSpecs(testCase.testSpecs)
-
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			builder := buildValidReplicaSetTestBuilder()
+			if testCase.invalidBuilder {
+				builder = buildInvalidReplicaSetTestBuilder()
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testSpecs[0].Name, result.Definition.Spec.Template.Spec.Containers[1].Name)
-		}
+
+			result := builder.WithAdditionalContainerSpecs(testCase.specs)
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				require.Error(t, result.GetError())
+				assert.Equal(t, defaultReplicaSetContainer, result.Definition.Spec.Template.Spec.Containers)
+
+				return
+			}
+
+			if testCase.expectedErrText != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedErrText)
+				assert.Equal(t, defaultReplicaSetContainer, result.Definition.Spec.Template.Spec.Containers)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.Len(t, result.Definition.Spec.Template.Spec.Containers, 2)
+			assert.Equal(t, additionalContainer, result.Definition.Spec.Template.Spec.Containers[1])
+		})
 	}
 }
 
-func buildValidReplicaSetBuilder(apiClient *clients.Settings) *Builder {
-	replicaSetBuilder := NewBuilder(
-		apiClient, defaultReplicaSetName, defaultReplicaSetNamespace,
-		defaultReplicaSetLabel, defaultReplicaSetContainer)
+func TestReplicaSetWaitMethods(t *testing.T) {
+	t.Parallel()
 
-	return replicaSetBuilder
-}
+	t.Run("CreateAndWaitUntilReady", func(t *testing.T) {
+		t.Parallel()
 
-func buildInValidReplicaSetBuilder(apiClient *clients.Settings) *Builder {
-	replicaSetBuilder := NewBuilder(
-		apiClient, "", defaultReplicaSetNamespace,
-		defaultReplicaSetLabel, defaultReplicaSetContainer)
+		builder := NewBuilder(
+			newReplicaSetTestClient(),
+			defaultReplicaSetName,
+			defaultReplicaSetNamespace,
+			defaultReplicaSetLabel,
+			defaultReplicaSetContainer,
+		)
 
-	return replicaSetBuilder
-}
+		result, err := builder.CreateAndWaitUntilReady(time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.NotNil(t, result.Object)
+		assert.Equal(t, defaultReplicaSetName, result.Object.Name)
+	})
 
-func buildReplicaSetClientWithDummyObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: buildDummyReplicaSet(),
+	t.Run("DeleteAndWait", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidReplicaSetTestBuilder(buildDummyReplicaSet())
+		require.NoError(t, builder.DeleteAndWait(time.Second))
+		assert.Nil(t, builder.Object)
+	})
+
+	t.Run("IsReady", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidReplicaSetTestBuilder(buildDummyReplicaSet())
+		assert.True(t, builder.IsReady(time.Second))
+	})
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildInvalidReplicaSetTestBuilder()
+
+		result, err := builder.CreateAndWaitUntilReady(time.Second)
+		require.Same(t, builder, result)
+		require.Error(t, err)
+		require.Error(t, builder.DeleteAndWait(time.Second))
+		assert.False(t, builder.IsReady(time.Second))
 	})
 }
 
-func buildDummyReplicaSet() []runtime.Object {
-	return append([]runtime.Object{}, &appsv1.ReplicaSet{
+func TestGetGVR(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "apps", GetGVR().Group)
+	assert.Equal(t, "v1", GetGVR().Version)
+	assert.Equal(t, "replicasets", GetGVR().Resource)
+}
+
+func newReplicaSetCommonTestConfig() testhelper.CommonTestConfig[appsv1.ReplicaSet, Builder, *appsv1.ReplicaSet, *Builder] {
+	return testhelper.NewCommonTestConfig[appsv1.ReplicaSet, Builder](
+		appsv1.AddToScheme,
+		replicaSetGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+}
+
+func newReplicaSetTestClient(objects ...runtime.Object) *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects:  objects,
+		SchemeAttachers: []clients.SchemeAttacher{appsv1.AddToScheme},
+	})
+}
+
+func buildValidReplicaSetTestBuilder(objects ...runtime.Object) *Builder {
+	return NewBuilder(
+		newReplicaSetTestClient(objects...),
+		defaultReplicaSetName,
+		defaultReplicaSetNamespace,
+		defaultReplicaSetLabel,
+		defaultReplicaSetContainer,
+	)
+}
+
+func buildInvalidReplicaSetTestBuilder() *Builder {
+	return NewBuilder(
+		newReplicaSetTestClient(),
+		defaultReplicaSetName,
+		defaultReplicaSetNamespace,
+		map[string]string{},
+		defaultReplicaSetContainer,
+	)
+}
+
+func buildDummyReplicaSet() *appsv1.ReplicaSet {
+	return &appsv1.ReplicaSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      defaultReplicaSetName,
 			Namespace: defaultReplicaSetNamespace,
@@ -625,5 +467,5 @@ func buildDummyReplicaSet() []runtime.Object {
 				},
 			},
 		},
-	})
+	}
 }
