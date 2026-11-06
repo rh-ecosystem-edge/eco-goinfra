@@ -1,21 +1,19 @@
 package scc
 
 import (
+	"context"
 	"fmt"
 
 	securityV1 "github.com/openshift/api/security/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	errEmptyName           = "securityContextConstraints 'name' cannot be empty"
+	errEmptyRunAsUser      = "securityContextConstraints 'runAsUser' cannot be empty"
 	errEmptySELinuxContext = "securityContextConstraints 'selinuxContext' cannot be empty"
 )
 
@@ -24,18 +22,26 @@ const redefiningMsg = "Redefining SecurityContextConstraints"
 // Builder provides struct for SecurityContextConstraints object containing connection
 // to the cluster SecurityContextConstraints definition.
 type Builder struct {
-	// SecurityContextConstraints definition. Used to create SecurityContextConstraints object
-	Definition *securityV1.SecurityContextConstraints
-	// Created SecurityContextConstraints object
-	Object *securityV1.SecurityContextConstraints
-	// Used in functions that define or mutate SecurityContextConstraints definition. errorMsg is processed
-	// before the SecurityContextConstraints object is created
-	errorMsg  string
-	apiClient *clients.Settings
+	common.EmbeddableBuilder[securityV1.SecurityContextConstraints, *securityV1.SecurityContextConstraints]
+	common.EmbeddableCreator[securityV1.SecurityContextConstraints, Builder, *securityV1.SecurityContextConstraints, *Builder]
+	common.EmbeddableDeleter[securityV1.SecurityContextConstraints, *securityV1.SecurityContextConstraints]
+	common.EmbeddableUpdater[securityV1.SecurityContextConstraints, Builder, *securityV1.SecurityContextConstraints, *Builder]
 }
 
 // SecurityContextConstraintsAdditionalOptions additional options for SecurityContextConstraints object.
 type SecurityContextConstraintsAdditionalOptions func(builder *Builder) (*Builder, error)
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableUpdater.SetBase(builder)
+}
+
+// GetGVK returns the SecurityContextConstraints GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return securityV1.SchemeGroupVersion.WithKind("SecurityContextConstraints")
+}
 
 // NewBuilder creates new instance of Builder.
 func NewBuilder(apiClient *clients.Settings, name, runAsUser, selinuxContext string) *Builder {
@@ -43,46 +49,23 @@ func NewBuilder(apiClient *clients.Settings, name, runAsUser, selinuxContext str
 		"Initializing new SecurityContextConstraints structure with the following params: "+
 			"name: %s, runAsUser type: %s, selinuxContext type: %s", name, runAsUser, selinuxContext)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(securityV1.Install)
-	if err != nil {
-		klog.V(100).Info("Failed to add security v1 scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &Builder{
-		apiClient: apiClient,
-		Definition: &securityV1.SecurityContextConstraints{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-			RunAsUser: securityV1.RunAsUserStrategyOptions{
-				Type: securityV1.RunAsUserStrategyType(runAsUser),
-			},
-			SELinuxContext: securityV1.SELinuxContextStrategyOptions{
-				Type: securityV1.SELinuxContextStrategyType(selinuxContext),
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the SecurityContextConstraints is empty")
-
-		builder.errorMsg = errEmptyName
-
+	builder := common.NewClusterScopedBuilder[securityV1.SecurityContextConstraints, Builder](
+		apiClient, securityV1.Install, name)
+	if builder.GetError() != nil {
 		return builder
+	}
+
+	builder.Definition.RunAsUser = securityV1.RunAsUserStrategyOptions{
+		Type: securityV1.RunAsUserStrategyType(runAsUser),
+	}
+	builder.Definition.SELinuxContext = securityV1.SELinuxContextStrategyOptions{
+		Type: securityV1.SELinuxContextStrategyType(selinuxContext),
 	}
 
 	if runAsUser == "" {
 		klog.V(100).Info("The runAsUser of the SecurityContextConstraints is empty")
 
-		builder.errorMsg = "securityContextConstraints 'runAsUser' cannot be empty"
+		builder.SetError(fmt.Errorf(errEmptyRunAsUser))
 
 		return builder
 	}
@@ -90,7 +73,7 @@ func NewBuilder(apiClient *clients.Settings, name, runAsUser, selinuxContext str
 	if selinuxContext == "" {
 		klog.V(100).Info("The selinuxContext of the SecurityContextConstraints is empty")
 
-		builder.errorMsg = errEmptySELinuxContext
+		builder.SetError(fmt.Errorf(errEmptySELinuxContext))
 
 		return builder
 	}
@@ -100,48 +83,13 @@ func NewBuilder(apiClient *clients.Settings, name, runAsUser, selinuxContext str
 
 // Pull pulls existing SecurityContextConstraints from cluster.
 func Pull(apiClient *clients.Settings, name string) (*Builder, error) {
-	klog.V(100).Infof("Pulling existing SecurityContextConstraints object name %s from cluster", name)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil, fmt.Errorf("the apiClient cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(securityV1.Install)
-	if err != nil {
-		klog.V(100).Info("Failed to add security v1 scheme to client schemes")
-
-		return nil, fmt.Errorf("failed to add security v1 scheme to client schemes")
-	}
-
-	builder := &Builder{
-		apiClient: apiClient,
-		Definition: &securityV1.SecurityContextConstraints{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the SecurityContextConstraints is empty")
-
-		return nil, fmt.Errorf(errEmptyName)
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("securityContextConstraints object %s does not exist", name)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
+	return common.PullClusterScopedBuilder[securityV1.SecurityContextConstraints, Builder](
+		context.TODO(), apiClient, securityV1.Install, name)
 }
 
 // WithPrivilegedContainer adds bool flag to the allowPrivilegedContainer of SecurityContextConstraints.
 func (builder *Builder) WithPrivilegedContainer(allowPrivileged bool) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -155,7 +103,7 @@ func (builder *Builder) WithPrivilegedContainer(allowPrivileged bool) *Builder {
 
 // WithPrivilegedEscalation adds bool flag to the allowPrivilegeEscalation of SecurityContextConstraints.
 func (builder *Builder) WithPrivilegedEscalation(allowPrivilegedEscalation bool) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -169,7 +117,7 @@ func (builder *Builder) WithPrivilegedEscalation(allowPrivilegedEscalation bool)
 
 // WithHostDirVolumePlugin adds bool flag to the allowHostDirVolumePlugin of SecurityContextConstraints.
 func (builder *Builder) WithHostDirVolumePlugin(allowPlugin bool) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -183,7 +131,7 @@ func (builder *Builder) WithHostDirVolumePlugin(allowPlugin bool) *Builder {
 
 // WithHostIPC adds bool flag to the allowHostIPC of SecurityContextConstraints.
 func (builder *Builder) WithHostIPC(allowHostIPC bool) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -197,7 +145,7 @@ func (builder *Builder) WithHostIPC(allowHostIPC bool) *Builder {
 
 // WithHostNetwork adds bool flag to the allowHostNetwork of SecurityContextConstraints.
 func (builder *Builder) WithHostNetwork(allowHostNetwork bool) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -211,7 +159,7 @@ func (builder *Builder) WithHostNetwork(allowHostNetwork bool) *Builder {
 
 // WithHostPID adds bool flag to the allowHostPID of SecurityContextConstraints.
 func (builder *Builder) WithHostPID(allowHostPID bool) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -224,7 +172,7 @@ func (builder *Builder) WithHostPID(allowHostPID bool) *Builder {
 
 // WithHostPorts adds bool flag to the allowHostPorts of SecurityContextConstraints.
 func (builder *Builder) WithHostPorts(allowHostPorts bool) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -238,7 +186,7 @@ func (builder *Builder) WithHostPorts(allowHostPorts bool) *Builder {
 
 // WithReadOnlyRootFilesystem adds bool flag to the readOnlyRootFilesystem of SecurityContextConstraints.
 func (builder *Builder) WithReadOnlyRootFilesystem(readOnlyRootFilesystem bool) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -252,7 +200,7 @@ func (builder *Builder) WithReadOnlyRootFilesystem(readOnlyRootFilesystem bool) 
 
 // WithDropCapabilities adds list of drop capabilities to SecurityContextConstraints.
 func (builder *Builder) WithDropCapabilities(requiredDropCapabilities []corev1.Capability) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -262,7 +210,7 @@ func (builder *Builder) WithDropCapabilities(requiredDropCapabilities []corev1.C
 	if len(requiredDropCapabilities) == 0 {
 		klog.V(100).Info("SecurityContextConstraints 'requiredDropCapabilities' argument cannot be empty")
 
-		builder.errorMsg = "securityContextConstraints 'requiredDropCapabilities' cannot be empty list"
+		builder.SetError(fmt.Errorf("securityContextConstraints 'requiredDropCapabilities' cannot be empty list"))
 
 		return builder
 	}
@@ -275,7 +223,7 @@ func (builder *Builder) WithDropCapabilities(requiredDropCapabilities []corev1.C
 
 // WithAllowCapabilities adds list of allow capabilities to SecurityContextConstraints.
 func (builder *Builder) WithAllowCapabilities(allowCapabilities []corev1.Capability) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -285,7 +233,7 @@ func (builder *Builder) WithAllowCapabilities(allowCapabilities []corev1.Capabil
 	if len(allowCapabilities) == 0 {
 		klog.V(100).Info("SecurityContextConstraints 'allowCapabilities' argument cannot be empty")
 
-		builder.errorMsg = "securityContextConstraints 'allowCapabilities' cannot be empty list"
+		builder.SetError(fmt.Errorf("securityContextConstraints 'allowCapabilities' cannot be empty list"))
 
 		return builder
 	}
@@ -297,7 +245,7 @@ func (builder *Builder) WithAllowCapabilities(allowCapabilities []corev1.Capabil
 
 // WithDefaultAddCapabilities adds list of defaultAddCapabilities to SecurityContextConstraints.
 func (builder *Builder) WithDefaultAddCapabilities(defaultAddCapabilities []corev1.Capability) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -307,7 +255,7 @@ func (builder *Builder) WithDefaultAddCapabilities(defaultAddCapabilities []core
 	if len(defaultAddCapabilities) == 0 {
 		klog.V(100).Info("SecurityContextConstraints 'defaultAddCapabilities' argument cannot be empty")
 
-		builder.errorMsg = "securityContextConstraints 'defaultAddCapabilities' cannot be empty list"
+		builder.SetError(fmt.Errorf("securityContextConstraints 'defaultAddCapabilities' cannot be empty list"))
 
 		return builder
 	}
@@ -320,7 +268,7 @@ func (builder *Builder) WithDefaultAddCapabilities(defaultAddCapabilities []core
 
 // WithPriority adds priority to SecurityContextConstraints.
 func (builder *Builder) WithPriority(priority *int32) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -333,7 +281,7 @@ func (builder *Builder) WithPriority(priority *int32) *Builder {
 
 // WithFSGroup adds fsGroup to SecurityContextConstraints.
 func (builder *Builder) WithFSGroup(fsGroup string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -342,7 +290,7 @@ func (builder *Builder) WithFSGroup(fsGroup string) *Builder {
 	if fsGroup == "" {
 		klog.V(100).Info("SecurityContextConstraints 'fsGroup' argument cannot be empty")
 
-		builder.errorMsg = "securityContextConstraints 'fsGroup' cannot be empty string"
+		builder.SetError(fmt.Errorf("securityContextConstraints 'fsGroup' cannot be empty string"))
 
 		return builder
 	}
@@ -354,7 +302,7 @@ func (builder *Builder) WithFSGroup(fsGroup string) *Builder {
 
 // WithFSGroupRange adds fsGroupRange to SecurityContextConstraints.
 func (builder *Builder) WithFSGroupRange(fsGroupMin, fsGroupMax int64) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -364,7 +312,8 @@ func (builder *Builder) WithFSGroupRange(fsGroupMin, fsGroupMax int64) *Builder 
 	if fsGroupMin > fsGroupMax {
 		klog.V(100).Info("SecurityContextConstraints 'fsGroupMin' argument can not be greater than fsGroupMax")
 
-		builder.errorMsg = "securityContextConstraints 'fsGroupMin' argument can not be greater than fsGroupMax"
+		builder.SetError(fmt.Errorf(
+			"securityContextConstraints 'fsGroupMin' argument can not be greater than fsGroupMax"))
 
 		return builder
 	}
@@ -377,7 +326,7 @@ func (builder *Builder) WithFSGroupRange(fsGroupMin, fsGroupMax int64) *Builder 
 
 // WithGroups adds groups to SecurityContextConstraints.
 func (builder *Builder) WithGroups(groups []string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -386,7 +335,7 @@ func (builder *Builder) WithGroups(groups []string) *Builder {
 	if len(groups) == 0 {
 		klog.V(100).Info("SecurityContextConstraints 'groups' argument cannot be empty")
 
-		builder.errorMsg = "securityContextConstraints 'fsGroupType' cannot be empty string"
+		builder.SetError(fmt.Errorf("securityContextConstraints 'fsGroupType' cannot be empty string"))
 
 		return builder
 	}
@@ -398,7 +347,7 @@ func (builder *Builder) WithGroups(groups []string) *Builder {
 
 // WithSeccompProfiles adds list of seccompProfiles to SecurityContextConstraints.
 func (builder *Builder) WithSeccompProfiles(seccompProfiles []string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -408,7 +357,7 @@ func (builder *Builder) WithSeccompProfiles(seccompProfiles []string) *Builder {
 	if len(seccompProfiles) == 0 {
 		klog.V(100).Info("SecurityContextConstraints 'seccompProfiles' argument cannot be empty")
 
-		builder.errorMsg = "securityContextConstraints 'seccompProfiles' cannot be empty list"
+		builder.SetError(fmt.Errorf("securityContextConstraints 'seccompProfiles' cannot be empty list"))
 
 		return builder
 	}
@@ -420,7 +369,7 @@ func (builder *Builder) WithSeccompProfiles(seccompProfiles []string) *Builder {
 
 // WithSupplementalGroups adds SupplementalGroups to SecurityContextConstraints.
 func (builder *Builder) WithSupplementalGroups(supplementalGroupsType string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -430,7 +379,7 @@ func (builder *Builder) WithSupplementalGroups(supplementalGroupsType string) *B
 	if supplementalGroupsType == "" {
 		klog.V(100).Info("SecurityContextConstraints 'SupplementalGroups' argument cannot be empty")
 
-		builder.errorMsg = "securityContextConstraints 'SupplementalGroups' cannot be empty string"
+		builder.SetError(fmt.Errorf("securityContextConstraints 'SupplementalGroups' cannot be empty string"))
 
 		return builder
 	}
@@ -442,7 +391,7 @@ func (builder *Builder) WithSupplementalGroups(supplementalGroupsType string) *B
 
 // WithUsers adds users to SecurityContextConstraints.
 func (builder *Builder) WithUsers(users []string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -451,7 +400,7 @@ func (builder *Builder) WithUsers(users []string) *Builder {
 	if len(users) == 0 {
 		klog.V(100).Info("SecurityContextConstraints 'users' argument cannot be empty")
 
-		builder.errorMsg = "securityContextConstraints 'users' cannot be empty list"
+		builder.SetError(fmt.Errorf("securityContextConstraints 'users' cannot be empty list"))
 
 		return builder
 	}
@@ -463,7 +412,7 @@ func (builder *Builder) WithUsers(users []string) *Builder {
 
 // WithVolumes adds list of volumes to SecurityContextConstraints.
 func (builder *Builder) WithVolumes(volumes []securityV1.FSType) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -472,7 +421,7 @@ func (builder *Builder) WithVolumes(volumes []securityV1.FSType) *Builder {
 	if len(volumes) == 0 {
 		klog.V(100).Info("SecurityContextConstraints 'volumes' argument cannot be empty")
 
-		builder.errorMsg = "securityContextConstraints 'volumes' cannot be empty list"
+		builder.SetError(fmt.Errorf("securityContextConstraints 'volumes' cannot be empty list"))
 
 		return builder
 	}
@@ -480,140 +429,4 @@ func (builder *Builder) WithVolumes(volumes []securityV1.FSType) *Builder {
 	builder.Definition.Volumes = append(builder.Definition.Volumes, volumes...)
 
 	return builder
-}
-
-// Create generates a SecurityContextConstraints and stores the created object in struct.
-func (builder *Builder) Create() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating SecurityContextConstraints %s", builder.Definition.Name)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err != nil {
-			klog.V(100).Info("Failed to create SecurityContextConstraints")
-
-			return nil, err
-		}
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, err
-}
-
-// Delete removes a SecurityContextConstraints.
-func (builder *Builder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Removing SecurityContextConstraints %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("SecurityContextConstraints %s does not exist", builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
-// Update modifies an existing SecurityContextConstraints in the cluster.
-func (builder *Builder) Update() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating SecurityContextConstraints %s ", builder.Definition.Name)
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("failed to update SecurityContextConstraints, object does not exist on cluster")
-	}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-
-	return builder, err
-}
-
-// Get returns NMState object if found.
-func (builder *Builder) Get() (*securityV1.SecurityContextConstraints, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Collecting SecurityContextConstraints object %s", builder.Definition.Name)
-
-	scc := &securityV1.SecurityContextConstraints{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{Name: builder.Definition.Name}, scc)
-	if err != nil {
-		klog.V(100).Infof("SecurityContextConstraints object %s does not exist", builder.Definition.Name)
-
-		return nil, err
-	}
-
-	return scc, nil
-}
-
-// Exists checks whether the given SecurityContextConstraints exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if SecurityContextConstraints %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-	if err != nil {
-		klog.V(100).Infof("Failed to collect SecurityContextConstraints object due to %s", err.Error())
-	}
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "SecurityContextConstraints"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
