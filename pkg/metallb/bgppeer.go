@@ -1,41 +1,58 @@
 package metallb
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/mlbtypesv1beta2"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	errEmptyBGPPeerName                  = "BGPPeer 'name' cannot be empty"
-	errEmptyBGPPeerNsname                = "BGPPeer 'nsname' cannot be empty"
 	bgppeerPeeripOfTheBgppeerContains    = "BGPPeer 'peerIP' of the BGPPeer contains invalid ip address"
 	bgppeerBgppeeripOfTheBgppeerContains = "BGPPeer 'bgpPeerIP' of the BGPPeer contains invalid ip address"
 	bgppeerConnecttimeValueIsNotValid    = "bgppeer 'connectTime' value is not valid"
 )
 
+var bgpPeerGVK = mlbtypesv1beta2.GroupVersion.WithKind("BGPPeer")
+
 // BGPPeerBuilder provides struct for the BGPPeer object containing connection to
 // the cluster and the BGPPeer definitions.
 type BGPPeerBuilder struct {
-	Definition *mlbtypesv1beta2.BGPPeer
-	Object     *mlbtypesv1beta2.BGPPeer
-	apiClient  runtimeClient.Client
-	errorMsg   string
+	common.EmbeddableBuilder[mlbtypesv1beta2.BGPPeer, *mlbtypesv1beta2.BGPPeer]
+	common.EmbeddableCreator[
+		mlbtypesv1beta2.BGPPeer, BGPPeerBuilder, *mlbtypesv1beta2.BGPPeer, *BGPPeerBuilder]
+	common.EmbeddableDeleteReturner[
+		mlbtypesv1beta2.BGPPeer, BGPPeerBuilder, *mlbtypesv1beta2.BGPPeer, *BGPPeerBuilder]
+	common.EmbeddableForceUpdater[
+		mlbtypesv1beta2.BGPPeer, BGPPeerBuilder, *mlbtypesv1beta2.BGPPeer, *BGPPeerBuilder]
+	common.EmbeddableWithOptions[
+		mlbtypesv1beta2.BGPPeer, BGPPeerBuilder, *mlbtypesv1beta2.BGPPeer, *BGPPeerBuilder,
+		BGPPeerAdditionalOptions]
 }
 
 // BGPPeerAdditionalOptions additional options for BGPPeer object.
 type BGPPeerAdditionalOptions func(builder *BGPPeerBuilder) (*BGPPeerBuilder, error)
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *BGPPeerBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleteReturner.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the BGPPeer GVK for this builder.
+func (builder *BGPPeerBuilder) GetGVK() schema.GroupVersionKind {
+	return bgpPeerGVK
+}
 
 // NewBPGPeerBuilder creates a new instance of BGPPeer.
 func NewBPGPeerBuilder(
@@ -44,47 +61,20 @@ func NewBPGPeerBuilder(
 		"Initializing new BGPPeer structure with the following params: %s, %s %s %d %d",
 		name, nsname, peerIP, asn, remoteASN)
 
-	err := apiClient.AttachScheme(mlbtypesv1beta2.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add metallb scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &BGPPeerBuilder{
-		apiClient: apiClient.Client,
-		Definition: &mlbtypesv1beta2.BGPPeer{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			}, Spec: mlbtypesv1beta2.BGPPeerSpec{
-				MyASN:   asn,
-				ASN:     remoteASN,
-				Address: peerIP,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the BGPPeer is empty")
-
-		builder.errorMsg = errEmptyBGPPeerName
-
+	builder := common.NewNamespacedBuilder[mlbtypesv1beta2.BGPPeer, BGPPeerBuilder](
+		apiClient, mlbtypesv1beta2.AddToScheme, name, nsname)
+	if builder.GetError() != nil {
 		return builder
 	}
 
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the BGPPeer is empty")
-
-		builder.errorMsg = errEmptyBGPPeerNsname
-
-		return builder
-	}
+	builder.Definition.Spec.MyASN = asn
+	builder.Definition.Spec.ASN = remoteASN
+	builder.Definition.Spec.Address = peerIP
 
 	if net.ParseIP(peerIP) == nil {
 		klog.V(100).Infof("The peerIP of the BGPPeer contains invalid ip address %s", peerIP)
 
-		builder.errorMsg = bgppeerPeeripOfTheBgppeerContains
+		builder.SetError(fmt.Errorf(bgppeerPeeripOfTheBgppeerContains))
 
 		return builder
 	}
@@ -99,223 +89,29 @@ func NewBGPPeerBuilder(
 		"Initializing new BGPPeer structure with the following params: %s, %s %d %d",
 		name, nsname, asn, remoteASN)
 
-	if apiClient == nil {
-		klog.V(100).Info("BGPPeer 'apiClient' cannot be nil")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(mlbtypesv1beta2.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add metallb scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &BGPPeerBuilder{
-		apiClient: apiClient.Client,
-		Definition: &mlbtypesv1beta2.BGPPeer{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			}, Spec: mlbtypesv1beta2.BGPPeerSpec{
-				MyASN: asn,
-				ASN:   remoteASN,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the BGPPeer is empty")
-
-		builder.errorMsg = errEmptyBGPPeerName
-
+	builder := common.NewNamespacedBuilder[mlbtypesv1beta2.BGPPeer, BGPPeerBuilder](
+		apiClient, mlbtypesv1beta2.AddToScheme, name, nsname)
+	if builder.GetError() != nil {
 		return builder
 	}
 
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the BGPPeer is empty")
-
-		builder.errorMsg = errEmptyBGPPeerNsname
-
-		return builder
-	}
+	builder.Definition.Spec.MyASN = asn
+	builder.Definition.Spec.ASN = remoteASN
 
 	return builder
-}
-
-// Get returns BGPPeer object if found.
-func (builder *BGPPeerBuilder) Get() (*mlbtypesv1beta2.BGPPeer, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Collecting BGPPeer object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	bgpPeer := &mlbtypesv1beta2.BGPPeer{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(),
-		runtimeClient.ObjectKey{Name: builder.Definition.Name, Namespace: builder.Definition.Namespace},
-		bgpPeer)
-	if err != nil {
-		klog.V(100).Infof(
-			"Failed to Unmarshal BGPPeer: unstructured object to structure %s/%s",
-			builder.Definition.Namespace, builder.Definition.Name)
-
-		return nil, err
-	}
-
-	return bgpPeer, nil
-}
-
-// Exists checks whether the given BGPPeer exists.
-func (builder *BGPPeerBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if BGPPeer %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
 }
 
 // PullBGPPeer pulls existing bgppeer from cluster.
 func PullBGPPeer(apiClient *clients.Settings, name, nsname string) (*BGPPeerBuilder, error) {
 	klog.V(100).Infof("Pulling existing bgppeer name %s under namespace %s from cluster", name, nsname)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("bgppeer 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(mlbtypesv1beta2.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add metallb scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &BGPPeerBuilder{
-		apiClient: apiClient.Client,
-		Definition: &mlbtypesv1beta2.BGPPeer{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the bgppeer is empty")
-
-		return nil, fmt.Errorf("bgppeer 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the bgppeer is empty")
-
-		return nil, fmt.Errorf("bgppeer 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("bgppeer object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Create makes a BGPPeer in the cluster and stores the created object in struct.
-func (builder *BGPPeerBuilder) Create() (*BGPPeerBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the BGPPeer %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	if !builder.Exists() {
-		err := builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err == nil {
-			builder.Object = builder.Definition
-		}
-	}
-
-	return builder, nil
-}
-
-// Delete removes BGPPeer object from a cluster.
-func (builder *BGPPeerBuilder) Delete() (*BGPPeerBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Deleting the BGPPeer object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("BGPPeer object %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, fmt.Errorf("can not delete BGPPeer: %w", err)
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Update renovates the existing BGPPeer object with the BGPPeer definition in builder.
-func (builder *BGPPeerBuilder) Update(force bool) (*BGPPeerBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the BGPPeer object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		if force {
-			klog.V(100).Infof("%v", msg.FailToUpdateNotification("BGPPeer", builder.Definition.Name, builder.Definition.Namespace))
-
-			builder, err := builder.Delete()
-			if err != nil {
-				klog.V(100).Infof("%v", msg.FailToUpdateError("BGPPeer", builder.Definition.Name, builder.Definition.Namespace))
-
-				return nil, err
-			}
-
-			return builder.Create()
-		}
-	}
-
-	return builder, err
+	return common.PullNamespacedBuilder[mlbtypesv1beta2.BGPPeer, BGPPeerBuilder](
+		context.TODO(), apiClient, mlbtypesv1beta2.AddToScheme, name, nsname)
 }
 
 // WithBGPPeerIP defines the peer IP address.
 func (builder *BGPPeerBuilder) WithBGPPeerIP(bgpPeerIP string) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -326,7 +122,7 @@ func (builder *BGPPeerBuilder) WithBGPPeerIP(bgpPeerIP string) *BGPPeerBuilder {
 	if net.ParseIP(bgpPeerIP) == nil {
 		klog.V(100).Infof("The peerIP of the BGPPeer contains invalid ip address %s", bgpPeerIP)
 
-		builder.errorMsg = bgppeerBgppeeripOfTheBgppeerContains
+		builder.SetError(fmt.Errorf(bgppeerBgppeeripOfTheBgppeerContains))
 
 		return builder
 	}
@@ -338,7 +134,7 @@ func (builder *BGPPeerBuilder) WithBGPPeerIP(bgpPeerIP string) *BGPPeerBuilder {
 
 // WithIPUnnumbered defines the interface to be used with the interface BGPPeer spec.
 func (builder *BGPPeerBuilder) WithIPUnnumbered(interfaceName string) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -349,7 +145,7 @@ func (builder *BGPPeerBuilder) WithIPUnnumbered(interfaceName string) *BGPPeerBu
 	if interfaceName == "" {
 		klog.V(100).Info("Can not redefine BGPPeer with empty interface string")
 
-		builder.errorMsg = "interface can not be empty string"
+		builder.SetError(fmt.Errorf("interface can not be empty string"))
 
 		return builder
 	}
@@ -362,7 +158,7 @@ func (builder *BGPPeerBuilder) WithIPUnnumbered(interfaceName string) *BGPPeerBu
 // WithDynamicASN defines the dynamicASN as either internal (iBGP) or external (eBGP). Both remoteAS and dynamicASN
 // configure the remote ASN. They are mutually exclusive and only one can be used per remote peer.
 func (builder *BGPPeerBuilder) WithDynamicASN(dynamicASN mlbtypesv1beta2.DynamicASNMode) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -373,7 +169,7 @@ func (builder *BGPPeerBuilder) WithDynamicASN(dynamicASN mlbtypesv1beta2.Dynamic
 	if dynamicASN != "internal" && dynamicASN != "external" {
 		klog.V(100).Info("The dynamicASN of the BGPPeer is incorrect")
 
-		builder.errorMsg = "bgpPeer 'dynamicASN' must be either internal or external"
+		builder.SetError(fmt.Errorf("bgpPeer 'dynamicASN' must be either internal or external"))
 
 		return builder
 	}
@@ -386,7 +182,7 @@ func (builder *BGPPeerBuilder) WithDynamicASN(dynamicASN mlbtypesv1beta2.Dynamic
 
 // WithRouterID defines the routerID placed in the BGPPeer spec.
 func (builder *BGPPeerBuilder) WithRouterID(routerID string) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -398,7 +194,7 @@ func (builder *BGPPeerBuilder) WithRouterID(routerID string) *BGPPeerBuilder {
 		klog.V(100).Infof("The routerID of the BGPPeer contains invalid ip address %s, "+
 			"routerID should be present in ip address format", routerID)
 
-		builder.errorMsg = fmt.Sprintf("the routerID of the BGPPeer contains invalid ip address %s", routerID)
+		builder.SetError(fmt.Errorf("the routerID of the BGPPeer contains invalid ip address %s", routerID))
 
 		return builder
 	}
@@ -410,7 +206,7 @@ func (builder *BGPPeerBuilder) WithRouterID(routerID string) *BGPPeerBuilder {
 
 // WithBFDProfile defines the bfdProfile placed in the BGPPeer spec.
 func (builder *BGPPeerBuilder) WithBFDProfile(bfdProfile string) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -421,7 +217,8 @@ func (builder *BGPPeerBuilder) WithBFDProfile(bfdProfile string) *BGPPeerBuilder
 	if bfdProfile == "" {
 		klog.V(100).Info("The bfdProfile of the BGPPeer can not be empty string")
 
-		builder.errorMsg = "The bfdProfile is empty string"
+		//nolint:staticcheck // Preserve the existing public error text.
+		builder.SetError(fmt.Errorf("The bfdProfile is empty string"))
 
 		return builder
 	}
@@ -433,7 +230,7 @@ func (builder *BGPPeerBuilder) WithBFDProfile(bfdProfile string) *BGPPeerBuilder
 
 // WithSRCAddress defines the SRCAddress placed in the BGPPeer spec.
 func (builder *BGPPeerBuilder) WithSRCAddress(srcAddress string) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -445,7 +242,7 @@ func (builder *BGPPeerBuilder) WithSRCAddress(srcAddress string) *BGPPeerBuilder
 		klog.V(100).Infof("The srcAddress of the BGPPeer contains invalid ip address %s, "+
 			"srcAddress should be present in ip address format", srcAddress)
 
-		builder.errorMsg = fmt.Sprintf("the srcAddress of the BGPPeer contains invalid ip address %s", srcAddress)
+		builder.SetError(fmt.Errorf("the srcAddress of the BGPPeer contains invalid ip address %s", srcAddress))
 
 		return builder
 	}
@@ -457,7 +254,7 @@ func (builder *BGPPeerBuilder) WithSRCAddress(srcAddress string) *BGPPeerBuilder
 
 // WithPort defines the port placed in the BGPPeer spec.
 func (builder *BGPPeerBuilder) WithPort(port uint16) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -472,7 +269,7 @@ func (builder *BGPPeerBuilder) WithPort(port uint16) *BGPPeerBuilder {
 
 // WithHoldTime defines the holdTime placed in the BGPPeer spec.
 func (builder *BGPPeerBuilder) WithHoldTime(holdTime metav1.Duration) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -487,7 +284,7 @@ func (builder *BGPPeerBuilder) WithHoldTime(holdTime metav1.Duration) *BGPPeerBu
 
 // WithKeepalive defines the keepAliveTime placed in the BGPPeer spec.
 func (builder *BGPPeerBuilder) WithKeepalive(keepalive metav1.Duration) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -502,7 +299,7 @@ func (builder *BGPPeerBuilder) WithKeepalive(keepalive metav1.Duration) *BGPPeer
 
 // WithConnectTime defines the reconnect timer between BGP neighbors.
 func (builder *BGPPeerBuilder) WithConnectTime(connectTime metav1.Duration) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -515,7 +312,7 @@ func (builder *BGPPeerBuilder) WithConnectTime(connectTime metav1.Duration) *BGP
 	if duration < time.Second || duration > 65535*time.Second {
 		klog.V(100).Info("A valid connect time is between 1-65535")
 
-		builder.errorMsg = bgppeerConnecttimeValueIsNotValid
+		builder.SetError(fmt.Errorf(bgppeerConnecttimeValueIsNotValid))
 
 		return builder
 	}
@@ -527,7 +324,7 @@ func (builder *BGPPeerBuilder) WithConnectTime(connectTime metav1.Duration) *BGP
 
 // WithNodeSelector defines the nodeSelector placed in the BGPPeer spec.
 func (builder *BGPPeerBuilder) WithNodeSelector(nodeSelector map[string]string) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -538,7 +335,7 @@ func (builder *BGPPeerBuilder) WithNodeSelector(nodeSelector map[string]string) 
 	if len(nodeSelector) == 0 {
 		klog.V(100).Info("Can not redefine BGPPeer with empty nodeSelector map")
 
-		builder.errorMsg = "BGPPeer 'nodeSelector' cannot be empty map"
+		builder.SetError(fmt.Errorf("BGPPeer 'nodeSelector' cannot be empty map"))
 
 		return builder
 	}
@@ -552,7 +349,7 @@ func (builder *BGPPeerBuilder) WithNodeSelector(nodeSelector map[string]string) 
 
 // WithPassword defines the password placed in the BGPPeer spec.
 func (builder *BGPPeerBuilder) WithPassword(password string) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -563,7 +360,7 @@ func (builder *BGPPeerBuilder) WithPassword(password string) *BGPPeerBuilder {
 	if password == "" {
 		klog.V(100).Info("Can not redefine BGPPeer with empty password")
 
-		builder.errorMsg = "password can not be empty string"
+		builder.SetError(fmt.Errorf("password can not be empty string"))
 
 		return builder
 	}
@@ -575,7 +372,7 @@ func (builder *BGPPeerBuilder) WithPassword(password string) *BGPPeerBuilder {
 
 // WithEBGPMultiHop defines the EBGPMultiHop bool flag placed in the BGPPeer spec.
 func (builder *BGPPeerBuilder) WithEBGPMultiHop(eBGPMultiHop bool) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -590,7 +387,7 @@ func (builder *BGPPeerBuilder) WithEBGPMultiHop(eBGPMultiHop bool) *BGPPeerBuild
 
 // WithGracefulRestart defines the EnableGracefulRestart bool flag placed in the BGPPeer spec.
 func (builder *BGPPeerBuilder) WithGracefulRestart(gracefulRestart bool) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -605,7 +402,7 @@ func (builder *BGPPeerBuilder) WithGracefulRestart(gracefulRestart bool) *BGPPee
 
 // WithDisableMP disables Multiprotocol BGP for this peer.
 func (builder *BGPPeerBuilder) WithDisableMP(disableMP bool) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -620,7 +417,7 @@ func (builder *BGPPeerBuilder) WithDisableMP(disableMP bool) *BGPPeerBuilder {
 // WithDualStackAddressFamily enables dual stack address family for this BGP peer.
 // This allows to advertise/receive IPv4 prefixes over IPv6 sessions and vice versa.
 func (builder *BGPPeerBuilder) WithDualStackAddressFamily(dualStackAddressFamily bool) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -631,65 +428,9 @@ func (builder *BGPPeerBuilder) WithDualStackAddressFamily(dualStackAddressFamily
 	return builder
 }
 
-// WithOptions creates BGPPeer with generic mutation options.
-func (builder *BGPPeerBuilder) WithOptions(options ...BGPPeerAdditionalOptions) *BGPPeerBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting BGPPeer additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
 // GetBGPPeerGVR returns bgppeer's GroupVersionResource which could be used for Clean function.
 func GetBGPPeerGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
 		Group: APIGroup, Version: APIVersion, Resource: "bgppeers",
 	}
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *BGPPeerBuilder) validate() (bool, error) {
-	resourceCRD := "BGPPeer"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
