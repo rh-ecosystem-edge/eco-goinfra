@@ -6,7 +6,10 @@ import (
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -367,115 +370,73 @@ func TestCleanAllNetworkNodePolicies(t *testing.T) {
 }
 
 func TestListPoolConfigs(t *testing.T) {
-	testCases := []struct {
-		poolConfigs   []*PoolConfigBuilder
-		nsName        string
-		expectedError error
-		client        bool
-	}{
-		{
-			poolConfigs:   []*PoolConfigBuilder{buildValidPoolConfigTestBuilder(buildTestPoolConfigClientWithDummyObject())},
-			nsName:        defaultPoolConfigNsName,
-			expectedError: nil,
-			client:        true,
+	t.Parallel()
+
+	testhelper.NewNamespacedListTestConfig(
+		func(apiClient *clients.Settings, namespace string, _ ...client.ListOptions) ([]*PoolConfigBuilder, error) {
+			return ListPoolConfigs(apiClient, namespace)
 		},
-		{
-			poolConfigs:   []*PoolConfigBuilder{buildValidPoolConfigTestBuilder(buildTestPoolConfigClientWithDummyObject())},
-			nsName:        defaultPoolConfigNsName,
-			expectedError: fmt.Errorf("failed to list sriov networks, 'apiClient' parameter is empty"),
-			client:        false,
-		},
-		{
-			poolConfigs:   []*PoolConfigBuilder{buildValidPoolConfigTestBuilder(buildTestPoolConfigClientWithDummyObject())},
-			nsName:        "",
-			expectedError: fmt.Errorf("failed to list sriovNetworkPoolConfigs, 'namespace' parameter is empty"),
-			client:        true,
-		},
-	}
-	for _, testCase := range testCases {
-		for _, poolConfig := range testCase.poolConfigs {
-			_, _ = poolConfig.Create()
-		}
-
-		var (
-			testSettings   *clients.Settings
-			runtimeObjects []runtime.Object
-		)
-
-		for _, networkNodeState := range testCase.poolConfigs {
-			runtimeObjects = append(runtimeObjects, networkNodeState.Definition)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		poolConfigBuilders, err := ListPoolConfigs(testSettings, testCase.nsName)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, len(poolConfigBuilders), len(testCase.poolConfigs))
-		}
-	}
+		srIovV1.AddToScheme,
+		poolConfigGVK,
+	).ExecuteTests(t)
 }
 
 func TestCleanPoolConfigs(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		poolConfigs       []*PoolConfigBuilder
+		name              string
 		operatorNamespace string
-		expectedError     error
+		expectedError     string
+		errorMatches      func(error) bool
 		client            bool
 	}{
 		{
-			poolConfigs:       []*PoolConfigBuilder{buildValidPoolConfigTestBuilder(buildTestPoolConfigClientWithDummyObject())},
+			name:              "cleans resources",
 			operatorNamespace: defaultNetNsName,
 			client:            true,
-			expectedError:     nil,
 		},
 		{
-			poolConfigs:       []*PoolConfigBuilder{buildValidPoolConfigTestBuilder(buildTestPoolConfigClientWithDummyObject())},
+			name:              "nil client returns error",
 			operatorNamespace: defaultNetNsName,
 			client:            false,
-			expectedError:     fmt.Errorf("failed to list sriov networks, 'apiClient' parameter is empty"),
+			errorMatches:      commonerrors.IsAPIClientNil,
 		},
 		{
-			poolConfigs:       []*PoolConfigBuilder{buildValidPoolConfigTestBuilder(buildTestPoolConfigClientWithDummyObject())},
+			name:              "empty operator namespace returns error",
 			operatorNamespace: "",
-			expectedError:     fmt.Errorf("failed to clean up SriovNetworkPoolConfigs, 'operatornsname' parameter is empty"),
+			expectedError:     "failed to clean up SriovNetworkPoolConfigs, 'operatornsname' parameter is empty",
 			client:            true,
 		},
 	}
 	for _, testCase := range testCases {
-		var (
-			testSettings   *clients.Settings
-			runtimeObjects []runtime.Object
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		for _, networkNodeState := range testCase.poolConfigs {
-			runtimeObjects = append(runtimeObjects, networkNodeState.Definition)
-		}
+			var testSettings *clients.Settings
+			if testCase.client {
+				testSettings = newPoolConfigTestClient(buildDummyPoolConfigObject()...)
+			}
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
+			err := CleanAllPoolConfigs(testSettings, testCase.operatorNamespace)
 
-		for _, poolConfig := range testCase.poolConfigs {
-			_, _ = poolConfig.Create()
-		}
+			if testCase.errorMatches != nil {
+				require.Truef(t, testCase.errorMatches(err), "unexpected error, got: %v", err)
 
-		err := CleanAllPoolConfigs(testSettings, testCase.operatorNamespace)
-		assert.Equal(t, testCase.expectedError, err)
+				return
+			}
 
-		if testCase.expectedError == nil {
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, err)
+
 			poolConfigBuilders, err := ListPoolConfigs(testSettings, testCase.operatorNamespace)
-			assert.Nil(t, err)
-			assert.Zero(t, len(poolConfigBuilders))
-		}
+			require.NoError(t, err)
+			assert.Empty(t, poolConfigBuilders)
+		})
 	}
 }
