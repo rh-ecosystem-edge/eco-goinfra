@@ -6,291 +6,159 @@ import (
 
 	ptpv1 "github.com/k8snetworkplumbingwg/ptp-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func TestPullPtpOperatorConfig(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
+		name          string
+		addObject     bool
+		nilClient     bool
+		expectedError func(error) bool
 	}{
 		{
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
+			name:      "existing singleton",
+			addObject: true,
 		},
 		{
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError: fmt.Errorf(
-				"ptpOperatorConfig object %s does not exist in namespace %s", PtpOperatorConfigName, PtpOperatorConfigNamespace),
+			name:          "missing singleton",
+			expectedError: func(err error) bool { return err != nil },
 		},
 		{
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("ptpOperatorConfig 'apiClient' cannot be nil"),
+			name:          "nil client",
+			addObject:     true,
+			nilClient:     true,
+			expectedError: commonerrors.IsAPIClientNil,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testPtpOperatorConfig := buildDummyPtpOperatorConfig()
+			var apiClient *clients.Settings
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testPtpOperatorConfig)
-		}
+			if !testCase.nilClient {
+				var objects []runtime.Object
+				if testCase.addObject {
+					objects = append(objects, buildDummyPtpOperatorConfig())
+				}
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
+				apiClient = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  objects,
+					SchemeAttachers: []clients.SchemeAttacher{ptpv1.AddToScheme},
+				})
+			}
 
-		testBuilder, err := PullPtpOperatorConfig(testSettings)
-		assert.Equal(t, testCase.expectedError, err)
+			builder, err := PullPtpOperatorConfig(apiClient)
+			if testCase.expectedError != nil {
+				require.Error(t, err)
+				assert.True(t, testCase.expectedError(err))
+				assert.Nil(t, builder)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testPtpOperatorConfig.Name, testBuilder.Definition.Name)
-			assert.Equal(t, testPtpOperatorConfig.Namespace, testBuilder.Definition.Namespace)
-		}
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, builder)
+			assert.Equal(t, PtpOperatorConfigName, builder.Definition.Name)
+			assert.Equal(t, PtpOperatorConfigNamespace, builder.Definition.Namespace)
+		})
 	}
 }
 
-func TestPtpOperatorConfigGet(t *testing.T) {
-	testCases := []struct {
-		builder       *PtpOperatorConfigBuilder
-		expectedError string
-	}{
-		{
-			builder:       buildValidPtpOperatorConfigBuilder(buildTestClientWithDummyPtpOperatorConfig()),
-			expectedError: "",
-		},
-		{
-			builder:       buildValidPtpOperatorConfigBuilder(buildTestClientWithPtpScheme()),
-			expectedError: fmt.Sprintf("ptpoperatorconfigs.ptp.openshift.io \"%s\" not found", PtpOperatorConfigName),
-		},
-		{
-			builder:       buildInvalidPtpOperatorConfigBuilder(buildTestClientWithDummyPtpOperatorConfig()),
-			expectedError: "test error",
-		},
-	}
+func TestPtpOperatorConfigMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		ptpOpConfig, err := testCase.builder.Get()
+	commonTestConfig := testhelper.NewCommonTestConfig[ptpv1.PtpOperatorConfig, PtpOperatorConfigBuilder](
+		ptpv1.AddToScheme,
+		ptpv1.GroupVersion.WithKind("PtpOperatorConfig"),
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.NotNil(t, ptpOpConfig)
-			assert.Equal(t, PtpOperatorConfigName, ptpOpConfig.Name)
-			assert.Equal(t, PtpOperatorConfigNamespace, ptpOpConfig.Namespace)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestPtpOperatorConfigExists(t *testing.T) {
-	testCases := []struct {
-		builder *PtpOperatorConfigBuilder
-		exists  bool
-	}{
-		{
-			builder: buildValidPtpOperatorConfigBuilder(buildTestClientWithDummyPtpOperatorConfig()),
-			exists:  true,
-		},
-		{
-			builder: buildValidPtpOperatorConfigBuilder(buildTestClientWithPtpScheme()),
-			exists:  false,
-		},
-		{
-			builder: buildInvalidPtpOperatorConfigBuilder(buildTestClientWithDummyPtpOperatorConfig()),
-			exists:  false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.builder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
-}
-
-func TestPtpOperatorConfigUpdate(t *testing.T) {
-	testCases := []struct {
-		builder       *PtpOperatorConfigBuilder
-		exists        bool
-		expectedError error
-	}{
-		{
-			builder:       buildValidPtpOperatorConfigBuilder(buildTestClientWithDummyPtpOperatorConfig()),
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			builder:       buildValidPtpOperatorConfigBuilder(buildTestClientWithPtpScheme()),
-			exists:        false,
-			expectedError: fmt.Errorf("cannot update non-existent ptpOperatorConfig"),
-		},
-		{
-			builder:       buildInvalidPtpOperatorConfigBuilder(buildTestClientWithDummyPtpOperatorConfig()),
-			exists:        true,
-			expectedError: fmt.Errorf("test error"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		testCase.builder.Definition.Spec.DaemonNodeSelector = map[string]string{"updated": "true"}
-		_, err := testCase.builder.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, "true", testCase.builder.Object.Spec.DaemonNodeSelector["updated"])
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestPtpOperatorConfigWithEventConfig(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		eventConfig   ptpv1.PtpEventConfig
-		builderValid  bool
-		expectedError string
+		name           string
+		eventConfig    ptpv1.PtpEventConfig
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
+			name: "valid version 1.0",
 			eventConfig: ptpv1.PtpEventConfig{
 				TransportHost: "http://example.com:8080",
 				ApiVersion:    "1.0",
 			},
-			builderValid:  true,
-			expectedError: "",
 		},
 		{
+			name: "valid version 2",
 			eventConfig: ptpv1.PtpEventConfig{
 				TransportHost: "http://example.com:8080",
 				ApiVersion:    "2.0",
 			},
-			builderValid:  true,
-			expectedError: "",
 		},
 		{
-			eventConfig: ptpv1.PtpEventConfig{
-				TransportHost: "::::",
-			},
-			builderValid:  true,
+			name:          "invalid transport host",
+			eventConfig:   ptpv1.PtpEventConfig{TransportHost: "::::"},
 			expectedError: "invalid TransportHost for PtpEventConfig: parse \"::::\": missing protocol scheme",
 		},
 		{
+			name: "invalid API version",
 			eventConfig: ptpv1.PtpEventConfig{
 				TransportHost: "http://example.com:8080",
 				ApiVersion:    "3.0",
 			},
-			builderValid:  true,
 			expectedError: "invalid ApiVersion for PtpEventConfig: must be 1.0 or start with 2.",
 		},
 		{
-			eventConfig:   ptpv1.PtpEventConfig{},
-			builderValid:  false,
-			expectedError: "test error",
+			name:           "invalid builder",
+			invalidBuilder: true,
+			expectedError:  "test error",
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testBuilder *PtpOperatorConfigBuilder
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.builderValid {
-			testBuilder = buildValidPtpOperatorConfigBuilder(buildTestClientWithPtpScheme())
-		} else {
-			testBuilder = buildInvalidPtpOperatorConfigBuilder(buildTestClientWithPtpScheme())
-		}
+			testBuilder := buildValidPtpOperatorConfigBuilder(buildTestClientWithDummyPtpOperatorConfig())
+			if testCase.invalidBuilder {
+				testBuilder.SetError(fmt.Errorf("test error"))
+			}
 
-		resultBuilder := testBuilder.WithEventConfig(testCase.eventConfig)
-		assert.Equal(t, testCase.expectedError, resultBuilder.errorMsg)
+			testBuilder.WithEventConfig(testCase.eventConfig)
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, resultBuilder.Definition.Spec.EventConfig)
-			assert.Equal(t, testCase.eventConfig, *resultBuilder.Definition.Spec.EventConfig)
-		}
+			if testCase.expectedError != "" {
+				assert.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+				assert.Nil(t, testBuilder.Definition.Spec.EventConfig)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			require.NotNil(t, testBuilder.Definition.Spec.EventConfig)
+			assert.Equal(t, testCase.eventConfig, *testBuilder.Definition.Spec.EventConfig)
+		})
 	}
 }
 
-func TestPtpOperatorConfigValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil      bool
-		definitionNil   bool
-		apiClientNil    bool
-		builderErrorMsg string
-		expectedError   error
-	}{
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   nil,
-		},
-		{
-			builderNil:      true,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("error: received nil ptpOperatorConfig builder"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   true,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("%s", msg.UndefinedCrdObjectErrString("ptpOperatorConfig")),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    true,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("ptpOperatorConfig builder cannot have nil apiClient"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "test error",
-			expectedError:   fmt.Errorf("test error"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidPtpOperatorConfigBuilder(buildTestClientWithPtpScheme())
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		if testCase.builderErrorMsg != "" {
-			testBuilder.errorMsg = testCase.builderErrorMsg
-		}
-
-		valid, err := testBuilder.validate()
-		assert.Equal(t, testCase.expectedError, err)
-		assert.Equal(t, testCase.expectedError == nil, valid)
-	}
-}
-
-// buildDummyPtpOperatorConfig returns a PtpOperatorConfig with the default name and namespace.
 func buildDummyPtpOperatorConfig() *ptpv1.PtpOperatorConfig {
 	return &ptpv1.PtpOperatorConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -303,28 +171,14 @@ func buildDummyPtpOperatorConfig() *ptpv1.PtpOperatorConfig {
 	}
 }
 
-// buildTestClientWithDummyPtpOperatorConfig returns a client with a mock PtpOperatorConfig.
 func buildTestClientWithDummyPtpOperatorConfig() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyPtpOperatorConfig(),
-		},
-		SchemeAttachers: testSchemes,
+		K8sMockObjects:  []runtime.Object{buildDummyPtpOperatorConfig()},
+		SchemeAttachers: []clients.SchemeAttacher{ptpv1.AddToScheme},
 	})
 }
 
-// buildInvalidPtpOperatorConfigBuilder returns a PtpOperatorConfigBuilder with an error message.
-func buildInvalidPtpOperatorConfigBuilder(apiClient *clients.Settings) *PtpOperatorConfigBuilder {
-	builder := buildValidPtpOperatorConfigBuilder(apiClient)
-	builder.errorMsg = "test error"
-
-	return builder
-}
-
-// buildValidPtpOperatorConfigBuilder returns a valid PtpOperatorConfigBuilder for testing.
 func buildValidPtpOperatorConfigBuilder(apiClient *clients.Settings) *PtpOperatorConfigBuilder {
-	return &PtpOperatorConfigBuilder{
-		apiClient:  apiClient.Client,
-		Definition: buildDummyPtpOperatorConfig(),
-	}
+	return common.NewNamespacedBuilder[ptpv1.PtpOperatorConfig, PtpOperatorConfigBuilder](
+		apiClient, ptpv1.AddToScheme, PtpOperatorConfigName, PtpOperatorConfigNamespace)
 }
