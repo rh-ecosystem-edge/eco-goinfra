@@ -32,7 +32,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	scalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
-	netv1 "k8s.io/api/networking/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -270,8 +269,6 @@ func GetModifiableTestClients(tcp TestClientParams) (*Settings, *fakeRuntimeClie
 		case *corev1.ConfigMap:
 			k8sClientObjects = append(k8sClientObjects, v)
 		case *corev1.Event:
-			k8sClientObjects = append(k8sClientObjects, v)
-		case *netv1.NetworkPolicy:
 			k8sClientObjects = append(k8sClientObjects, v)
 		case *appsv1.DaemonSet:
 			k8sClientObjects = append(k8sClientObjects, v)

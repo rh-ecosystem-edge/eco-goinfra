@@ -5,80 +5,34 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
 	netv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestList(t *testing.T) {
-	generateNetworkPolicy := func(name, namespace string) *netv1.NetworkPolicy {
-		return &netv1.NetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-				Labels:    map[string]string{"demo": name},
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		networkPolicyExists        bool
-		testNamespace              string
-		listOptions                []metav1.ListOptions
-		expetedError               error
-		expectedNumNetworkPolicies int
-	}{
-		{ // NetworkPolicy does exist
-			networkPolicyExists:        true,
-			testNamespace:              "test-namespace",
-			expetedError:               nil,
-			listOptions:                []metav1.ListOptions{},
-			expectedNumNetworkPolicies: 1,
+	testhelper.NewNamespacedListTestConfig[netv1.NetworkPolicy, NetworkPolicyBuilder](
+		func(apiClient *clients.Settings, nsname string, _ ...runtimeclient.ListOptions) ([]*NetworkPolicyBuilder, error) {
+			return List(apiClient, nsname)
 		},
-		{ // NetworkPolicy does not exist
-			networkPolicyExists:        false,
-			testNamespace:              "test-namespace",
-			expetedError:               nil,
-			listOptions:                []metav1.ListOptions{},
-			expectedNumNetworkPolicies: 0,
-		},
-		{ // Missing namespace parameter
-			networkPolicyExists:        true,
-			testNamespace:              "",
-			expetedError:               errors.New("failed to list networkpolicies, 'nsname' parameter is empty"),
-			listOptions:                []metav1.ListOptions{},
-			expectedNumNetworkPolicies: 0,
-		},
-		{ // More than one ListOptions was passed
-			networkPolicyExists:        true,
-			testNamespace:              "test-namespace",
-			expetedError:               errors.New("error: more than one ListOptions was passed"),
-			listOptions:                []metav1.ListOptions{{}, {}},
-			expectedNumNetworkPolicies: 0,
-		},
-		{ // Valid number of list options
-			networkPolicyExists:        true,
-			testNamespace:              "test-namespace",
-			expetedError:               nil,
-			listOptions:                []metav1.ListOptions{{}},
-			expectedNumNetworkPolicies: 1,
-		},
-	}
+		netv1.AddToScheme,
+		networkPolicyGVK,
+	).ExecuteTests(t)
+}
 
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+func TestListRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		if testCase.networkPolicyExists {
-			runtimeObjects = append(runtimeObjects, generateNetworkPolicy("test-networkpolicy", "test-namespace"))
-		}
+	testClient := clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{netv1.AddToScheme},
+	})
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
-		})
+	builders, err := List(testClient, defaultNetworkPolicyNamespace, metav1.ListOptions{}, metav1.ListOptions{})
 
-		networkPolicyList, err := List(testSettings, testCase.testNamespace, testCase.listOptions...)
-		assert.Equal(t, testCase.expetedError, err)
-		assert.Equal(t, testCase.expectedNumNetworkPolicies, len(networkPolicyList))
-	}
+	assert.Equal(t, errors.New("error: more than one ListOptions was passed"), err)
+	assert.Empty(t, builders)
 }

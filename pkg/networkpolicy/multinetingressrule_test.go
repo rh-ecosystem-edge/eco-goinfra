@@ -10,6 +10,8 @@ import (
 )
 
 func TestNewIngressRuleBuilder(t *testing.T) {
+	t.Parallel()
+
 	builder := NewIngressRuleBuilder()
 
 	assert.NotNil(t, builder)
@@ -17,6 +19,8 @@ func TestNewIngressRuleBuilder(t *testing.T) {
 }
 
 func TestIngressWithPortAndProtocol(t *testing.T) {
+	t.Parallel()
+
 	builder := NewIngressRuleBuilder()
 
 	builder.WithPortAndProtocol(80, "TCP")
@@ -30,6 +34,8 @@ func TestIngressWithPortAndProtocol(t *testing.T) {
 }
 
 func TestIngressWithProtocol(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		protocol      corev1.Protocol
 		expectedError string
@@ -50,6 +56,8 @@ func TestIngressWithProtocol(t *testing.T) {
 }
 
 func TestIngressWithPort(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		port          uint16
 		expectedError string
@@ -70,6 +78,8 @@ func TestIngressWithPort(t *testing.T) {
 }
 
 func TestIngressWithOptions(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testOptions   []IngressAdditionalOptions
 		expectedError string
@@ -102,6 +112,8 @@ func TestIngressWithOptions(t *testing.T) {
 }
 
 func TestIngressWithPeerPodSelector(t *testing.T) {
+	t.Parallel()
+
 	builder := NewIngressRuleBuilder()
 
 	builder.WithPeerPodSelector(metav1.LabelSelector{
@@ -127,6 +139,8 @@ func TestIngressWithPeerPodSelector(t *testing.T) {
 }
 
 func TestIngressWithPeerNamespaceSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		namespaceSelector metav1.LabelSelector
 		expectedError     string
@@ -154,6 +168,8 @@ func TestIngressWithPeerNamespaceSelector(t *testing.T) {
 }
 
 func TestIngressWithCIDR(t *testing.T) {
+	t.Parallel()
+
 	builder := NewIngressRuleBuilder()
 
 	builder = builder.WithCIDR("192.168.1.1/24", nil)
@@ -179,6 +195,8 @@ func TestIngressWithCIDR(t *testing.T) {
 }
 
 func TestIngressWithPeerPodAndNamespaceSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		podSelector       metav1.LabelSelector
 		namespaceSelector metav1.LabelSelector
@@ -203,6 +221,8 @@ func TestIngressWithPeerPodAndNamespaceSelector(t *testing.T) {
 }
 
 func TestIngressWithPeerPodSelectorAndCIDR(t *testing.T) {
+	t.Parallel()
+
 	builder := NewIngressRuleBuilder()
 
 	builder.WithPeerPodSelectorAndCIDR(metav1.LabelSelector{
@@ -217,6 +237,8 @@ func TestIngressWithPeerPodSelectorAndCIDR(t *testing.T) {
 }
 
 func TestIngressGetIngressRuleCfg(t *testing.T) {
+	t.Parallel()
+
 	builder := NewIngressRuleBuilder()
 
 	cfg, err := builder.GetIngressRuleCfg()
