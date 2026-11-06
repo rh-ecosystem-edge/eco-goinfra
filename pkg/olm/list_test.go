@@ -5,7 +5,11 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	operatorsv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/olm/package-server/operators/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -338,67 +342,57 @@ func TestListInstallPlan(t *testing.T) {
 }
 
 func TestListPackageManifest(t *testing.T) {
-	testCases := []struct {
-		packageManifest []*PackageManifestBuilder
-		nsName          string
-		listOptions     []client.ListOptions
-		expectedError   error
-		client          bool
-	}{
-		{
-			packageManifest: []*PackageManifestBuilder{
-				buildValidPackageManifestBuilder(buildPackageManifestTestClientWithDummyObject())},
-			nsName:        "test-namespace",
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			packageManifest: []*PackageManifestBuilder{
-				buildValidPackageManifestBuilder(buildPackageManifestTestClientWithDummyObject())},
-			nsName:        "",
-			expectedError: fmt.Errorf("failed to list packagemanifests, 'nsname' parameter is empty"),
-			client:        true,
-		},
-		{
-			packageManifest: []*PackageManifestBuilder{
-				buildValidPackageManifestBuilder(buildPackageManifestTestClientWithDummyObject())},
-			nsName:        "test-namespace",
-			expectedError: nil,
-			listOptions:   []client.ListOptions{{Continue: "true"}},
-			client:        true,
-		},
-		{
-			packageManifest: []*PackageManifestBuilder{
-				buildValidPackageManifestBuilder(buildPackageManifestTestClientWithDummyObject())},
-			nsName:        "test-namespace",
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			listOptions:   []client.ListOptions{{Continue: "true"}, {Limit: 100}},
-			client:        true,
-		},
-		{
-			packageManifest: []*PackageManifestBuilder{
-				buildValidPackageManifestBuilder(buildPackageManifestTestClientWithDummyObject())},
-			nsName:        "test-namespace",
-			expectedError: fmt.Errorf("failed to list packageManifest, 'apiClient' parameter is empty"),
-			listOptions:   []client.ListOptions{},
-			client:        false,
-		},
-	}
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyPackageManifest(),
-				SchemeAttachers: operatorsv1Scheme,
-			})
-		}
+	testhelper.NewNamespacedListTestConfig(
+		ListPackageManifest,
+		operatorsv1.AddToScheme,
+		packageManifestGVK,
+	).ExecuteTests(t)
+}
 
-		packageManifests, err := ListPackageManifest(testSettings, testCase.nsName, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+func TestListPackageManifestRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(packageManifests), len(testCase.packageManifest))
-		}
-	}
+	_, err := ListPackageManifest(
+		clients.GetTestClients(clients.TestClientParams{}),
+		"test-namespace",
+		client.ListOptions{Continue: "true"},
+		client.ListOptions{Limit: 100},
+	)
+	assert.EqualError(t, err, "error: more than one ListOptions was passed")
+}
+
+func TestListPackageManifestWithOptions(t *testing.T) {
+	t.Parallel()
+
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: []runtime.Object{
+			buildPackageManifestDefinition("packagemanifest", "test-namespace"),
+		},
+		SchemeAttachers: []clients.SchemeAttacher{operatorsv1.AddToScheme},
+	})
+
+	builders, err := ListPackageManifest(
+		testSettings, "test-namespace", client.ListOptions{Continue: "true"})
+	require.NoError(t, err)
+	require.Len(t, builders, 1)
+	assert.Equal(t, "test-namespace", builders[0].Definition.Namespace)
+}
+
+func TestListPackageManifestScopesToNamespace(t *testing.T) {
+	t.Parallel()
+
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: []runtime.Object{
+			buildPackageManifestDefinition("packagemanifest", "test-namespace"),
+			buildPackageManifestDefinition("other-packagemanifest", "other-namespace"),
+		},
+		SchemeAttachers: []clients.SchemeAttacher{operatorsv1.AddToScheme},
+	})
+
+	builders, err := ListPackageManifest(testSettings, "test-namespace")
+	require.NoError(t, err)
+	require.Len(t, builders, 1)
+	assert.Equal(t, "test-namespace", builders[0].Definition.Namespace)
 }
