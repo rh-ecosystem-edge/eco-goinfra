@@ -259,8 +259,6 @@ func GetModifiableTestClients(tcp TestClientParams) (*Settings, *fakeRuntimeClie
 			k8sClientObjects = append(k8sClientObjects, v)
 		case *corev1.PersistentVolume:
 			k8sClientObjects = append(k8sClientObjects, v)
-		case *corev1.PersistentVolumeClaim:
-			k8sClientObjects = append(k8sClientObjects, v)
 		case *policyv1.PodDisruptionBudget:
 			k8sClientObjects = append(k8sClientObjects, v)
 		case *scalingv1.HorizontalPodAutoscaler:
