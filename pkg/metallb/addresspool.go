@@ -1,34 +1,45 @@
 package metallb
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/mlbtypes"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
-	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	resourceIPAddressPools = "ipaddresspools"
-)
+const resourceIPAddressPools = "ipaddresspools"
 
 // IPAddressPoolBuilder provides struct for the IPAddressPool object containing connection to
 // the cluster and the IPAddressPool definitions.
 type IPAddressPoolBuilder struct {
-	Definition *mlbtypes.IPAddressPool
-	Object     *mlbtypes.IPAddressPool
-	apiClient  runtimeClient.Client
-	errorMsg   string
+	common.EmbeddableBuilder[mlbtypes.IPAddressPool, *mlbtypes.IPAddressPool]
+	common.EmbeddableWithOptions[
+		mlbtypes.IPAddressPool, IPAddressPoolBuilder, *mlbtypes.IPAddressPool, *IPAddressPoolBuilder,
+		IPAddressPoolAdditionalOptions]
+	common.EmbeddableCreator[mlbtypes.IPAddressPool, IPAddressPoolBuilder, *mlbtypes.IPAddressPool, *IPAddressPoolBuilder]
+	common.EmbeddableDeleteReturner[mlbtypes.IPAddressPool, IPAddressPoolBuilder, *mlbtypes.IPAddressPool, *IPAddressPoolBuilder]
+	common.EmbeddableForceUpdater[mlbtypes.IPAddressPool, IPAddressPoolBuilder, *mlbtypes.IPAddressPool, *IPAddressPoolBuilder]
 }
 
 // IPAddressPoolAdditionalOptions additional options for IPAddressPool object.
 type IPAddressPoolAdditionalOptions func(builder *IPAddressPoolBuilder) (*IPAddressPoolBuilder, error)
+
+// AttachMixins wires the embedded CRUD and option mixins to this builder instance.
+func (builder *IPAddressPoolBuilder) AttachMixins() {
+	builder.EmbeddableWithOptions.SetBase(builder)
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleteReturner.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+}
+
+// GetGVK returns the IPAddressPool GVK for this builder.
+func (builder *IPAddressPoolBuilder) GetGVK() schema.GroupVersionKind {
+	return mlbtypes.GroupVersion.WithKind("IPAddressPool")
+}
 
 // NewIPAddressPoolBuilder creates a new instance of IPAddressPoolBuilder.
 func NewIPAddressPoolBuilder(
@@ -37,287 +48,57 @@ func NewIPAddressPoolBuilder(
 		"Initializing new IPAddressPool structure with the following params: %s, %s %s",
 		name, nsname, addrPool)
 
-	err := apiClient.AttachScheme(mlbtypes.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add metallb scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &IPAddressPoolBuilder{
-		apiClient: apiClient.Client,
-		Definition: &mlbtypes.IPAddressPool{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			}, Spec: mlbtypes.IPAddressPoolSpec{
-				Addresses: addrPool,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the IPAddressPool is empty")
-
-		builder.errorMsg = "IPAddressPool 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the IPAddressPool is empty")
-
-		builder.errorMsg = "IPAddressPool 'nsname' cannot be empty"
-
+	builder := common.NewNamespacedBuilder[mlbtypes.IPAddressPool, IPAddressPoolBuilder](
+		apiClient, mlbtypes.AddToScheme, name, nsname)
+	if builder.GetError() != nil {
 		return builder
 	}
 
 	if len(addrPool) < 1 {
 		klog.V(100).Info("The addrPool of the IPAddressPool is empty list")
 
-		builder.errorMsg = "IPAddressPool 'addrPool' cannot be empty list"
+		builder.SetError(fmt.Errorf("IPAddressPool 'addrPool' cannot be empty list"))
 
 		return builder
 	}
 
+	builder.Definition.Spec.Addresses = addrPool
+
 	return builder
-}
-
-// Get returns IPAddressPool object if found.
-func (builder *IPAddressPoolBuilder) Get() (*mlbtypes.IPAddressPool, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Collecting IPAddressPool object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	ipAddressPool := &mlbtypes.IPAddressPool{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(),
-		runtimeClient.ObjectKey{Name: builder.Definition.Name, Namespace: builder.Definition.Namespace},
-		ipAddressPool)
-	if err != nil {
-		klog.V(100).Infof(
-			"IPAddressPool object %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, err
-	}
-
-	return ipAddressPool, nil
-}
-
-// Exists checks whether the given IPAddressPool exists.
-func (builder *IPAddressPoolBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if IPAddressPool %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
 }
 
 // PullAddressPool pulls existing addresspool from cluster.
 func PullAddressPool(apiClient *clients.Settings, name, nsname string) (*IPAddressPoolBuilder, error) {
-	klog.V(100).Infof("Pulling existing addresspool name %s under namespace %s from cluster", name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("addresspool 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(mlbtypes.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add metallb scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &IPAddressPoolBuilder{
-		apiClient: apiClient.Client,
-		Definition: &mlbtypes.IPAddressPool{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the addresspool is empty")
-
-		return nil, fmt.Errorf("addresspool 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the addresspool is empty")
-
-		return nil, fmt.Errorf("addresspool 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("addresspool object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Create makes a IPAddressPool in the cluster and stores the created object in struct.
-func (builder *IPAddressPoolBuilder) Create() (*IPAddressPoolBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the IPAddressPool %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	if !builder.Exists() {
-		err := builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err != nil {
-			klog.V(100).Info("Failed to create IPAddressPool")
-
-			return nil, err
-		}
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// Delete removes IPAddressPool object from a cluster.
-func (builder *IPAddressPoolBuilder) Delete() (*IPAddressPoolBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Deleting the IPAddressPool object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("IPAddressPool %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, fmt.Errorf("can not delete IPAddressPool: %w", err)
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Update renovates the existing IPAddressPool object with the IPAddressPool definition in builder.
-func (builder *IPAddressPoolBuilder) Update(force bool) (*IPAddressPoolBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the IPAddressPool object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("failed to update ipaddresspool, object does not exist on cluster")
-	}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		if force {
-			klog.V(100).Infof("%v", msg.FailToUpdateNotification("IPAddressPool", builder.Definition.Name, builder.Definition.Namespace))
-
-			builder, err := builder.Delete()
-			if err != nil {
-				klog.V(100).Infof("%v", msg.FailToUpdateError("IPAddressPool", builder.Definition.Name, builder.Definition.Namespace))
-
-				return nil, err
-			}
-
-			return builder.Create()
-		}
-	}
-
-	return builder, err
+	return common.PullNamespacedBuilder[mlbtypes.IPAddressPool, IPAddressPoolBuilder](
+		context.TODO(), apiClient, mlbtypes.AddToScheme, name, nsname)
 }
 
 // WithAutoAssign defines the AutoAssign bool flag placed in the IPAddressPool spec.
-func (builder *IPAddressPoolBuilder) WithAutoAssign(auto bool) *IPAddressPoolBuilder {
-	if valid, _ := builder.validate(); !valid {
+func (builder *IPAddressPoolBuilder) WithAutoAssign(autoAssign bool) *IPAddressPoolBuilder {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	klog.V(100).Infof(
 		"Creating IPAddressPool %s in namespace %s with this autoAssign flag: %t",
-		builder.Definition.Name, builder.Definition.Namespace, auto)
+		builder.Definition.Name, builder.Definition.Namespace, autoAssign)
 
-	builder.Definition.Spec.AutoAssign = &auto
+	builder.Definition.Spec.AutoAssign = &autoAssign
 
 	return builder
 }
 
 // WithAvoidBuggyIPs defines the AvoidBuggyIPs bool flag placed in the IPAddressPool spec.
-func (builder *IPAddressPoolBuilder) WithAvoidBuggyIPs(avoid bool) *IPAddressPoolBuilder {
-	if valid, _ := builder.validate(); !valid {
+func (builder *IPAddressPoolBuilder) WithAvoidBuggyIPs(avoidBuggyIPs bool) *IPAddressPoolBuilder {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	klog.V(100).Infof(
 		"Creating IPAddressPool %s in namespace %s with this avoidBuggyIPs flag: %t",
-		builder.Definition.Name, builder.Definition.Namespace, avoid)
+		builder.Definition.Name, builder.Definition.Namespace, avoidBuggyIPs)
 
-	builder.Definition.Spec.AvoidBuggyIPs = avoid
-
-	return builder
-}
-
-// WithOptions creates IPAddressPool with generic mutation options.
-func (builder *IPAddressPoolBuilder) WithOptions(options ...IPAddressPoolAdditionalOptions) *IPAddressPoolBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting IPAddressPool additional options")
-
-	if builder.Definition == nil {
-		klog.V(100).Info("The IPAddressPool is undefined")
-
-		builder.errorMsg = msg.UndefinedCrdObjectErrString("IPAddressPool")
-
-		return builder
-	}
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
+	builder.Definition.Spec.AvoidBuggyIPs = avoidBuggyIPs
 
 	return builder
 }
@@ -327,36 +108,4 @@ func GetIPAddressPoolGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
 		Group: APIGroup, Version: APIVersion, Resource: resourceIPAddressPools,
 	}
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *IPAddressPoolBuilder) validate() (bool, error) {
-	resourceCRD := "IPAddressPool"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
