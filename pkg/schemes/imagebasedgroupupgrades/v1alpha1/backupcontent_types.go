@@ -1,7 +1,7 @@
 package v1alpha1
 
 import (
-	lcabcv1 "github.com/openshift-kni/lifecycle-agent/api/backupcontent/v1"
+	lcabcv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/lca/api/backupcontent/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

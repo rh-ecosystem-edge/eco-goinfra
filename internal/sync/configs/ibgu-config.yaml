@@ -1,4 +1,13 @@
 ---
+- name: lifecycle-agent-backupcontent-v1
+  sync: true
+  repo_link: "https://github.com/openshift-kni/lifecycle-agent"
+  branch: main
+  remote_api_directory: api/backupcontent/v1
+  local_api_directory: schemes/lca/api/backupcontent/v1
+  excludes:
+    - "*_test.go"
+
 - name: image-based-group-upgrades-v1alpha1
   sync: true
   repo_link: "https://github.com/openshift-kni/cluster-group-upgrades-operator"
@@ -10,5 +19,7 @@
       new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/imagebasedgroupupgrades/v1alpha1"'
     - old: '"github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/imagebasedgroupupgrades"'
       new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/imagebasedgroupupgrades"'
+    - old: '"github.com/openshift-kni/lifecycle-agent/api/backupcontent/v1"'
+      new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/lca/api/backupcontent/v1"'
   excludes:
     - "*_test.go"
