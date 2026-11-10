@@ -168,7 +168,7 @@ type InventoryChangeNotificationNotificationEventType int
 
 // LocationInfo Information about a location where O-Cloud Sites can be available.
 //
-// NOTE: Per O-RAN.WG6.TS.O2IMS-INTERFACE-R005-v11.00 3.2.6.2.16, at least one of 'coordinate',
+// NOTE: Per O-RAN.WG6.TS.O2IMS-INTERFACE-R005-v13.00 3.2.6.2.16, at least one of 'coordinate',
 // 'civicAddress', or 'address' shall be provided when creating location data.
 type LocationInfo struct {
 	// Address Human readable format of address of the location.
