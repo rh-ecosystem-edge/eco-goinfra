@@ -422,6 +422,9 @@ github.com/nmstate/kubernetes-nmstate/api/names
 github.com/nmstate/kubernetes-nmstate/api/shared
 github.com/nmstate/kubernetes-nmstate/api/v1
 github.com/nmstate/kubernetes-nmstate/api/v1beta1
+# github.com/oapi-codegen/nullable v1.1.0
+## explicit; go 1.20
+github.com/oapi-codegen/nullable
 # github.com/oapi-codegen/oapi-codegen/v2 v2.8.0
 ## explicit; go 1.25.0
 github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
