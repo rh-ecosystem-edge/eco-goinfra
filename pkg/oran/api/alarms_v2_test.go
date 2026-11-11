@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -376,12 +377,22 @@ func TestPatchAlarmServiceConfigurationV2(t *testing.T) {
 		name          string
 		config        alarmsv2.AlarmServiceConfigurationPatch
 		handler       http.HandlerFunc
+		expectedBody  string
 		expectedError string
 	}{
 		{
-			name:    "success",
-			config:  dummyAlarmServiceConfigurationPatchV2,
-			handler: jsonResponseHandler(dummyAlarmServiceConfigurationV2),
+			name:         "success",
+			config:       dummyAlarmServiceConfigurationPatchV2,
+			handler:      jsonResponseHandler(dummyAlarmServiceConfigurationV2),
+			expectedBody: `{"retentionPeriod":30}`,
+		},
+		{
+			name: "success with explicit null extensions",
+			config: alarmsv2.AlarmServiceConfigurationPatch{
+				Extensions: nullable.NewNullNullable[map[string]any](),
+			},
+			handler:      jsonResponseHandler(dummyAlarmServiceConfigurationV2),
+			expectedBody: `{"extensions":null}`,
 		},
 		{
 			name:          "server error 500",
@@ -395,10 +406,14 @@ func TestPatchAlarmServiceConfigurationV2(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			var capturedRequest *http.Request
+			var (
+				capturedRequest *http.Request
+				capturedBody    []byte
+			)
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				capturedRequest = r
+				capturedBody, _ = io.ReadAll(r.Body)
 				testCase.handler(w, r)
 			}))
 			defer server.Close()
@@ -422,6 +437,10 @@ func TestPatchAlarmServiceConfigurationV2(t *testing.T) {
 
 			expectedPath := "/O2ims_infrastructureMonitoring/v2/alarmServiceConfiguration"
 			validateHTTPRequest(t, capturedRequest, "PATCH", expectedPath, nil, "application/merge-patch+json")
+
+			if testCase.expectedBody != "" {
+				assert.JSONEq(t, testCase.expectedBody, string(capturedBody))
+			}
 		})
 	}
 }
@@ -680,6 +699,7 @@ func TestPatchSubscriptionV2(t *testing.T) {
 		subscriptionID uuid.UUID
 		patch          alarmsv2.AlarmSubscriptionUpdate
 		handler        http.HandlerFunc
+		expectedBody   string
 		expectedError  string
 	}{
 		{
@@ -687,6 +707,17 @@ func TestPatchSubscriptionV2(t *testing.T) {
 			subscriptionID: defaultSubscriptionIDV2,
 			patch:          dummyAlarmSubscriptionUpdateV2,
 			handler:        jsonResponseHandler(dummyAlarmSubscriptionInfoV2, http.StatusOK),
+			expectedBody:   `{"eventFilter":"CLEAR"}`,
+		},
+		{
+			name:           "success with explicit null event filter",
+			subscriptionID: defaultSubscriptionIDV2,
+			patch: alarmsv2.AlarmSubscriptionUpdate{
+				ConsumerSubscriptionId: nullable.NewNullableWithValue("consumer-2"),
+				EventFilter:            nullable.NewNullNullable[alarmsv2.AlarmSubscriptionUpdateEventFilter](),
+			},
+			handler:      jsonResponseHandler(dummyAlarmSubscriptionInfoV2, http.StatusOK),
+			expectedBody: `{"consumerSubscriptionId":"consumer-2","eventFilter":null}`,
 		},
 		{
 			name:           "server error 500",
@@ -701,10 +732,14 @@ func TestPatchSubscriptionV2(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			var capturedRequest *http.Request
+			var (
+				capturedRequest *http.Request
+				capturedBody    []byte
+			)
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				capturedRequest = r
+				capturedBody, _ = io.ReadAll(r.Body)
 				testCase.handler(w, r)
 			}))
 			defer server.Close()
@@ -730,6 +765,10 @@ func TestPatchSubscriptionV2(t *testing.T) {
 			expectedPath := fmt.Sprintf(
 				"/O2ims_infrastructureMonitoring/v2/alarmSubscriptions/%s", testCase.subscriptionID.String())
 			validateHTTPRequest(t, capturedRequest, "PATCH", expectedPath, nil, "application/merge-patch+json")
+
+			if testCase.expectedBody != "" {
+				assert.JSONEq(t, testCase.expectedBody, string(capturedBody))
+			}
 		})
 	}
 }
