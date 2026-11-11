@@ -60,10 +60,10 @@ type AlarmSubscriptionUpdateFilterV2 = alarmsv2.AlarmSubscriptionUpdateEventFilt
 
 //nolint:revive // These are just re-exported constants no need for the linting.
 const (
-	AlarmSubscriptionUpdateFilterV2ACKNOWLEDGE AlarmSubscriptionUpdateFilterV2 = alarmsv2.ACKNOWLEDGE
-	AlarmSubscriptionUpdateFilterV2CHANGE      AlarmSubscriptionUpdateFilterV2 = alarmsv2.CHANGE
-	AlarmSubscriptionUpdateFilterV2CLEAR       AlarmSubscriptionUpdateFilterV2 = alarmsv2.CLEAR
-	AlarmSubscriptionUpdateFilterV2NEW         AlarmSubscriptionUpdateFilterV2 = alarmsv2.NEW
+	AlarmSubscriptionUpdateFilterV2ACKNOWLEDGE AlarmSubscriptionUpdateFilterV2 = alarmsv2.AlarmSubscriptionUpdateEventFilterACKNOWLEDGE
+	AlarmSubscriptionUpdateFilterV2CHANGE      AlarmSubscriptionUpdateFilterV2 = alarmsv2.AlarmSubscriptionUpdateEventFilterCHANGE
+	AlarmSubscriptionUpdateFilterV2CLEAR       AlarmSubscriptionUpdateFilterV2 = alarmsv2.AlarmSubscriptionUpdateEventFilterCLEAR
+	AlarmSubscriptionUpdateFilterV2NEW         AlarmSubscriptionUpdateFilterV2 = alarmsv2.AlarmSubscriptionUpdateEventFilterNEW
 )
 
 // PerceivedSeverityV2 is the type of the PerceivedSeverity field returned by the v2 API.
