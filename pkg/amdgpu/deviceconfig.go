@@ -6,6 +6,7 @@ import (
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	amdgpuv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/amd/gpu-operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -38,27 +39,35 @@ func (builder *Builder) GetGVK() schema.GroupVersionKind {
 	return deviceConfigGVK
 }
 
-// NewBuilderFromObjectString creates a Builder object from CSV alm-examples.
+// NewBuilderFromObjectString creates a Builder object from CSV alm-examples. Initialization errors are stored on the
+// builder so callers can still safely use its methods.
 func NewBuilderFromObjectString(apiClient *clients.Settings, almExample string) *Builder {
 	klog.V(100).Infof("Initializing new Builder structure from almExample string")
+
+	builder := &Builder{}
+	builder.AttachMixins()
+	builder.SetGVK(builder.GetGVK())
+	builder.SetClient(apiClient)
+	builder.SetDefinition(new(amdgpuv1.DeviceConfig))
+
+	resourceKey := common.NewResourceKeyFromBuilder(builder)
 
 	if apiClient == nil {
 		klog.V(100).Info("The apiClient of the DeviceConfig is nil")
 
-		return nil
+		builder.SetError(commonerrors.NewAPIClientNil(resourceKey))
+
+		return builder
 	}
 
 	err := apiClient.AttachScheme(amdgpuv1.AddToScheme)
 	if err != nil {
 		klog.V(100).Info("Failed to add amdgpu v1 scheme to client schemes")
 
-		return nil
-	}
+		builder.SetError(commonerrors.NewSchemeAttacherFailed(resourceKey, err))
 
-	builder := &Builder{}
-	builder.AttachMixins()
-	builder.SetGVK(builder.GetGVK())
-	builder.SetClient(apiClient)
+		return builder
+	}
 
 	deviceConfig, err := getDeviceConfigFromAlmExample(almExample)
 	if err != nil {

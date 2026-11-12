@@ -67,9 +67,10 @@ func TestAMDGPUNewBuilderFromObjectString(t *testing.T) {
 			expectedErrorText: "error initializing DeviceConfig from alm-examples: failed to get alm examples",
 		},
 		{
-			name:       "no client",
-			almExample: almExample,
-			client:     false,
+			name:              "no client",
+			almExample:        almExample,
+			client:            false,
+			expectedErrorText: "apiClient for DeviceConfig is nil",
 		},
 	}
 
@@ -84,17 +85,14 @@ func TestAMDGPUNewBuilderFromObjectString(t *testing.T) {
 
 			builder := NewBuilderFromObjectString(client, testCase.almExample)
 
-			if !testCase.client {
-				assert.Nil(t, builder)
-
-				return
-			}
-
 			require.NotNil(t, builder)
 			assert.Equal(t, deviceConfigGVK, builder.GetGVK())
 
 			if testCase.expectedErrorText != "" {
 				assert.ErrorContains(t, builder.GetError(), testCase.expectedErrorText)
+
+				_, err := builder.Get()
+				assert.ErrorContains(t, err, testCase.expectedErrorText)
 
 				return
 			}
