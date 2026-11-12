@@ -2,18 +2,22 @@ package sriov
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const errEmptyNetworkResourceName = "SrIovNetwork 'resName' cannot be empty"
 
 var (
 	defaultNetName         = "sriovnet"
@@ -22,482 +26,646 @@ var (
 	defaultNetResName      = "resname"
 )
 
-var (
-	testSchemes = []clients.SchemeAttacher{
-		srIovV1.AddToScheme,
-	}
-)
-
-//nolint:funlen
-func TestPullNetwork(t *testing.T) {
-	generateNetwork := func(name, namespace string) *srIovV1.SriovNetwork {
-		return &srIovV1.SriovNetwork{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: srIovV1.SriovNetworkSpec{},
-		}
-	}
-
-	testCases := []struct {
-		networkName         string
-		networkNamespace    string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-		client              bool
-	}{
-		{
-			networkName:         "test1",
-			networkNamespace:    "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			networkName:         "test2",
-			networkNamespace:    "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "sriovnetwork object test2 does not exist in namespace test-namespace",
-			client:              true,
-		},
-		{
-			networkName:         "",
-			networkNamespace:    "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "sriovnetwork 'name' cannot be empty",
-			client:              true,
-		},
-		{
-			networkName:         "test3",
-			networkNamespace:    "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "sriovnetwork 'namespace' cannot be empty",
-			client:              true,
-		},
-		{
-			networkName:         "test3",
-			networkNamespace:    "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "sriovnetwork 'apiClient' cannot be empty",
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testNetwork := generateNetwork(testCase.networkName, testCase.networkNamespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testNetwork)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		// Test the Pull method
-		builderResult, err := PullNetwork(testSettings, testNetwork.Name, testNetwork.Namespace)
-
-		// Check the error
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			// Check the error message
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testNetwork.Name, builderResult.Object.Name)
-			assert.Equal(t, testNetwork.Namespace, builderResult.Object.Namespace)
-		}
-	}
+var testSchemes = []clients.SchemeAttacher{
+	srIovV1.AddToScheme,
 }
 
 func TestNewNetworkBuilder(t *testing.T) {
-	generateNetworkBuilder := NewNetworkBuilder
+	t.Parallel()
+
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
+
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *NetworkBuilder {
+				return NewNetworkBuilder(
+					apiClient, name, nsname, defaultNetTargetNsName, defaultNetResName)
+			},
+			srIovV1.AddToScheme,
+			sriovNetworkGVK,
+		).ExecuteTests(t)
+	})
 
 	testCases := []struct {
-		networkName       string
-		networkNamespace  string
-		targetNs          string
-		resName           string
+		name              string
+		builderName       string
+		targetNamespace   string
+		resourceName      string
 		expectedErrorText string
-		client            bool
+		assertError       func(error) bool
 	}{
 		{
-			networkName:      "test1",
-			networkNamespace: "test-namespace",
-			targetNs:         "target-namspace",
-			resName:          "sriovNetwork",
-			client:           true,
+			name:            "sets required fields",
+			builderName:     defaultNetName,
+			targetNamespace: defaultNetTargetNsName,
+			resourceName:    defaultNetResName,
 		},
 		{
-			networkName:       "",
-			networkNamespace:  "test-namespace",
-			targetNs:          "target-namespace",
-			resName:           "sriovNetwork",
-			expectedErrorText: "SrIovNetwork 'name' cannot be empty",
-			client:            true,
+			name:              "empty resource name returns error",
+			builderName:       defaultNetName,
+			targetNamespace:   defaultNetTargetNsName,
+			expectedErrorText: errEmptyNetworkResourceName,
 		},
 		{
-			networkName:       "sriovnetworktest",
-			networkNamespace:  "",
-			targetNs:          "target-namespace",
-			resName:           "sriovNetwork",
-			expectedErrorText: "SrIovNetwork 'nsname' cannot be empty",
-			client:            true,
+			name:            "empty target namespace is allowed",
+			builderName:     defaultNetName,
+			targetNamespace: "",
+			resourceName:    defaultNetResName,
 		},
 		{
-			networkName:       "sriovnetworktest",
-			networkNamespace:  "test-namespace",
-			targetNs:          "target-namespace",
-			resName:           "",
-			expectedErrorText: "SrIovNetwork 'resName' cannot be empty",
-			client:            true,
-		},
-	}
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		testNetworkStructure := generateNetworkBuilder(
-			testSettings, testCase.networkName, testCase.networkNamespace, testCase.targetNs, testCase.resName)
-		assert.NotNil(t, testNetworkStructure)
-
-		if len(testCase.expectedErrorText) > 0 {
-			assert.Equal(t, testCase.expectedErrorText, testNetworkStructure.errorMsg)
-		}
-	}
-}
-
-func TestWithLogLevel(t *testing.T) {
-	testCases := []struct {
-		loglevel          string
-		expectedErrorText string
-	}{
-		{
-			loglevel:          "panic",
-			expectedErrorText: "",
-		},
-		{
-			loglevel:          "error",
-			expectedErrorText: "",
-		},
-		{
-			loglevel:          "warning",
-			expectedErrorText: "",
-		},
-		{
-			loglevel:          "info",
-			expectedErrorText: "",
-		},
-		{
-			loglevel:          "debug",
-			expectedErrorText: "",
-		},
-		{
-			loglevel:          "",
-			expectedErrorText: "",
-		},
-		{
-			loglevel: "invalid",
-			expectedErrorText: "invalid logLevel value, allowed logLevel values are:" +
-				" panic, error, warning, info, debug or empty",
+			name:            "common name validation takes precedence",
+			builderName:     "",
+			targetNamespace: defaultNetTargetNsName,
+			resourceName:    "",
+			assertError:     commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithLogLevel(testCase.loglevel)
-		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, netBuilder.Definition.Spec.LogLevel, testCase.loglevel)
-		}
+			builder := NewNetworkBuilder(
+				buildNetworkSchemeTestClient(),
+				testCase.builderName,
+				defaultNetNsName,
+				testCase.targetNamespace,
+				testCase.resourceName,
+			)
+
+			require.NotNil(t, builder)
+
+			if testCase.assertError != nil {
+				assert.True(t, testCase.assertError(builder.GetError()), "unexpected error: %v", builder.GetError())
+
+				return
+			}
+
+			if testCase.expectedErrorText != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedErrorText)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.targetNamespace, builder.Definition.Spec.NetworkNamespace)
+			assert.Equal(t, testCase.resourceName, builder.Definition.Spec.ResourceName)
+		})
 	}
 }
 
-func TestWithVlan(t *testing.T) {
+func TestPullNetwork(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig(
+		PullNetwork, srIovV1.AddToScheme, sriovNetworkGVK).ExecuteTests(t)
+}
+
+func TestNetworkBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := newNetworkCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
+}
+
+func TestNetworkWithOptions(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewWithOptionsTestConfig(newNetworkCommonTestConfig()).ExecuteTests(t)
+}
+
+func TestNetworkList(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedListTestConfig(
+		List, srIovV1.AddToScheme, sriovNetworkGVK).ExecuteTests(t)
+
+	t.Run("rejects multiple options", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := List(
+			buildNetworkSchemeTestClient(),
+			defaultNetNsName,
+			client.ListOptions{Namespace: defaultNetNsName},
+			client.ListOptions{Continue: "true"},
+		)
+
+		assert.EqualError(t, err, "error: more than one ListOptions was passed")
+	})
+
+	t.Run("lists only the requested namespace", func(t *testing.T) {
+		t.Parallel()
+
+		otherNamespaceNetwork := &srIovV1.SriovNetwork{
+			ObjectMeta: metav1.ObjectMeta{Name: "other-network", Namespace: "other-namespace"},
+		}
+
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects:  append(buildDummySrIovNetworkObject(), otherNamespaceNetwork),
+			SchemeAttachers: testSchemes,
+		})
+
+		builders, err := List(testSettings, defaultNetNsName)
+
+		require.NoError(t, err)
+		require.Len(t, builders, 1)
+		assert.Equal(t, defaultNetName, builders[0].Definition.Name)
+		assert.Equal(t, defaultNetNsName, builders[0].Definition.Namespace)
+	})
+}
+
+func TestNetworkWithTargetNamespace(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name              string
+		validBuilder      bool
+		targetNamespace   string
+		expectedErrorText string
+	}{
+		{
+			name:            "sets target namespace",
+			validBuilder:    true,
+			targetNamespace: "new-target-namespace",
+		},
+		{
+			name:              "empty target namespace returns error",
+			validBuilder:      true,
+			expectedErrorText: errEmptyTargetNsname,
+		},
+		{
+			name:              "invalid builder short circuits",
+			targetNamespace:   "new-target-namespace",
+			expectedErrorText: errEmptyNetworkResourceName,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := networkBuilderForModifierTest(testCase.validBuilder)
+			result := builder.WithTargetNamespace(testCase.targetNamespace)
+
+			require.Same(t, builder, result)
+
+			if testCase.expectedErrorText == "" {
+				require.NoError(t, result.GetError())
+				assert.Equal(t, testCase.targetNamespace, result.Definition.Spec.NetworkNamespace)
+
+				return
+			}
+
+			assert.EqualError(t, result.GetError(), testCase.expectedErrorText)
+		})
+	}
+}
+
+func TestNetworkWithVLAN(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name              string
+		validBuilder      bool
 		vlanID            uint16
 		expectedErrorText string
 	}{
+		{name: "sets VLAN", validBuilder: true, vlanID: 100},
+		{name: "accepts maximum VLAN", validBuilder: true, vlanID: 4094},
 		{
-			vlanID:            100,
-			expectedErrorText: "",
+			name: "rejects out of range VLAN", validBuilder: true, vlanID: 4095,
+			expectedErrorText: "invalid vlanID, allowed vlanID values are between 0-4094",
 		},
 		{
-			vlanID:            9000,
-			expectedErrorText: "invalid vlanID, allowed vlanID values are between 0-4094",
+			name: "invalid builder short circuits", vlanID: 100,
+			expectedErrorText: errEmptyNetworkResourceName,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithVLAN(testCase.vlanID)
-		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, netBuilder.Definition.Spec.Vlan, int(testCase.vlanID))
-		}
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithVLAN(testCase.vlanID)
+
+			if testCase.expectedErrorText == "" {
+				require.NoError(t, result.GetError())
+				assert.Equal(t, int(testCase.vlanID), result.Definition.Spec.Vlan)
+
+				return
+			}
+
+			assert.EqualError(t, result.GetError(), testCase.expectedErrorText)
+		})
 	}
 }
 
-func TestWithVlanProto(t *testing.T) {
+func TestNetworkWithVlanProto(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name              string
+		validBuilder      bool
 		vlanProtocol      string
 		expectedErrorText string
 	}{
+		{name: "sets 802.1q", validBuilder: true, vlanProtocol: "802.1q"},
+		{name: "sets 802.1Q", validBuilder: true, vlanProtocol: "802.1Q"},
+		{name: "sets 802.1ad", validBuilder: true, vlanProtocol: "802.1ad"},
+		{name: "sets 802.1AD", validBuilder: true, vlanProtocol: "802.1AD"},
 		{
-			vlanProtocol:      "802.1q",
-			expectedErrorText: "",
-		},
-		{
-			vlanProtocol:      "802.1Q",
-			expectedErrorText: "",
-		},
-		{
-			vlanProtocol:      "802.1ad",
-			expectedErrorText: "",
-		},
-		{
-			vlanProtocol:      "802.1AD",
-			expectedErrorText: "",
-		},
-		{
-			vlanProtocol:      "802.1",
+			name: "rejects invalid protocol", validBuilder: true, vlanProtocol: "802.1",
 			expectedErrorText: "invalid 'vlanProtocol' parameters",
 		},
+		{
+			name: "invalid builder short circuits", vlanProtocol: "802.1q",
+			expectedErrorText: errEmptyNetworkResourceName,
+		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithVlanProto(testCase.vlanProtocol)
-		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, netBuilder.Definition.Spec.VlanProto, testCase.vlanProtocol)
-		}
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithVlanProto(testCase.vlanProtocol)
+
+			if testCase.expectedErrorText == "" {
+				require.NoError(t, result.GetError())
+				assert.Equal(t, testCase.vlanProtocol, result.Definition.Spec.VlanProto)
+
+				return
+			}
+
+			assert.EqualError(t, result.GetError(), testCase.expectedErrorText)
+		})
 	}
 }
 
-func TestWithSpoof(t *testing.T) {
+func TestNetworkWithSpoof(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		spoof             bool
-		expectedSpoofFlag string
+		name         string
+		validBuilder bool
+		enabled      bool
+		expected     string
+	}{
+		{name: "enables spoof check", validBuilder: true, enabled: true, expected: "on"},
+		{name: "disables spoof check", validBuilder: true, enabled: false, expected: spoofChkOff},
+		{name: "invalid builder short circuits", enabled: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithSpoof(testCase.enabled)
+
+			if !testCase.validBuilder {
+				assert.EqualError(t, result.GetError(), errEmptyNetworkResourceName)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.expected, result.Definition.Spec.SpoofChk)
+		})
+	}
+}
+
+func TestNetworkWithMetaPluginAllMultiFlag(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		validBuilder bool
+		allMulti     bool
+		expected     string
 	}{
 		{
-			spoof:             true,
-			expectedSpoofFlag: "on",
+			name: "enables allmulti", validBuilder: true, allMulti: true,
+			expected: `{ "type": "tuning", "allmulti": true }`,
 		},
 		{
-			spoof:             false,
-			expectedSpoofFlag: spoofChkOff,
+			name: "disables allmulti", validBuilder: true, allMulti: false,
+			expected: `{ "type": "tuning", "allmulti": false }`,
 		},
+		{name: "invalid builder short circuits", allMulti: true},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithSpoof(testCase.spoof)
-		assert.Equal(t, netBuilder.Definition.Spec.SpoofChk, testCase.expectedSpoofFlag)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithMetaPluginAllMultiFlag(testCase.allMulti)
+
+			if !testCase.validBuilder {
+				assert.EqualError(t, result.GetError(), errEmptyNetworkResourceName)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.expected, result.Definition.Spec.MetaPluginsConfig)
+		})
 	}
 }
 
-func TestWithMetaPluginAllMultiFlag(t *testing.T) {
+func TestNetworkWithMetaPluginRdma(t *testing.T) {
+	t.Parallel()
+
+	t.Run("sets RDMA meta plugin", func(t *testing.T) {
+		t.Parallel()
+
+		result := networkBuilderForModifierTest(true).WithMetaPluginRdma()
+
+		require.NoError(t, result.GetError())
+		assert.Equal(t, `{ "type": "rdma" }`, result.Definition.Spec.MetaPluginsConfig)
+	})
+
+	t.Run("invalid builder short circuits", func(t *testing.T) {
+		t.Parallel()
+
+		result := networkBuilderForModifierTest(false).WithMetaPluginRdma()
+
+		assert.EqualError(t, result.GetError(), errEmptyNetworkResourceName)
+	})
+}
+
+func TestNetworkWithLinkState(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		allMulti             bool
-		expectedSpoofSetting string
+		name              string
+		validBuilder      bool
+		linkState         string
+		expectedErrorText string
+	}{
+		{name: "sets enable", validBuilder: true, linkState: "enable"},
+		{name: "sets disable", validBuilder: true, linkState: "disable"},
+		{name: "sets auto", validBuilder: true, linkState: "auto"},
+		{name: "rejects invalid state", validBuilder: true, linkState: "invalid", expectedErrorText: errInvalidLinkState},
+		{name: "rejects empty state", validBuilder: true, expectedErrorText: errInvalidLinkState},
+		{name: "invalid builder short circuits", linkState: "auto", expectedErrorText: errEmptyNetworkResourceName},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithLinkState(testCase.linkState)
+
+			if testCase.expectedErrorText == "" {
+				require.NoError(t, result.GetError())
+				assert.Equal(t, testCase.linkState, result.Definition.Spec.LinkState)
+
+				return
+			}
+
+			assert.EqualError(t, result.GetError(), testCase.expectedErrorText)
+		})
+	}
+}
+
+func TestNetworkWithMaxTxRate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		validBuilder bool
+		maxTxRate    uint16
+	}{
+		{name: "sets zero", validBuilder: true, maxTxRate: 0},
+		{name: "sets rate", validBuilder: true, maxTxRate: 100},
+		{name: "sets maximum rate", validBuilder: true, maxTxRate: 10000},
+		{name: "invalid builder short circuits", maxTxRate: 100},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithMaxTxRate(testCase.maxTxRate)
+
+			if !testCase.validBuilder {
+				assert.EqualError(t, result.GetError(), errEmptyNetworkResourceName)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.MaxTxRate)
+			assert.Equal(t, int(testCase.maxTxRate), *result.Definition.Spec.MaxTxRate)
+		})
+	}
+}
+
+func TestNetworkWithMinTxRate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		validBuilder bool
+		minTxRate    uint16
+	}{
+		{name: "sets zero", validBuilder: true, minTxRate: 0},
+		{name: "sets rate", validBuilder: true, minTxRate: 100},
+		{name: "sets maximum rate", validBuilder: true, minTxRate: 10000},
+		{name: "invalid builder short circuits", minTxRate: 100},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithMinTxRate(testCase.minTxRate)
+
+			if !testCase.validBuilder {
+				assert.EqualError(t, result.GetError(), errEmptyNetworkResourceName)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.MaxTxRate)
+			assert.Equal(t, int(testCase.minTxRate), *result.Definition.Spec.MaxTxRate)
+		})
+	}
+}
+
+func TestNetworkWithTrustFlag(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		validBuilder bool
+		enabled      bool
+		expected     string
+	}{
+		{name: "enables trust", validBuilder: true, enabled: true, expected: "on"},
+		{name: "disables trust", validBuilder: true, enabled: false, expected: spoofChkOff},
+		{name: "invalid builder short circuits", enabled: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithTrustFlag(testCase.enabled)
+
+			if !testCase.validBuilder {
+				assert.EqualError(t, result.GetError(), errEmptyNetworkResourceName)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.expected, result.Definition.Spec.Trust)
+		})
+	}
+}
+
+func TestNetworkWithVlanQoS(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name              string
+		validBuilder      bool
+		vlanQoS           uint16
+		expectedErrorText string
+	}{
+		{name: "sets zero", validBuilder: true, vlanQoS: 0},
+		{name: "sets maximum", validBuilder: true, vlanQoS: 7},
+		{
+			name: "rejects out of range QoS", validBuilder: true, vlanQoS: 8,
+			expectedErrorText: "Invalid QoS class. Supported vlan QoS class values are between 0...7",
+		},
+		{name: "invalid builder short circuits", vlanQoS: 0, expectedErrorText: errEmptyNetworkResourceName},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithVlanQoS(testCase.vlanQoS)
+
+			if testCase.expectedErrorText == "" {
+				require.NoError(t, result.GetError())
+				assert.Equal(t, int(testCase.vlanQoS), result.Definition.Spec.VlanQoS)
+
+				return
+			}
+
+			assert.EqualError(t, result.GetError(), testCase.expectedErrorText)
+		})
+	}
+}
+
+func TestNetworkWithLogLevel(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name              string
+		validBuilder      bool
+		logLevel          string
+		expectedErrorText string
+	}{
+		{name: "sets panic", validBuilder: true, logLevel: "panic"},
+		{name: "sets error", validBuilder: true, logLevel: "error"},
+		{name: "sets warning", validBuilder: true, logLevel: "warning"},
+		{name: "sets info", validBuilder: true, logLevel: "info"},
+		{name: "sets debug", validBuilder: true, logLevel: "debug"},
+		{name: "sets empty", validBuilder: true, logLevel: ""},
+		{
+			name: "rejects invalid log level", validBuilder: true, logLevel: "invalid",
+			expectedErrorText: "invalid logLevel value, allowed logLevel values are:" +
+				" panic, error, warning, info, debug or empty",
+		},
+		{name: "invalid builder short circuits", logLevel: "info", expectedErrorText: errEmptyNetworkResourceName},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithLogLevel(testCase.logLevel)
+
+			if testCase.expectedErrorText == "" {
+				require.NoError(t, result.GetError())
+				assert.Equal(t, testCase.logLevel, result.Definition.Spec.LogLevel)
+
+				return
+			}
+
+			assert.EqualError(t, result.GetError(), testCase.expectedErrorText)
+		})
+	}
+}
+
+func TestNetworkCapabilities(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		validBuilder bool
+		modifier     func(*NetworkBuilder) *NetworkBuilder
+		expected     string
+		field        func(*NetworkBuilder) string
 	}{
 		{
-			allMulti:             true,
-			expectedSpoofSetting: `{ "type": "tuning", "allmulti": true }`,
+			name: "adds IP address support", validBuilder: true,
+			modifier: func(builder *NetworkBuilder) *NetworkBuilder { return builder.WithIPAddressSupport() },
+			expected: `{ "ips": true }`,
+			field:    func(builder *NetworkBuilder) string { return builder.Definition.Spec.Capabilities },
 		},
 		{
-			allMulti:             false,
-			expectedSpoofSetting: `{ "type": "tuning", "allmulti": false }`,
+			name: "adds MAC address support", validBuilder: true,
+			modifier: func(builder *NetworkBuilder) *NetworkBuilder { return builder.WithMacAddressSupport() },
+			expected: `{ "mac": true }`,
+			field:    func(builder *NetworkBuilder) string { return builder.Definition.Spec.Capabilities },
 		},
+		{
+			name: "adds static IPAM", validBuilder: true,
+			modifier: func(builder *NetworkBuilder) *NetworkBuilder { return builder.WithStaticIpam() },
+			expected: `{ "type": "static" }`,
+			field:    func(builder *NetworkBuilder) string { return builder.Definition.Spec.IPAM },
+		},
+		{name: "IP address support invalid builder short circuits", modifier: (*NetworkBuilder).WithIPAddressSupport},
+		{name: "MAC address support invalid builder short circuits", modifier: (*NetworkBuilder).WithMacAddressSupport},
+		{name: "static IPAM invalid builder short circuits", modifier: (*NetworkBuilder).WithStaticIpam},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithMetaPluginAllMultiFlag(testCase.allMulti)
-		assert.Equal(t, netBuilder.Definition.Spec.MetaPluginsConfig, testCase.expectedSpoofSetting)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := testCase.modifier(networkBuilderForModifierTest(testCase.validBuilder))
+
+			if !testCase.validBuilder {
+				assert.EqualError(t, result.GetError(), errEmptyNetworkResourceName)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.expected, testCase.field(result))
+		})
 	}
 }
 
-func TestSriovNetworkWithMetaPluginRdma(t *testing.T) {
+func TestNetworkWithWhereaboutsIPAM(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		metaPlugin string
-	}{
-		{
-			metaPlugin: `{ "type": "rdma" }`,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithMetaPluginRdma()
-		assert.Equal(t, netBuilder.Definition.Spec.MetaPluginsConfig, testCase.metaPlugin)
-	}
-}
-
-func TestWithLinkState(t *testing.T) {
-	testCases := []struct {
-		linkState           string
-		expectedErrorOutput string
-	}{
-		{
-			linkState: "enable",
-		},
-		{
-			linkState: "disable",
-		},
-		{
-			linkState: "auto",
-		},
-		{
-			linkState:           "invalid",
-			expectedErrorOutput: errInvalidLinkState,
-		},
-		{
-			linkState:           "",
-			expectedErrorOutput: errInvalidLinkState,
-		},
-	}
-	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithLinkState(testCase.linkState)
-		assert.Equal(t, netBuilder.errorMsg, testCase.expectedErrorOutput)
-
-		if len(testCase.expectedErrorOutput) == 0 {
-			assert.Equal(t, netBuilder.Definition.Spec.LinkState, testCase.linkState)
-		}
-	}
-}
-
-func TestWithMaxTxRate(t *testing.T) {
-	testCases := []struct {
-		maxTxRage uint16
-	}{
-		{
-			maxTxRage: 0,
-		},
-		{
-			maxTxRage: 100,
-		},
-		{
-			maxTxRage: 10000,
-		},
-	}
-	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithMaxTxRate(testCase.maxTxRage)
-		assert.Equal(t, uint16(*netBuilder.Definition.Spec.MaxTxRate), testCase.maxTxRage)
-	}
-}
-
-func TestWithMinTxRate(t *testing.T) {
-	testCases := []struct {
-		minTxRage uint16
-	}{
-		{
-			minTxRage: 0,
-		},
-		{
-			minTxRage: 100,
-		},
-		{
-			minTxRage: 10000,
-		},
-	}
-	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithMinTxRate(testCase.minTxRage)
-		assert.Equal(t, uint16(*netBuilder.Definition.Spec.MaxTxRate), testCase.minTxRage)
-	}
-}
-
-func TestWithTrustFlag(t *testing.T) {
-	testCases := []struct {
-		trustFlag         bool
-		expectedTrustFlag string
-	}{
-		{
-			trustFlag:         true,
-			expectedTrustFlag: "on",
-		},
-		{
-			trustFlag:         false,
-			expectedTrustFlag: spoofChkOff,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithSpoof(testCase.trustFlag)
-		assert.Equal(t, netBuilder.Definition.Spec.SpoofChk, testCase.expectedTrustFlag)
-	}
-}
-
-func TestWithVlanQoS(t *testing.T) {
-	testCases := []struct {
-		vlanQoS          uint16
-		expectedErrorMsg string
-	}{
-		{
-			vlanQoS:          0,
-			expectedErrorMsg: "",
-		},
-		{
-			vlanQoS:          8,
-			expectedErrorMsg: "Invalid QoS class. Supported vlan QoS class values are between 0...7",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithVlanQoS(testCase.vlanQoS)
-
-		assert.Equal(t, netBuilder.errorMsg, testCase.expectedErrorMsg)
-
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, uint16(netBuilder.Definition.Spec.VlanQoS), testCase.vlanQoS)
-		}
-	}
-}
-
-func TestWithIPAddressSupport(t *testing.T) {
-	testSettings := buildTestClientWithDummyObject()
-	netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithIPAddressSupport()
-	assert.Equal(t, netBuilder.Definition.Spec.Capabilities, `{ "ips": true }`)
-}
-
-func TestWithMacAddressSupport(t *testing.T) {
-	testSettings := buildTestClientWithDummyObject()
-	netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithMacAddressSupport()
-	assert.Equal(t, netBuilder.Definition.Spec.Capabilities, `{ "mac": true }`)
-}
-
-func TestWithStaticIpam(t *testing.T) {
-	testSettings := buildTestClientWithDummyObject()
-	netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithStaticIpam()
-	assert.Equal(t, netBuilder.Definition.Spec.IPAM, `{ "type": "static" }`)
-}
-
-func TestWithWhereaboutsIPAM(t *testing.T) {
-	testCases := []struct {
+		name              string
+		validBuilder      bool
 		ipRange           string
 		gateway           string
 		exclude           string
@@ -506,331 +674,169 @@ func TestWithWhereaboutsIPAM(t *testing.T) {
 		expectedIPAM      string
 	}{
 		{
-			ipRange:           "192.168.100.0/24",
-			gateway:           "192.168.100.1",
-			exclude:           "192.168.100.1",
-			networkName:       "test-network",
-			expectedErrorText: "",
+			name: "sets all fields", validBuilder: true, ipRange: "192.168.100.0/24", gateway: "192.168.100.1",
+			exclude: "192.168.100.1", networkName: "test-network",
 			expectedIPAM: `{"exclude":["192.168.100.1"],"gateway":"192.168.100.1",` +
 				`"network_name":"test-network","range":"192.168.100.0/24","type":"whereabouts"}`,
 		},
 		{
-			ipRange:           "10.0.0.0/16",
-			gateway:           "10.0.0.1",
-			exclude:           "",
-			networkName:       "",
-			expectedErrorText: "",
-			expectedIPAM:      `{"gateway":"10.0.0.1","range":"10.0.0.0/16","type":"whereabouts"}`,
+			name: "sets required fields", validBuilder: true, ipRange: "10.0.0.0/16", gateway: "10.0.0.1",
+			expectedIPAM: `{"gateway":"10.0.0.1","range":"10.0.0.0/16","type":"whereabouts"}`,
 		},
 		{
-			ipRange:           "172.16.0.0/24",
-			gateway:           "172.16.0.1",
-			exclude:           "172.16.0.1",
-			networkName:       "",
-			expectedErrorText: "",
-			expectedIPAM:      `{"exclude":["172.16.0.1"],"gateway":"172.16.0.1","range":"172.16.0.0/24","type":"whereabouts"}`,
-		},
-		{
-			ipRange:           "10.10.0.0/24",
-			gateway:           "10.10.0.1",
-			exclude:           "",
-			networkName:       "my-network",
-			expectedErrorText: "",
-			expectedIPAM:      `{"gateway":"10.10.0.1","network_name":"my-network","range":"10.10.0.0/24","type":"whereabouts"}`,
-		},
-		{
-			ipRange:           "",
-			gateway:           "192.168.100.1",
-			exclude:           "",
-			networkName:       "test-network",
+			name: "rejects empty range", validBuilder: true, gateway: "192.168.100.1",
 			expectedErrorText: "failed to configure IPAM, 'ipRange' parameter is empty",
-			expectedIPAM:      "",
 		},
 		{
-			ipRange:           "192.168.100.0/24",
-			gateway:           "",
-			exclude:           "",
-			networkName:       "test-network",
+			name: "rejects empty gateway", validBuilder: true, ipRange: "192.168.100.0/24",
 			expectedErrorText: "failed to configure IPAM, 'gateway' parameter is empty",
-			expectedIPAM:      "",
 		},
+		{name: "invalid builder short circuits", ipRange: "192.168.100.0/24", gateway: "192.168.100.1",
+			expectedErrorText: errEmptyNetworkResourceName},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyObject()
-		netBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithWhereaboutsIPAM(
-			testCase.ipRange, testCase.gateway, testCase.exclude, testCase.networkName)
-		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, testCase.expectedIPAM, netBuilder.Definition.Spec.IPAM)
-		}
-	}
-}
+			result := networkBuilderForModifierTest(testCase.validBuilder).WithWhereaboutsIPAM(
+				testCase.ipRange, testCase.gateway, testCase.exclude, testCase.networkName)
 
-func TestWithOptions(t *testing.T) {
-	testSettings := buildTestClientWithDummyObject()
-	testBuilder := buildValidSriovNetworkTestBuilder(testSettings).WithOptions(
-		func(builder *NetworkBuilder) (*NetworkBuilder, error) {
-			return builder, nil
+			if testCase.expectedErrorText == "" {
+				require.NoError(t, result.GetError())
+				assert.Equal(t, testCase.expectedIPAM, result.Definition.Spec.IPAM)
+
+				return
+			}
+
+			assert.EqualError(t, result.GetError(), testCase.expectedErrorText)
 		})
-
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidSriovNetworkTestBuilder(testSettings).WithOptions(
-		func(builder *NetworkBuilder) (*NetworkBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
-}
-
-func TestWithTargetNamespace(t *testing.T) {
-	testCases := []struct {
-		networkBuilder                    *NetworkBuilder
-		targetNs                          string
-		expectedError                     string
-		initialisedWithoutTargetNamespace bool
-	}{
-		{
-			networkBuilder: buildValidSriovNetworkTestBuilderWithoutTargetNamespace(
-				buildTestClientWithDummyObject(),
-			),
-			targetNs:      "new-target-ns",
-			expectedError: "",
-		},
-		{
-			networkBuilder: buildValidSriovNetworkTestBuilderWithoutTargetNamespace(
-				buildTestClientWithDummyObject(),
-			),
-			targetNs:      "",
-			expectedError: errEmptyTargetNsname,
-		},
-		{
-			networkBuilder: buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			targetNs:       "new-target-ns",
-			expectedError:  "",
-		},
-		{
-			networkBuilder: buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			targetNs:       "",
-			expectedError:  errEmptyTargetNsname,
-		},
-	}
-
-	for _, testCase := range testCases {
-		initialNS := testCase.networkBuilder.Definition.Spec.NetworkNamespace
-		netBuilder := testCase.networkBuilder.WithTargetNamespace(testCase.targetNs)
-		assert.Equal(t, testCase.expectedError, netBuilder.errorMsg)
-
-		// If an error is expected, the namespace should remain unchanged; otherwise it should match targetNs
-		expectedNS := initialNS
-		if testCase.expectedError == "" {
-			expectedNS = testCase.targetNs
-		}
-
-		assert.Equal(t, expectedNS, netBuilder.Definition.Spec.NetworkNamespace)
-	}
-}
-
-func TestGet(t *testing.T) {
-	testCases := []struct {
-		networkBuilder *NetworkBuilder
-		expectedError  error
-	}{
-		{
-			networkBuilder: buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError:  nil,
-		},
-		{
-			networkBuilder: buildInvalidSrIovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError:  fmt.Errorf("SrIovNetwork 'resName' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		network, err := testCase.networkBuilder.Get()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, network.Name, testCase.networkBuilder.Definition.Name)
-		}
-	}
-}
-
-func TestCreate(t *testing.T) {
-	testCases := []struct {
-		testNetwork   *NetworkBuilder
-		expectedError error
-	}{
-		{
-			testNetwork:   buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testNetwork:   buildInvalidSrIovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("SrIovNetwork 'resName' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		netBuilder, err := testCase.testNetwork.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, netBuilder.Definition, netBuilder.Object)
-		}
-	}
-}
-
-func TestDelete(t *testing.T) {
-	testCases := []struct {
-		testNetwork   *NetworkBuilder
-		expectedError error
-	}{
-		{
-			testNetwork:   buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testNetwork:   buildInvalidSrIovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("SrIovNetwork 'resName' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testNetwork.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testNetwork.Object)
-		}
 	}
 }
 
 func TestNetworkDeleteAndWait(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNetwork   *NetworkBuilder
-		expectedError error
+		name              string
+		validBuilder      bool
+		objectExists      bool
+		expectedErrorText string
 	}{
-		{
-			testNetwork:   buildValidSriovNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-		{
-			testNetwork:   buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testNetwork:   buildInvalidSrIovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("SrIovNetwork 'resName' cannot be empty"),
-		},
+		{name: "deletes existing network", validBuilder: true, objectExists: true},
+		{name: "network already absent", validBuilder: true},
+		{name: "invalid builder", expectedErrorText: "failed to validate: " + errEmptyNetworkResourceName},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testNetwork.DeleteAndWait(1 * time.Second)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testNetwork.Object)
-		}
+			var builder *NetworkBuilder
+
+			switch {
+			case testCase.objectExists:
+				builder = buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())
+			case testCase.validBuilder:
+				builder = buildValidSriovNetworkTestBuilder(buildNetworkSchemeTestClient())
+			default:
+				builder = buildInvalidSrIovNetworkTestBuilder(buildNetworkSchemeTestClient())
+			}
+
+			err := builder.DeleteAndWait(time.Second)
+
+			if testCase.expectedErrorText == "" {
+				require.NoError(t, err)
+				assert.Nil(t, builder.Object)
+
+				return
+			}
+
+			assert.EqualError(t, err, testCase.expectedErrorText)
+		})
 	}
 }
 
 func TestNetworkWaitUntilDeleted(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNetwork   *NetworkBuilder
-		expectedError error
+		name              string
+		validBuilder      bool
+		objectExists      bool
+		expectedError     error
+		expectedErrorText string
 	}{
-		{
-			testNetwork:   buildValidSriovNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-		{
-			testNetwork:   buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: context.DeadlineExceeded,
-		},
-		{
-			testNetwork:   buildInvalidSrIovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("SrIovNetwork 'resName' cannot be empty"),
-		},
+		{name: "network already absent", validBuilder: true},
+		{name: "times out while network remains", validBuilder: true, objectExists: true, expectedError: context.DeadlineExceeded},
+		{name: "invalid builder", expectedErrorText: "failed to validate: " + errEmptyNetworkResourceName},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testNetwork.WaitUntilDeleted(1 * time.Second)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testNetwork.Object)
-		}
-	}
-}
+			var builder *NetworkBuilder
 
-func TestExist(t *testing.T) {
-	testCases := []struct {
-		testNetwork    *NetworkBuilder
-		expectedStatus bool
-	}{
-		{
-			testNetwork:    buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testNetwork:    buildInvalidSrIovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedStatus: false,
-		},
-	}
+			switch {
+			case testCase.objectExists:
+				builder = buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject())
+			case testCase.validBuilder:
+				builder = buildValidSriovNetworkTestBuilder(buildNetworkSchemeTestClient())
+			default:
+				builder = buildInvalidSrIovNetworkTestBuilder(buildNetworkSchemeTestClient())
+			}
 
-	for _, testCase := range testCases {
-		exists := testCase.testNetwork.Exists()
-		assert.Equal(t, testCase.expectedStatus, exists)
+			err := builder.WaitUntilDeleted(time.Second)
+
+			if testCase.expectedErrorText != "" {
+				assert.EqualError(t, err, testCase.expectedErrorText)
+
+				return
+			}
+
+			assert.Equal(t, testCase.expectedError, err)
+		})
 	}
 }
 
 func TestGetSriovNetworksGVR(t *testing.T) {
-	assert.Equal(t, GetSriovNetworksGVR(),
-		schema.GroupVersionResource{
-			Group: "sriovnetwork.openshift.io", Version: "v1", Resource: "sriovnetworks",
-		})
+	t.Parallel()
+
+	assert.Equal(t, GetSriovNetworksGVR(), schema.GroupVersionResource{
+		Group: "sriovnetwork.openshift.io", Version: "v1", Resource: "sriovnetworks",
+	})
 }
 
-func TestUpdate(t *testing.T) {
-	testCases := []struct {
-		testNetwork   *NetworkBuilder
-		expectedError error
-	}{
-		{
-			testNetwork:   buildValidSriovNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-	}
-	for _, testCase := range testCases {
-		assert.Equal(t, "", testCase.testNetwork.Definition.Spec.IPAM)
-		assert.Nil(t, nil, testCase.testNetwork.Object)
-		testCase.testNetwork.WithStaticIpam()
-		testCase.testNetwork.Definition.ResourceVersion = "999"
-		netBuilder, err := testCase.testNetwork.Update(false)
-		assert.Equal(t, testCase.expectedError, err)
-		assert.Equal(t, `{ "type": "static" }`, testCase.testNetwork.Object.Spec.IPAM)
-		assert.Equal(t, netBuilder.Definition, netBuilder.Object)
-	}
+func newNetworkCommonTestConfig() testhelper.CommonTestConfig[
+	srIovV1.SriovNetwork, NetworkBuilder, *srIovV1.SriovNetwork, *NetworkBuilder,
+] {
+	return testhelper.NewCommonTestConfig[srIovV1.SriovNetwork, NetworkBuilder](
+		srIovV1.AddToScheme,
+		sriovNetworkGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 }
 
-// buildValidTestBuilder returns a valid Builder for testing purposes.
 func buildValidSriovNetworkTestBuilder(apiClient *clients.Settings) *NetworkBuilder {
 	return NewNetworkBuilder(
 		apiClient, defaultNetName, defaultNetNsName, defaultNetTargetNsName, defaultNetResName)
 }
 
-// buildValidSriovNetworkTestBuilderWithoutTargetNamespace returns a valid Builder
-// without target namespace for testing purposes.
-func buildValidSriovNetworkTestBuilderWithoutTargetNamespace(apiClient *clients.Settings) *NetworkBuilder {
-	return NewNetworkBuilder(
-		apiClient, defaultNetName, defaultNetNsName, "", defaultNetResName)
+func buildInvalidSrIovNetworkTestBuilder(apiClient *clients.Settings) *NetworkBuilder {
+	return NewNetworkBuilder(apiClient, defaultNetName, defaultNetNsName, defaultNetTargetNsName, "")
 }
 
-// buildInvalidSrIovNetworkTestBuilder returns an invalid Builder without resource name for testing purposes.
-func buildInvalidSrIovNetworkTestBuilder(apiClient *clients.Settings) *NetworkBuilder {
-	return NewNetworkBuilder(
-		apiClient, defaultNetName, defaultNetNsName, defaultNetTargetNsName, "")
+func networkBuilderForModifierTest(valid bool) *NetworkBuilder {
+	if valid {
+		return buildValidSriovNetworkTestBuilder(buildNetworkSchemeTestClient())
+	}
+
+	return buildInvalidSrIovNetworkTestBuilder(buildNetworkSchemeTestClient())
+}
+
+func buildNetworkSchemeTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
 }
 
 func buildTestClientWithDummyObject() *clients.Settings {
