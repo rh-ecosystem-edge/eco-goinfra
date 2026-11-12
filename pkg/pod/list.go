@@ -207,8 +207,9 @@ func WaitForAllPodsInNamespaceRunning(
 	return true, nil
 }
 
-// WaitForPodsInNamespacesHealthy waits up to timeout until every pod in namespaces is healthy. Failed pods with
-// RestartPolicy of Never are ignored. It works by listing pods every 15 seconds until every listed pod is healthy.
+// WaitForPodsInNamespacesHealthy waits up to timeout until every pod in namespaces is healthy. Failed pods are ignored
+// since the state is terminal and they will never become healthy. It works by listing pods every 15 seconds until every
+// listed pod is healthy.
 func WaitForPodsInNamespacesHealthy(
 	apiClient *clients.Settings, namespaces []string, timeout time.Duration, options ...metav1.ListOptions) error {
 	logMessage := fmt.Sprintf("Waiting for all pods in namespaces %v to be healthy", namespaces)
@@ -237,6 +238,8 @@ func WaitForPodsInNamespacesHealthy(
 		context.TODO(), 15*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
 			pods, err := listPodsInNamespaces(apiClient, namespaces, passedOptions)
 			if err != nil {
+				klog.V(100).Infof("Failed to list pods in namespaces %v: %v", namespaces, err)
+
 				return false, nil
 			}
 
@@ -244,9 +247,12 @@ func WaitForPodsInNamespacesHealthy(
 				// We use this internal helper to avoid spamming the apiClient since otherwise we may be
 				// sending hundreds of requests each iteration.
 				if !pod.isObjectHealthy() {
-					if pod.Object.Status.Phase == corev1.PodFailed && pod.Object.Spec.RestartPolicy == corev1.RestartPolicyNever {
+					if pod.Object.Status.Phase == corev1.PodFailed {
 						continue
 					}
+
+					klog.V(100).Infof("Pod %s in namespace %s is not healthy; skipping to next poll",
+						pod.Object.Name, pod.Object.Namespace)
 
 					return false, nil
 				}
