@@ -6,6 +6,7 @@ import (
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	nfdv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/nfd/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -52,26 +53,34 @@ func NewNodeFeatureRuleBuilder(apiClient *clients.Settings, name, namespace stri
 	return builder
 }
 
-// NewNodeFeatureRuleBuilderFromObjectString creates a Builder object from CSV alm-examples.
+// NewNodeFeatureRuleBuilderFromObjectString creates a Builder object from CSV alm-examples. Initialization errors are
+// stored on the builder so callers can still safely use its methods.
 func NewNodeFeatureRuleBuilderFromObjectString(apiClient *clients.Settings, almExample string) *NodeFeatureRuleBuilder {
 	klog.V(100).Infof("Initializing new Builder structure from almExample string")
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient of the NodeFeatureRule is nil")
-
-		return nil
-	}
-
-	if err := apiClient.AttachScheme(nfdv1.AddToScheme); err != nil {
-		klog.V(100).Infof("Failed to add nfd v1 scheme to client schemes: %v", err)
-
-		return nil
-	}
 
 	builder := &NodeFeatureRuleBuilder{}
 	builder.AttachMixins()
 	builder.SetGVK(builder.GetGVK())
 	builder.SetClient(apiClient)
+	builder.SetDefinition(new(nfdv1.NodeFeatureRule))
+
+	resourceKey := common.NewResourceKeyFromBuilder(builder)
+
+	if apiClient == nil {
+		klog.V(100).Info("The apiClient of the NodeFeatureRule is nil")
+
+		builder.SetError(commonerrors.NewAPIClientNil(resourceKey))
+
+		return builder
+	}
+
+	if err := apiClient.AttachScheme(nfdv1.AddToScheme); err != nil {
+		klog.V(100).Infof("Failed to add nfd v1 scheme to client schemes: %v", err)
+
+		builder.SetError(commonerrors.NewSchemeAttacherFailed(resourceKey, err))
+
+		return builder
+	}
 
 	nodeFeatureRule, err := getNodeFeatureRuleFromAlmExample(almExample)
 	if err != nil {

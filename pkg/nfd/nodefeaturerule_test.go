@@ -99,9 +99,10 @@ func TestNewNodeFeatureRuleBuilderFromObjectString(t *testing.T) {
 			expectedErrorText: "error initializing NodeFeatureRule from alm-examples: nodeFeatureRule is missing in alm-examples ",
 		},
 		{
-			name:      "no client",
-			almString: nodeFeatureRuleAlmExample,
-			client:    false,
+			name:              "no client",
+			almString:         nodeFeatureRuleAlmExample,
+			client:            false,
+			expectedErrorText: "apiClient for NodeFeatureRule is nil",
 		},
 	}
 
@@ -116,17 +117,14 @@ func TestNewNodeFeatureRuleBuilderFromObjectString(t *testing.T) {
 
 			builder := NewNodeFeatureRuleBuilderFromObjectString(client, testCase.almString)
 
-			if !testCase.client {
-				assert.Nil(t, builder)
-
-				return
-			}
-
 			require.NotNil(t, builder)
 			assert.Equal(t, nodeFeatureRuleGVK, builder.GetGVK())
 
 			if testCase.expectedErrorText != "" {
 				assert.EqualError(t, builder.GetError(), testCase.expectedErrorText)
+
+				_, err := builder.Get()
+				assert.ErrorContains(t, err, testCase.expectedErrorText)
 
 				return
 			}

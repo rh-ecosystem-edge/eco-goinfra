@@ -63,9 +63,10 @@ func TestNFDNewBuilderFromObjectString(t *testing.T) {
 			expectedErrorText: "error initializing NodeFeatureDiscovery from alm-examples: failed to get alm examples",
 		},
 		{
-			name:      "no client",
-			almString: almExample,
-			client:    false,
+			name:              "no client",
+			almString:         almExample,
+			client:            false,
+			expectedErrorText: "apiClient for NodeFeatureDiscovery is nil",
 		},
 	}
 
@@ -80,17 +81,14 @@ func TestNFDNewBuilderFromObjectString(t *testing.T) {
 
 			builder := NewBuilderFromObjectString(client, testCase.almString)
 
-			if !testCase.client {
-				assert.Nil(t, builder)
-
-				return
-			}
-
 			require.NotNil(t, builder)
 			assert.Equal(t, nodeFeatureDiscoveryGVK, builder.GetGVK())
 
 			if testCase.expectedErrorText != "" {
 				assert.EqualError(t, builder.GetError(), testCase.expectedErrorText)
+
+				_, err := builder.Get()
+				assert.ErrorContains(t, err, testCase.expectedErrorText)
 
 				return
 			}
