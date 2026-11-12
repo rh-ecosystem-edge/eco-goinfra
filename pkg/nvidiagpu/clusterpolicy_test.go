@@ -62,9 +62,10 @@ func TestNvidiaGPUNewBuilderFromObjectString(t *testing.T) {
 			expectedErrorText: "error initializing ClusterPolicy from alm-examples: failed to get alm examples",
 		},
 		{
-			name:       "no client",
-			almExample: almExample,
-			client:     false,
+			name:              "no client",
+			almExample:        almExample,
+			client:            false,
+			expectedErrorText: "apiClient for ClusterPolicy is nil",
 		},
 	}
 
@@ -79,17 +80,14 @@ func TestNvidiaGPUNewBuilderFromObjectString(t *testing.T) {
 
 			builder := NewBuilderFromObjectString(client, testCase.almExample)
 
-			if !testCase.client {
-				assert.Nil(t, builder)
-
-				return
-			}
-
 			require.NotNil(t, builder)
 			assert.Equal(t, clusterPolicyGVK, builder.GetGVK())
 
 			if testCase.expectedErrorText != "" {
 				assert.ErrorContains(t, builder.GetError(), testCase.expectedErrorText)
+
+				_, err := builder.Get()
+				assert.ErrorContains(t, err, testCase.expectedErrorText)
 
 				return
 			}

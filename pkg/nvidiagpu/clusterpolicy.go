@@ -6,6 +6,7 @@ import (
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	nvidiagpuv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/nvidiagpu/nvidiagputypes"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -38,26 +39,34 @@ func (builder *Builder) GetGVK() schema.GroupVersionKind {
 	return clusterPolicyGVK
 }
 
-// NewBuilderFromObjectString creates a Builder object from CSV alm-examples.
+// NewBuilderFromObjectString creates a Builder object from CSV alm-examples. Initialization errors are stored on the
+// builder so callers can still safely use its methods.
 func NewBuilderFromObjectString(apiClient *clients.Settings, almExample string) *Builder {
 	klog.V(100).Infof("Initializing new Builder structure from almExample string")
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient of the ClusterPolicy is nil")
-
-		return nil
-	}
-
-	if err := apiClient.AttachScheme(nvidiagpuv1.AddToScheme); err != nil {
-		klog.V(100).Infof("Failed to add nvidiagpuv1 scheme to client schemes: %v", err)
-
-		return nil
-	}
 
 	builder := &Builder{}
 	builder.AttachMixins()
 	builder.SetGVK(builder.GetGVK())
 	builder.SetClient(apiClient)
+	builder.SetDefinition(new(nvidiagpuv1.ClusterPolicy))
+
+	resourceKey := common.NewResourceKeyFromBuilder(builder)
+
+	if apiClient == nil {
+		klog.V(100).Info("The apiClient of the ClusterPolicy is nil")
+
+		builder.SetError(commonerrors.NewAPIClientNil(resourceKey))
+
+		return builder
+	}
+
+	if err := apiClient.AttachScheme(nvidiagpuv1.AddToScheme); err != nil {
+		klog.V(100).Infof("Failed to add nvidiagpuv1 scheme to client schemes: %v", err)
+
+		builder.SetError(commonerrors.NewSchemeAttacherFailed(resourceKey, err))
+
+		return builder
+	}
 
 	clusterPolicy, err := getClusterPolicyFromAlmExample(almExample)
 	if err != nil {
