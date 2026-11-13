@@ -1,484 +1,407 @@
 package mco
 
 import (
-	"fmt"
 	"testing"
 
 	mcv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"github.com/stretchr/testify/require"
 )
 
 const defaultMachineConfigName = "test-machine-config"
 
-var testSchemes = []clients.SchemeAttacher{
-	mcv1.Install,
-}
+var testSchemes = []clients.SchemeAttacher{mcv1.Install}
 
 func TestNewMachineConfigBuilder(t *testing.T) {
-	testCases := []struct {
-		name              string
-		client            bool
-		expectedErrorText string
-	}{
-		{
-			name:              defaultMachineConfigName,
-			client:            true,
-			expectedErrorText: "",
-		},
-		{
-			name:              "",
-			client:            true,
-			expectedErrorText: errEmptyMachineConfigName,
-		},
-		{
-			name:              defaultMachineConfigName,
-			client:            false,
-			expectedErrorText: "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
-
-		testBuilder := NewMCBuilder(testSettings, testCase.name)
-
-		if testCase.client {
-			assert.Equal(t, testCase.expectedErrorText, testBuilder.errorMsg)
-
-			if testCase.expectedErrorText == "" {
-				assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			}
-		} else {
-			assert.Nil(t, testBuilder)
-		}
-	}
+	testhelper.NewClusterScopedBuilderTestConfig(
+		NewMCBuilder, mcv1.Install, machineConfigGVK).ExecuteTests(t)
 }
 
 func TestPullMachineConfig(t *testing.T) {
-	testCases := []struct {
-		name                string
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			name:                defaultMachineConfigName,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			name:                "",
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       fmt.Errorf(errEmptyMachineConfigName),
-		},
-		{
-			name:                defaultMachineConfigName,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("machineconfig object %s does not exist", defaultMachineConfigName),
-		},
-		{
-			name:                defaultMachineConfigName,
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("machineconfig 'apiClient' cannot be nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testMC := buildDummyMachineConfig(testCase.name)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testMC)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		testBuilder, err := PullMachineConfig(testSettings, testCase.name)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testMC.Name, testBuilder.Definition.Name)
-		}
-	}
+	testhelper.NewClusterScopedPullTestConfig(
+		PullMachineConfig, mcv1.Install, machineConfigGVK).ExecuteTests(t)
 }
 
-func TestMachineConfigGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *MCBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildInvalidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: errEmptyMachineConfigName,
-		},
-		{
-			testBuilder:   buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "machineconfigs.machineconfiguration.openshift.io \"test-machine-config\" not found",
-		},
-	}
+func TestMachineConfigBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		machineConfig, err := testCase.testBuilder.Get()
+	commonConfig := newMachineConfigCommonTestConfig()
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.testBuilder.Definition.Name, machineConfig.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestMachineConfigCreate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *MCBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: fmt.Errorf(errEmptyMachineConfigName),
-		},
-		{
-			testBuilder:   buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder, err := testCase.testBuilder.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testBuilder.Definition.Name, testBuilder.Object.Name)
-		}
-	}
-}
-
-func TestMachineConfigUpdate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *MCBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   buildValidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: "",
-		},
-		{
-			testBuilder:   buildInvalidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: errEmptyMachineConfigName,
-		},
-		{
-			testBuilder:   buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "machineconfigs.machineconfiguration.openshift.io \"test-machine-config\" not found",
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.False(t, testCase.testBuilder.Definition.Spec.FIPS)
-
-		testCase.testBuilder.Definition.ResourceVersion = "999"
-		testCase.testBuilder.Definition.Spec.FIPS = true
-
-		_, err := testCase.testBuilder.Update()
-
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.True(t, testCase.testBuilder.Object.Spec.FIPS)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestMachineConfigDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *MCBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			expectedError: fmt.Errorf(errEmptyMachineConfigName),
-		},
-		{
-			testBuilder:   buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
-	}
-}
-
-func TestMachineConfigExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *MCBuilder
-		exists      bool
-	}{
-		{
-			testBuilder: buildValidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			exists:      true,
-		},
-		{
-			testBuilder: buildInvalidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig()),
-			exists:      false,
-		},
-		{
-			testBuilder: buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
-}
-
-func TestMachineConfigWithLabel(t *testing.T) {
-	testCases := []struct {
-		key           string
-		expectedError string
-	}{
-		{
-			key:           "test",
-			expectedError: "",
-		},
-		{
-			key:           "",
-			expectedError: errEmptyKey,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder = testBuilder.WithLabel(testCase.key, "test")
-
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, "test", testBuilder.Definition.Labels[testCase.key])
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		With(testhelper.NewCreateTestConfig(commonConfig)).
+		With(testhelper.NewDeleterTestConfig(commonConfig)).
+		With(testhelper.NewUpdateTestConfig(commonConfig)).
+		Run(t)
 }
 
 func TestMachineConfigWithOptions(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewWithOptionsTestConfig(newMachineConfigCommonTestConfig()).ExecuteTests(t)
+}
+
+func TestMachineConfigWithLabel(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBuilder   *MCBuilder
-		options       MCAdditionalOptions
-		expectedError string
+		name        string
+		builder     func() *MCBuilder
+		key         string
+		value       string
+		assertError func(error) bool
 	}{
 		{
-			testBuilder: buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			options: func(builder *MCBuilder) (*MCBuilder, error) {
-				builder.Definition.Spec.FIPS = true
-
-				return builder, nil
+			name: "sets label on valid builder",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
 			},
-			expectedError: "",
+			key:         "test-key",
+			value:       "test-value",
+			assertError: isNilError,
 		},
 		{
-			testBuilder: buildInvalidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			options: func(builder *MCBuilder) (*MCBuilder, error) {
-				return builder, nil
+			name: "empty key sets builder error",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
 			},
-			expectedError: errEmptyMachineConfigName,
+			key:         "",
+			value:       "test-value",
+			assertError: hasErrorText(errEmptyKey),
 		},
 		{
-			testBuilder: buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			options: func(builder *MCBuilder) (*MCBuilder, error) {
-				return builder, fmt.Errorf("error adding additional option")
+			name: "invalid builder short circuits",
+			builder: func() *MCBuilder {
+				return buildInvalidMachineConfigTestBuilder(newMachineConfigTestClient())
 			},
-			expectedError: "error adding additional option",
+			key:         "test-key",
+			value:       "test-value",
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := testCase.testBuilder.WithOptions(testCase.options)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.True(t, testBuilder.Definition.Spec.FIPS)
-		}
+			builder := testCase.builder()
+			require.NotNil(t, builder)
+
+			result := builder.WithLabel(testCase.key, testCase.value)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.value, result.Definition.Labels[testCase.key])
+			} else {
+				assert.Empty(t, result.Definition.Labels)
+			}
+		})
 	}
 }
 
 func TestMachineConfigWithKernelArguments(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		kernelArgs    []string
-		expectedError string
+		name        string
+		builder     func() *MCBuilder
+		kernelArgs  []string
+		assertError func(error) bool
 	}{
 		{
-			kernelArgs:    []string{"test"},
-			expectedError: "",
+			name: "sets kernel arguments on valid builder",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			kernelArgs:  []string{"test"},
+			assertError: isNilError,
 		},
 		{
-			kernelArgs:    nil,
-			expectedError: "'kernelArgs' cannot be empty",
+			name: "empty kernel arguments sets builder error",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			kernelArgs:  nil,
+			assertError: hasErrorText("'kernelArgs' cannot be empty"),
+		},
+		{
+			name: "invalid builder short circuits",
+			builder: func() *MCBuilder {
+				return buildInvalidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			kernelArgs:  []string{"test"},
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder = testBuilder.WithKernelArguments(testCase.kernelArgs)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			builder := testCase.builder()
+			require.NotNil(t, builder)
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.kernelArgs, testBuilder.Definition.Spec.KernelArguments)
-		}
+			result := builder.WithKernelArguments(testCase.kernelArgs)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.kernelArgs, result.Definition.Spec.KernelArguments)
+			} else {
+				assert.Nil(t, result.Definition.Spec.KernelArguments)
+			}
+		})
 	}
 }
 
 func TestMachineConfigWithExtensions(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		extensions    []string
-		expectedError string
+		name        string
+		builder     func() *MCBuilder
+		extensions  []string
+		assertError func(error) bool
 	}{
 		{
-			extensions:    []string{"test"},
-			expectedError: "",
+			name: "sets extensions on valid builder",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			extensions:  []string{"test"},
+			assertError: isNilError,
 		},
 		{
-			extensions:    nil,
-			expectedError: "'extensions' cannot be empty",
+			name: "empty extensions sets builder error",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			extensions:  nil,
+			assertError: hasErrorText("'extensions' cannot be empty"),
+		},
+		{
+			name: "invalid builder short circuits",
+			builder: func() *MCBuilder {
+				return buildInvalidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			extensions:  []string{"test"},
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder = testBuilder.WithExtensions(testCase.extensions)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			builder := testCase.builder()
+			require.NotNil(t, builder)
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.extensions, testBuilder.Definition.Spec.Extensions)
-		}
+			result := builder.WithExtensions(testCase.extensions)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.extensions, result.Definition.Spec.Extensions)
+			} else {
+				assert.Nil(t, result.Definition.Spec.Extensions)
+			}
+		})
 	}
 }
 
 func TestMachineConfigWithRawConfig(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		rawConfig     []byte
-		expectedError string
+		name        string
+		builder     func() *MCBuilder
+		rawConfig   []byte
+		assertError func(error) bool
 	}{
 		{
-			rawConfig:     []byte{0, 0, 0},
-			expectedError: "",
+			name: "sets raw config on valid builder",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			rawConfig:   []byte{0, 0, 0},
+			assertError: isNilError,
 		},
 		{
-			rawConfig:     []byte{},
-			expectedError: "'Config.Raw' cannot be empty",
+			name: "empty raw config sets builder error",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			rawConfig:   []byte{},
+			assertError: hasErrorText("'Config.Raw' cannot be empty"),
+		},
+		{
+			name: "invalid builder short circuits",
+			builder: func() *MCBuilder {
+				return buildInvalidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			rawConfig:   []byte{0, 0, 0},
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
+
 	for _, testCase := range testCases {
-		testBuilder := buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder = testBuilder.WithRawConfig(testCase.rawConfig)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			builder := testCase.builder()
+			require.NotNil(t, builder)
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.rawConfig, testBuilder.Definition.Spec.Config.Raw)
-		}
+			result := builder.WithRawConfig(testCase.rawConfig)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.rawConfig, result.Definition.Spec.Config.Raw)
+			} else {
+				assert.Nil(t, result.Definition.Spec.Config.Raw)
+			}
+		})
 	}
 }
 
 func TestMachineConfigWithFIPS(t *testing.T) {
-	testBuilder := buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-	testBuilder = testBuilder.WithFIPS(true)
+	t.Parallel()
 
-	assert.True(t, testBuilder.Definition.Spec.FIPS)
-}
-
-func TestMachineConfigWithKernelType(t *testing.T) {
 	testCases := []struct {
-		kernelType    string
-		expectedError string
+		name        string
+		builder     func() *MCBuilder
+		fips        bool
+		assertError func(error) bool
 	}{
 		{
-			kernelType:    "test",
-			expectedError: "",
+			name: "sets FIPS on valid builder",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			fips:        true,
+			assertError: isNilError,
 		},
 		{
-			kernelType:    "",
-			expectedError: "'kernelType' cannot be empty",
+			name: "invalid builder short circuits",
+			builder: func() *MCBuilder {
+				return buildInvalidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			fips:        true,
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidMachineConfigTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder = testBuilder.WithKernelType(testCase.kernelType)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			builder := testCase.builder()
+			require.NotNil(t, builder)
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.kernelType, testBuilder.Definition.Spec.KernelType)
-		}
+			result := builder.WithFIPS(testCase.fips)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.fips, result.Definition.Spec.FIPS)
+			} else {
+				assert.False(t, result.Definition.Spec.FIPS)
+			}
+		})
 	}
 }
 
-// buildDummyMachineConfig returns a MachineConfig with the provided name.
-func buildDummyMachineConfig(name string) *mcv1.MachineConfig {
-	return &mcv1.MachineConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+func TestMachineConfigWithKernelType(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		builder     func() *MCBuilder
+		kernelType  string
+		assertError func(error) bool
+	}{
+		{
+			name: "sets kernel type on valid builder",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			kernelType:  "test",
+			assertError: isNilError,
+		},
+		{
+			name: "empty kernel type sets builder error",
+			builder: func() *MCBuilder {
+				return buildValidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			kernelType:  "",
+			assertError: hasErrorText("'kernelType' cannot be empty"),
+		},
+		{
+			name: "invalid builder short circuits",
+			builder: func() *MCBuilder {
+				return buildInvalidMachineConfigTestBuilder(newMachineConfigTestClient())
+			},
+			kernelType:  "test",
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := testCase.builder()
+			require.NotNil(t, builder)
+
+			result := builder.WithKernelType(testCase.kernelType)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.kernelType, result.Definition.Spec.KernelType)
+			} else {
+				assert.Empty(t, result.Definition.Spec.KernelType)
+			}
+		})
+	}
 }
 
-// buildTestClientWithDummyMachineConfig returns a client with a dummy MachineConfig.
-func buildTestClientWithDummyMachineConfig() *clients.Settings {
+func newMachineConfigCommonTestConfig() testhelper.CommonTestConfig[
+	mcv1.MachineConfig, MCBuilder, *mcv1.MachineConfig, *MCBuilder,
+] {
+	return testhelper.NewCommonTestConfig[mcv1.MachineConfig, MCBuilder](
+		mcv1.Install, machineConfigGVK, testhelper.ResourceScopeClusterScoped)
+}
+
+func newMachineConfigTestClient() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyMachineConfig(defaultMachineConfigName),
-		},
 		SchemeAttachers: testSchemes,
 	})
 }
 
-// buildValidMachineConfigTestBuilder returns a valid MCBuilder for testing.
 func buildValidMachineConfigTestBuilder(apiClient *clients.Settings) *MCBuilder {
 	return NewMCBuilder(apiClient, defaultMachineConfigName)
 }
 
-// buildInvalidMachineConfigTestBuilder returns a valid MCBuilder for testing.
 func buildInvalidMachineConfigTestBuilder(apiClient *clients.Settings) *MCBuilder {
 	return NewMCBuilder(apiClient, "")
+}
+
+func isNilError(err error) bool {
+	return err == nil
+}
+
+func hasErrorText(expected string) func(error) bool {
+	return func(err error) bool {
+		return err != nil && err.Error() == expected
+	}
 }
