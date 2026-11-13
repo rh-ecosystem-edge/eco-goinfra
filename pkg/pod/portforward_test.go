@@ -1,34 +1,45 @@
 package pod
 
 import (
-	"fmt"
 	"testing"
 
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPortForward(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		name          string
-		builder       *Builder
-		expectedError error
+		name        string
+		builder     *Builder
+		assertError func(error) bool
 	}{
 		{
-			name:          "invalid builder - empty namespace",
-			builder:       buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
-			expectedError: fmt.Errorf(errEmptyNamespace),
+			name:        "invalid builder - empty namespace",
+			builder:     buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
+			assertError: commonerrors.IsBuilderNamespaceEmpty,
 		},
 		{
-			name:          "nil builder",
-			builder:       buildValidPodTestBuilder(nil),
-			expectedError: fmt.Errorf("error: received nil Pod builder"),
+			name:        "nil client",
+			builder:     buildValidPodTestBuilder(nil),
+			assertError: commonerrors.IsAPIClientNil,
+		},
+		{
+			name:        "nil builder",
+			builder:     nil,
+			assertError: commonerrors.IsBuilderNil,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			addr, stop, err := testCase.builder.PortForward(8080, 8080)
-			assert.Equal(t, testCase.expectedError, err)
+			require.Error(t, err)
+			assert.True(t, testCase.assertError(err))
 			assert.Empty(t, addr)
 			assert.Nil(t, stop)
 		})

@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // List returns pod inventory in the given namespace.
@@ -42,27 +43,15 @@ func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOpti
 
 	klog.V(100).Infof("%v", logMessage)
 
-	podList, err := apiClient.Pods(nsname).List(logging.DiscardContext(), passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions([]metav1.ListOptions{passedOptions})
 	if err != nil {
-		klog.V(100).Infof("Failed to list pods in the nsname %s due to %s", nsname, err.Error())
-
 		return nil, err
 	}
 
-	var podObjects []*Builder
+	allOptions := append([]runtimeclient.ListOption{runtimeclient.InNamespace(nsname)}, convertedOptions...)
 
-	for _, runningPod := range podList.Items {
-		copiedPod := runningPod
-		podBuilder := &Builder{
-			apiClient:  apiClient,
-			Object:     &copiedPod,
-			Definition: &copiedPod,
-		}
-
-		podObjects = append(podObjects, podBuilder)
-	}
-
-	return podObjects, nil
+	return common.List[corev1.Pod, corev1.PodList, Builder](
+		context.TODO(), apiClient, corev1.AddToScheme, allOptions...)
 }
 
 // ListInAllNamespaces returns a cluster-wide pod inventory.
@@ -89,27 +78,13 @@ func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOpti
 
 	klog.V(100).Infof("%v", logMessage)
 
-	podList, err := apiClient.Pods("").List(logging.DiscardContext(), passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions([]metav1.ListOptions{passedOptions})
 	if err != nil {
-		klog.V(100).Infof("Failed to list all pods due to %s", err.Error())
-
 		return nil, err
 	}
 
-	var podObjects []*Builder
-
-	for _, runningPod := range podList.Items {
-		copiedPod := runningPod
-		podBuilder := &Builder{
-			apiClient:  apiClient,
-			Object:     &copiedPod,
-			Definition: &copiedPod,
-		}
-
-		podObjects = append(podObjects, podBuilder)
-	}
-
-	return podObjects, nil
+	return common.List[corev1.Pod, corev1.PodList, Builder](
+		context.TODO(), apiClient, corev1.AddToScheme, convertedOptions...)
 }
 
 // ListByNamePattern returns pod inventory in the given namespace filtered by name pattern.
@@ -128,7 +103,7 @@ func ListByNamePattern(apiClient *clients.Settings, namePattern, nsname string) 
 		return nil, fmt.Errorf("failed to list pods, 'nsname' parameter is empty")
 	}
 
-	podList, err := apiClient.Pods(nsname).List(logging.DiscardContext(), metav1.ListOptions{})
+	podList, err := List(apiClient, nsname)
 	if err != nil {
 		klog.V(100).Infof("Failed to list pods filtered by the name pattern %s in the nsname %s due to %s",
 			namePattern, nsname, err.Error())
@@ -138,15 +113,8 @@ func ListByNamePattern(apiClient *clients.Settings, namePattern, nsname string) 
 
 	var podObjects []*Builder
 
-	for _, runningPod := range podList.Items {
-		if strings.Contains(runningPod.Name, namePattern) {
-			copiedPod := runningPod
-			podBuilder := &Builder{
-				apiClient:  apiClient,
-				Object:     &copiedPod,
-				Definition: &copiedPod,
-			}
-
+	for _, podBuilder := range podList {
+		if strings.Contains(podBuilder.Definition.Name, namePattern) {
 			podObjects = append(podObjects, podBuilder)
 		}
 	}

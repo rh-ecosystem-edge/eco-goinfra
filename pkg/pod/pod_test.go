@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -25,149 +28,79 @@ const (
 
 var podRunningErrorMsg = fmt.Sprintf("can not redefine running pod. pod already running on node %s", defaultPodNodeName)
 
+func newPodCommonTestConfig() testhelper.CommonTestConfig[corev1.Pod, Builder, *corev1.Pod, *Builder] {
+	return testhelper.NewCommonTestConfig[corev1.Pod, Builder](
+		corev1.AddToScheme,
+		podGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+}
+
+func assertPodBuilderError(t *testing.T, expected string, err error) {
+	t.Helper()
+
+	if expected == "" {
+		assert.NoError(t, err)
+
+		return
+	}
+
+	assert.EqualError(t, err, expected)
+}
+
 func TestPodNewBuilder(t *testing.T) {
-	testCases := []struct {
-		name          string
-		nsname        string
-		image         string
-		client        bool
-		expectedError string
-	}{
-		{
-			name:          defaultPodName,
-			nsname:        defaultPodNsName,
-			image:         defaultPodImage,
-			client:        true,
-			expectedError: "",
-		},
-		{
-			name:          "",
-			nsname:        defaultPodNsName,
-			image:         defaultPodImage,
-			client:        true,
-			expectedError: "pod 'name' cannot be empty",
-		},
-		{
-			name:          defaultPodName,
-			nsname:        "",
-			image:         defaultPodImage,
-			client:        true,
-			expectedError: errEmptyNamespace,
-		},
-		{
-			name:          defaultPodName,
-			nsname:        defaultPodNsName,
-			image:         "",
-			client:        true,
-			expectedError: "pod 'image' cannot be empty",
-		},
-		{
-			name:          defaultPodName,
-			nsname:        defaultPodNsName,
-			image:         defaultPodImage,
-			client:        false,
-			expectedError: "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *Builder {
+				return NewBuilder(apiClient, name, nsname, defaultPodImage)
+			},
+			corev1.AddToScheme,
+			podGVK,
+		).ExecuteTests(t)
+	})
 
-		testBuilder := NewBuilder(testSettings, testCase.name, testCase.nsname, testCase.image)
+	t.Run("valid builder gets default container", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.client {
-			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		testBuilder := buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
 
-			if testCase.expectedError == "" {
-				assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-				assert.Equal(t, testCase.nsname, testBuilder.Definition.Namespace)
-				assert.NotEmpty(t, testBuilder.Definition.Spec.Containers)
-			}
-		} else {
-			assert.Nil(t, testBuilder)
-		}
-	}
+		require.NoError(t, testBuilder.GetError())
+		require.Len(t, testBuilder.Definition.Spec.Containers, 1)
+		assert.Equal(t, defaultPodImage, testBuilder.Definition.Spec.Containers[0].Image)
+	})
+
+	t.Run("empty image returns error", func(t *testing.T) {
+		t.Parallel()
+
+		testBuilder := NewBuilder(clients.GetTestClients(clients.TestClientParams{}), defaultPodName, defaultPodNsName, "")
+
+		require.EqualError(t, testBuilder.GetError(), "pod 'image' cannot be empty")
+	})
 }
 
 func TestPodPull(t *testing.T) {
-	testCases := []struct {
-		name                string
-		nsname              string
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			name:                defaultPodName,
-			nsname:              defaultPodNsName,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			name:                "",
-			nsname:              defaultPodNsName,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       fmt.Errorf("pod 'name' cannot be empty"),
-		},
-		{
-			name:                defaultPodName,
-			nsname:              "",
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       fmt.Errorf(errEmptyNamespace),
-		},
-		{
-			name:                defaultPodName,
-			nsname:              defaultPodNsName,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("pod object %s does not exist in namespace %s", defaultPodName, defaultPodNsName),
-		},
-		{
-			name:                defaultPodName,
-			nsname:              defaultPodNsName,
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("pod 'apiClient' cannot be empty"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+	testhelper.NewNamespacedPullTestConfig(Pull, corev1.AddToScheme, podGVK).ExecuteTests(t)
 
-		testPod := buildDummyPod(testCase.name, testCase.nsname, defaultPodImage)
+	t.Run("pulled pod retains containers", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testPod)
-		}
+		testBuilder, err := Pull(buildTestClientWithDummyPod(), defaultPodName, defaultPodNsName)
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
-
-		testBuilder, err := Pull(testSettings, testCase.name, testCase.nsname)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testCase.nsname, testBuilder.Definition.Namespace)
-			assert.NotEmpty(t, testBuilder.Definition.Spec.Containers)
-		}
-	}
+		require.NoError(t, err)
+		require.NotNil(t, testBuilder.Object)
+		assert.NotEmpty(t, testBuilder.Definition.Spec.Containers)
+	})
 }
 
 func TestPodDefineOnNode(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		nodeName      string
 		hasObject     bool
@@ -199,7 +132,7 @@ func TestPodDefineOnNode(t *testing.T) {
 		}
 
 		testBuilder = testBuilder.DefineOnNode(testCase.nodeName)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		assertPodBuilderError(t, testCase.expectedError, testBuilder.GetError())
 
 		if testCase.expectedError == "" {
 			assert.Equal(t, testCase.nodeName, testBuilder.Definition.Spec.NodeName)
@@ -207,67 +140,104 @@ func TestPodDefineOnNode(t *testing.T) {
 	}
 }
 
-func TestPodCreate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *Builder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidPodTestBuilder(buildTestClientWithDummyPod()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
-			expectedError: fmt.Errorf(errEmptyNamespace),
-		},
-		{
-			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
+func TestPodBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testBuilder, err := testCase.testBuilder.Create()
-		assert.Equal(t, testCase.expectedError, err)
+	commonTestConfig := newPodCommonTestConfig()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testBuilder.Definition.Name, testBuilder.Object.Name)
-			assert.Equal(t, testBuilder.Definition.Namespace, testBuilder.Object.Namespace)
-			assert.NotEmpty(t, testBuilder.Object.Spec.Containers)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		Run(t)
 }
 
-func TestPodDelete(t *testing.T) {
-	testPodDeleteHelper(t, func(builder *Builder) (*Builder, error) {
-		return builder.Delete()
-	})
+func TestPodWithOptions(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewWithOptionsTestConfig(newPodCommonTestConfig()).ExecuteTests(t)
+}
+
+func TestPodModifiersRejectInvalidBuilder(t *testing.T) {
+	t.Parallel()
+
+	modifiers := map[string]func(*Builder) *Builder{
+		"DefineOnNode":                 func(builder *Builder) *Builder { return builder.DefineOnNode(defaultPodNodeName) },
+		"RedefineDefaultCMD":           func(builder *Builder) *Builder { return builder.RedefineDefaultCMD([]string{"test"}) },
+		"WithRestartPolicy":            func(builder *Builder) *Builder { return builder.WithRestartPolicy(corev1.RestartPolicyAlways) },
+		"WithTolerationToMaster":       func(builder *Builder) *Builder { return builder.WithTolerationToMaster() },
+		"WithTolerationToControlPlane": func(builder *Builder) *Builder { return builder.WithTolerationToControlPlane() },
+		"WithToleration":               func(builder *Builder) *Builder { return builder.WithToleration(corev1.Toleration{}) },
+		"WithNodeSelector": func(builder *Builder) *Builder {
+			return builder.WithNodeSelector(map[string]string{"test": "test"})
+		},
+		"WithPrivilegedFlag": func(builder *Builder) *Builder { return builder.WithPrivilegedFlag() },
+		"WithVolume": func(builder *Builder) *Builder {
+			return builder.WithVolume(corev1.Volume{Name: defaultVolumeName})
+		},
+		"WithLocalVolume": func(builder *Builder) *Builder {
+			return builder.WithLocalVolume(defaultVolumeName, defaultMountPath)
+		},
+		"WithAdditionalContainer":           func(builder *Builder) *Builder { return builder.WithAdditionalContainer(&corev1.Container{}) },
+		"WithAdditionalInitContainer":       func(builder *Builder) *Builder { return builder.WithAdditionalInitContainer(&corev1.Container{}) },
+		"WithSecondaryNetwork":              func(builder *Builder) *Builder { return builder.WithSecondaryNetwork(nil) },
+		"WithHostNetwork":                   func(builder *Builder) *Builder { return builder.WithHostNetwork() },
+		"WithHostPid":                       func(builder *Builder) *Builder { return builder.WithHostPid(true) },
+		"RedefineDefaultContainer":          func(builder *Builder) *Builder { return builder.RedefineDefaultContainer(corev1.Container{}) },
+		"WithHugePages":                     func(builder *Builder) *Builder { return builder.WithHugePages() },
+		"WithSecurityContext":               func(builder *Builder) *Builder { return builder.WithSecurityContext(&corev1.PodSecurityContext{}) },
+		"WithLabel":                         func(builder *Builder) *Builder { return builder.WithLabel("test", "test") },
+		"WithLabels":                        func(builder *Builder) *Builder { return builder.WithLabels(map[string]string{"test": "test"}) },
+		"WithTerminationGracePeriodSeconds": func(builder *Builder) *Builder { return builder.WithTerminationGracePeriodSeconds(1) },
+		"WithCommand":                       func(builder *Builder) *Builder { return builder.WithCommand([]string{"test"}) },
+		"WithResourceClaim":                 func(builder *Builder) *Builder { return builder.WithResourceClaim("claim", "template") },
+	}
+
+	for name, modifier := range modifiers {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			testBuilder := buildInvalidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+			result := modifier(testBuilder)
+
+			assert.Same(t, testBuilder, result)
+			assert.True(t, commonerrors.IsBuilderNamespaceEmpty(result.GetError()))
+		})
+	}
 }
 
 func TestPodDeleteAndWait(t *testing.T) {
+	t.Parallel()
+
 	testPodDeleteHelper(t, func(builder *Builder) (*Builder, error) {
 		return builder.DeleteAndWait(5 * time.Second)
 	})
 }
 
 func TestPodDeleteImmediate(t *testing.T) {
+	t.Parallel()
+
 	testPodDeleteHelper(t, func(builder *Builder) (*Builder, error) {
 		return builder.DeleteImmediate()
 	})
 }
 
 func TestPodWaitUntilDeleted(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testBuilder   *Builder
 		expectedError error
+		invalid       bool
 	}{
 		{
 			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
 			expectedError: nil,
 		},
 		{
-			testBuilder:   buildInvalidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf(errEmptyNamespace),
+			testBuilder: buildInvalidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			invalid:     true,
 		},
 		{
 			testBuilder:   buildValidPodTestBuilder(buildTestClientWithDummyPod()),
@@ -277,48 +247,33 @@ func TestPodWaitUntilDeleted(t *testing.T) {
 
 	for _, testCase := range testCases {
 		err := testCase.testBuilder.WaitUntilDeleted(2 * time.Second)
-		assert.Equal(t, testCase.expectedError, err)
+		if testCase.invalid {
+			assert.True(t, commonerrors.IsBuilderNamespaceEmpty(err))
+		} else {
+			assert.Equal(t, testCase.expectedError, err)
+		}
 	}
 }
 
 func TestPodWaitUntilReady(t *testing.T) {
+	t.Parallel()
+
 	testPodWaitUntilConditionHelper(t, func(builder *Builder) error {
 		return builder.WaitUntilReady(time.Second)
 	})
 }
 
 func TestPodWaitUntilCondition(t *testing.T) {
+	t.Parallel()
+
 	testPodWaitUntilConditionHelper(t, func(builder *Builder) error {
 		return builder.WaitUntilCondition(corev1.PodReady, time.Second)
 	})
 }
 
-func TestPodExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *Builder
-		exists      bool
-	}{
-		{
-			testBuilder: buildValidPodTestBuilder(buildTestClientWithDummyPod()),
-			exists:      true,
-		},
-		{
-			testBuilder: buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
-			exists:      false,
-		},
-		{
-			testBuilder: buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
-}
-
 func TestPodRedefineDefaultCMD(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		command       []string
 		hasObject     bool
@@ -350,7 +305,7 @@ func TestPodRedefineDefaultCMD(t *testing.T) {
 		}
 
 		testBuilder = testBuilder.RedefineDefaultCMD(testCase.command)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		assertPodBuilderError(t, testCase.expectedError, testBuilder.GetError())
 
 		if testCase.expectedError == "" {
 			assert.Equal(t, testCase.command, testBuilder.Definition.Spec.Containers[0].Command)
@@ -359,6 +314,8 @@ func TestPodRedefineDefaultCMD(t *testing.T) {
 }
 
 func TestPodWithRestartPolicy(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		restartPolicy corev1.RestartPolicy
 		hasObject     bool
@@ -390,7 +347,7 @@ func TestPodWithRestartPolicy(t *testing.T) {
 		}
 
 		testBuilder = testBuilder.WithRestartPolicy(testCase.restartPolicy)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		assertPodBuilderError(t, testCase.expectedError, testBuilder.GetError())
 
 		if testCase.expectedError == "" {
 			assert.Equal(t, testCase.restartPolicy, testBuilder.Definition.Spec.RestartPolicy)
@@ -399,6 +356,8 @@ func TestPodWithRestartPolicy(t *testing.T) {
 }
 
 func TestPodWithTolerationToMaster(t *testing.T) {
+	t.Parallel()
+
 	toleration := corev1.Toleration{
 		Key:    "node-role.kubernetes.io/master",
 		Effect: taintEffectNoSchedule,
@@ -410,6 +369,8 @@ func TestPodWithTolerationToMaster(t *testing.T) {
 }
 
 func TestPodWithTolerationToControlPlane(t *testing.T) {
+	t.Parallel()
+
 	toleration := corev1.Toleration{
 		Key:    nodeRoleKubernetesIoControlPlane,
 		Effect: taintEffectNoSchedule,
@@ -421,6 +382,8 @@ func TestPodWithTolerationToControlPlane(t *testing.T) {
 }
 
 func TestPodWithToleration(t *testing.T) {
+	t.Parallel()
+
 	toleration := corev1.Toleration{
 		Key:    nodeRoleKubernetesIoControlPlane,
 		Effect: taintEffectNoSchedule,
@@ -432,6 +395,8 @@ func TestPodWithToleration(t *testing.T) {
 }
 
 func TestPodWithNodeSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		nodeSelector  map[string]string
 		hasObject     bool
@@ -463,7 +428,7 @@ func TestPodWithNodeSelector(t *testing.T) {
 		}
 
 		testBuilder = testBuilder.WithNodeSelector(testCase.nodeSelector)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		assertPodBuilderError(t, testCase.expectedError, testBuilder.GetError())
 
 		if testCase.expectedError == "" {
 			assert.Equal(t, testCase.nodeSelector, testBuilder.Definition.Spec.NodeSelector)
@@ -472,6 +437,8 @@ func TestPodWithNodeSelector(t *testing.T) {
 }
 
 func TestPodWithPrivilegedFlag(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		hasObject     bool
 		expectedError string
@@ -495,7 +462,7 @@ func TestPodWithPrivilegedFlag(t *testing.T) {
 		}
 
 		testBuilder = testBuilder.WithPrivilegedFlag()
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		assertPodBuilderError(t, testCase.expectedError, testBuilder.GetError())
 
 		if testCase.expectedError == "" {
 			assert.True(t, *testBuilder.Definition.Spec.Containers[0].SecurityContext.Privileged)
@@ -504,6 +471,8 @@ func TestPodWithPrivilegedFlag(t *testing.T) {
 }
 
 func TestPodWithVolume(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		volume        corev1.Volume
 		expectedError string
@@ -521,7 +490,7 @@ func TestPodWithVolume(t *testing.T) {
 	for _, testCase := range testCases {
 		testBuilder := buildValidPodTestBuilder(buildTestClientWithDummyPod())
 		testBuilder = testBuilder.WithVolume(testCase.volume)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		assertPodBuilderError(t, testCase.expectedError, testBuilder.GetError())
 
 		if testCase.expectedError == "" {
 			assert.Equal(t, []corev1.Volume{testCase.volume}, testBuilder.Definition.Spec.Volumes)
@@ -530,6 +499,8 @@ func TestPodWithVolume(t *testing.T) {
 }
 
 func TestPodWithLocalVolume(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		volumeName    string
 		mountPath     string
@@ -590,7 +561,7 @@ func TestPodWithLocalVolume(t *testing.T) {
 		}
 
 		testBuilder = testBuilder.WithLocalVolume(testCase.volumeName, testCase.mountPath)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		assertPodBuilderError(t, testCase.expectedError, testBuilder.GetError())
 
 		if testCase.expectedError == "" {
 			assert.Equal(t, testCase.volumeName, testBuilder.Definition.Spec.Containers[0].VolumeMounts[0].Name)
@@ -601,6 +572,8 @@ func TestPodWithLocalVolume(t *testing.T) {
 }
 
 func TestPodIsHealthy(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		exists          bool
 		phase           corev1.PodPhase
@@ -642,7 +615,8 @@ func TestPodIsHealthy(t *testing.T) {
 		}
 
 		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
+			K8sMockObjects:  runtimeObjects,
+			SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
 		})
 		testBuilder := buildValidPodTestBuilder(testSettings)
 
@@ -652,6 +626,8 @@ func TestPodIsHealthy(t *testing.T) {
 
 // TestPodExecCommandWithTimeout tests the ExecCommandWithTimeout method validation.
 func TestPodExecCommandWithTimeout(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
 		command       []string
@@ -659,6 +635,7 @@ func TestPodExecCommandWithTimeout(t *testing.T) {
 		containerName []string
 		testBuilder   *Builder
 		expectedError string
+		invalid       bool
 	}{
 		{
 			name:          "empty command",
@@ -690,7 +667,7 @@ func TestPodExecCommandWithTimeout(t *testing.T) {
 			timeout:       5 * time.Second,
 			containerName: []string{},
 			testBuilder:   buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
-			expectedError: errEmptyNamespace,
+			invalid:       true,
 		},
 		{
 			name:          "pod does not exist",
@@ -704,6 +681,8 @@ func TestPodExecCommandWithTimeout(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			var (
 				buffer bytes.Buffer
 				err    error
@@ -717,9 +696,14 @@ func TestPodExecCommandWithTimeout(t *testing.T) {
 					testCase.command, testCase.timeout)
 			}
 
-			// All test cases expect errors (either validation errors or execution errors)
 			assert.Error(t, err)
-			assert.Contains(t, err.Error(), testCase.expectedError)
+
+			if testCase.invalid {
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(err))
+			} else {
+				assert.Contains(t, err.Error(), testCase.expectedError)
+			}
+
 			assert.Empty(t, buffer.String())
 		})
 	}
@@ -727,6 +711,8 @@ func TestPodExecCommandWithTimeout(t *testing.T) {
 
 // TestPodExecCommandWithTimeoutContainerSelection tests container name parameter handling.
 func TestPodExecCommandWithTimeoutContainerSelection(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
 		containerName []string
@@ -743,6 +729,8 @@ func TestPodExecCommandWithTimeoutContainerSelection(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			// Use a builder with non-existent pod to trigger the "does not exist" error
 			// This allows us to test parameter handling without hitting REST client issues
 			builder := buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
@@ -769,14 +757,15 @@ func testPodDeleteHelper(t *testing.T, deleteFunc func(builder *Builder) (*Build
 	testCases := []struct {
 		testBuilder   *Builder
 		expectedError error
+		invalid       bool
 	}{
 		{
 			testBuilder:   buildValidPodTestBuilder(buildTestClientWithDummyPod()),
 			expectedError: nil,
 		},
 		{
-			testBuilder:   buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
-			expectedError: fmt.Errorf(errEmptyNamespace),
+			testBuilder: buildInvalidPodTestBuilder(buildTestClientWithDummyPod()),
+			invalid:     true,
 		},
 		{
 			testBuilder:   buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
@@ -786,7 +775,11 @@ func testPodDeleteHelper(t *testing.T, deleteFunc func(builder *Builder) (*Build
 
 	for _, testCase := range testCases {
 		testBuilder, err := deleteFunc(testCase.testBuilder)
-		assert.Equal(t, testCase.expectedError, err)
+		if testCase.invalid {
+			assert.True(t, commonerrors.IsBuilderNamespaceEmpty(err))
+		} else {
+			assert.Equal(t, testCase.expectedError, err)
+		}
 
 		if testCase.expectedError == nil {
 			assert.Nil(t, testBuilder.Object)
@@ -803,6 +796,7 @@ func testPodWaitUntilConditionHelper(t *testing.T, waitFunc func(builder *Builde
 		valid         bool
 		ready         bool
 		expectedError error
+		invalid       bool
 	}{
 		{
 			valid:         true,
@@ -810,9 +804,9 @@ func testPodWaitUntilConditionHelper(t *testing.T, waitFunc func(builder *Builde
 			expectedError: nil,
 		},
 		{
-			valid:         false,
-			ready:         true,
-			expectedError: fmt.Errorf(errEmptyNamespace),
+			valid:   false,
+			ready:   true,
+			invalid: true,
 		},
 		{
 			valid:         true,
@@ -832,14 +826,19 @@ func testPodWaitUntilConditionHelper(t *testing.T, waitFunc func(builder *Builde
 			}
 
 			testBuilder = buildValidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: []runtime.Object{pod},
+				K8sMockObjects:  []runtime.Object{pod},
+				SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
 			}))
 		} else {
 			testBuilder = buildInvalidPodTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
 		}
 
 		err := waitFunc(testBuilder)
-		assert.Equal(t, testCase.expectedError, err)
+		if testCase.invalid {
+			assert.True(t, commonerrors.IsBuilderNamespaceEmpty(err))
+		} else {
+			assert.Equal(t, testCase.expectedError, err)
+		}
 	}
 }
 
@@ -871,7 +870,7 @@ func testPodWithTolerationHelper(
 		}
 
 		testBuilder = testFunc(testBuilder, toleration)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		assertPodBuilderError(t, testCase.expectedError, testBuilder.GetError())
 
 		if testCase.expectedError == "" {
 			assert.Equal(t, []corev1.Toleration{toleration}, testBuilder.Definition.Spec.Tolerations)
@@ -880,8 +879,6 @@ func testPodWithTolerationHelper(
 }
 
 // buildDummyPod returns a Pod with the provided name, nsname, and container image.
-//
-//nolint:unparam
 func buildDummyPod(name, nsname, image string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -906,10 +903,13 @@ func buildTestClientWithDummyPod() *clients.Settings {
 		K8sMockObjects: []runtime.Object{
 			buildDummyPod(defaultPodName, defaultPodNsName, defaultPodImage),
 		},
+		SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
 	})
 }
 
 func TestPodWithCommand(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		command       []string
 		hasObject     bool
@@ -945,20 +945,24 @@ func TestPodWithCommand(t *testing.T) {
 		if testCase.expectedError == "" {
 			assert.Equal(t, testCase.command, result.Definition.Spec.Containers[0].Command)
 		} else {
-			assert.Equal(t, testCase.expectedError, result.errorMsg)
+			assertPodBuilderError(t, testCase.expectedError, result.GetError())
 		}
 	}
 }
 
 func TestPodWithCommandNoContainers(t *testing.T) {
+	t.Parallel()
+
 	testBuilder := buildValidPodTestBuilder(buildTestClientWithDummyPod())
 	testBuilder.Definition.Spec.Containers = nil
 
 	result := testBuilder.WithCommand([]string{"sleep", "infinity"})
-	assert.Equal(t, "pod has no containers to set command on", result.errorMsg)
+	assertPodBuilderError(t, "pod has no containers to set command on", result.GetError())
 }
 
 func TestPodWithResourceClaim(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		claimName         string
 		claimTemplateName string
@@ -1010,12 +1014,14 @@ func TestPodWithResourceClaim(t *testing.T) {
 			assert.Equal(t, testCase.claimName,
 				result.Definition.Spec.Containers[0].Resources.Claims[0].Name)
 		} else {
-			assert.Equal(t, testCase.expectedError, result.errorMsg)
+			assertPodBuilderError(t, testCase.expectedError, result.GetError())
 		}
 	}
 }
 
 func TestPodWithResourceClaimDuplicate(t *testing.T) {
+	t.Parallel()
+
 	testBuilder := buildValidPodTestBuilder(buildTestClientWithDummyPod())
 
 	result := testBuilder.
@@ -1028,6 +1034,8 @@ func TestPodWithResourceClaimDuplicate(t *testing.T) {
 }
 
 func TestPodWithResourceClaimDistinct(t *testing.T) {
+	t.Parallel()
+
 	testBuilder := buildValidPodTestBuilder(buildTestClientWithDummyPod())
 
 	result := testBuilder.

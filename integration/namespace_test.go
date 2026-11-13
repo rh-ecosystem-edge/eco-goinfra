@@ -10,6 +10,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/namespace"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
 	"github.com/stretchr/testify/assert"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -107,6 +108,5 @@ func TestNamespaceCleanObjects(t *testing.T) {
 
 	// Check if the objects were cleaned
 	_, err = pod.Pull(client, "test-pod", testNamespace)
-	assert.NotNil(t, err)
-	assert.Equal(t, "pod object test-pod does not exist in namespace egi-namespace-clean-objects-test", err.Error())
+	assert.True(t, k8serrors.IsNotFound(err))
 }
