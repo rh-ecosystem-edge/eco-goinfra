@@ -1,69 +1,112 @@
 package neuron
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/neuron/v1beta1"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-func buildTestDeviceConfig(name, namespace string) *v1beta1.DeviceConfig {
-	return &v1beta1.DeviceConfig{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec: v1beta1.DeviceConfigSpec{
-			DriversImage:      defaultDriversImage,
-			DriverVersion:     defaultDriverVersion,
-			DevicePluginImage: defaultDevicePluginImage,
-		},
-	}
-}
 
 func TestListDeviceConfigs(t *testing.T) {
 	t.Parallel()
 
-	t.Run("list multiple DeviceConfigs", func(t *testing.T) {
-		runtimeObjects := []runtime.Object{
-			buildTestDeviceConfig("neuron-1", "ai-operator-on-aws"),
-			buildTestDeviceConfig("neuron-2", "ai-operator-on-aws"),
-		}
+	testhelper.NewListTestConfig(
+		func(apiClient *clients.Settings, options ...runtimeclient.ListOptions) ([]*Builder, error) {
+			return ListDeviceConfigs(apiClient, "", options...)
+		},
+		v1beta1.AddToScheme,
+		deviceConfigGVK,
+	).ExecuteTests(t)
+}
+
+func TestListDeviceConfigsNamespaceBehavior(t *testing.T) {
+	t.Parallel()
+
+	t.Run("list multiple DeviceConfigs in namespace", func(t *testing.T) {
+		t.Parallel()
+
 		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects, SchemeAttachers: testSchemes,
+			K8sMockObjects: []runtime.Object{
+				buildDummyDeviceConfig("neuron-1", defaultDeviceConfigNamespace),
+				buildDummyDeviceConfig("neuron-2", defaultDeviceConfigNamespace),
+			},
+			SchemeAttachers: testSchemes,
 		})
 
-		builders, err := ListDeviceConfigs(testSettings, "ai-operator-on-aws")
-		assert.Nil(t, err)
-		assert.NotNil(t, builders)
-		assert.Equal(t, 2, len(builders))
+		builders, err := ListDeviceConfigs(testSettings, defaultDeviceConfigNamespace)
+		require.NoError(t, err)
+		require.Len(t, builders, 2)
+
+		for _, builder := range builders {
+			assert.Equal(t, defaultDeviceConfigNamespace, builder.Definition.Namespace)
+		}
 	})
 
-	t.Run("list with namespace filter returns empty", func(t *testing.T) {
-		runtimeObjects := []runtime.Object{buildTestDeviceConfig("neuron", "ai-operator-on-aws")}
+	t.Run("namespace filter returns empty", func(t *testing.T) {
+		t.Parallel()
+
 		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects, SchemeAttachers: testSchemes,
+			K8sMockObjects: []runtime.Object{
+				buildDummyDeviceConfig(defaultDeviceConfigName, defaultDeviceConfigNamespace),
+			},
+			SchemeAttachers: testSchemes,
 		})
 
 		builders, err := ListDeviceConfigs(testSettings, "other-namespace")
-		assert.Nil(t, err)
-		assert.NotNil(t, builders)
-		assert.Equal(t, 0, len(builders))
+		require.NoError(t, err)
+		require.NotNil(t, builders)
+		assert.Empty(t, builders)
 	})
 
-	t.Run("list empty namespace returns empty slice", func(t *testing.T) {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+	t.Run("empty result returns empty slice", func(t *testing.T) {
+		t.Parallel()
 
-		builders, err := ListDeviceConfigs(testSettings, "ai-operator-on-aws")
-		assert.Nil(t, err)
-		assert.NotNil(t, builders)
-		assert.Equal(t, 0, len(builders))
+		testSettings := buildTestClientWithDeviceConfigScheme()
+
+		builders, err := ListDeviceConfigs(testSettings, defaultDeviceConfigNamespace)
+		require.NoError(t, err)
+		require.NotNil(t, builders)
+		assert.Empty(t, builders)
 	})
 
-	t.Run("nil client returns error", func(t *testing.T) {
-		builders, err := ListDeviceConfigs(nil, "")
-		assert.Nil(t, builders)
-		assert.Equal(t, fmt.Errorf("failed to list deviceConfigs, 'apiClient' parameter is empty").Error(), err.Error())
+	t.Run("empty namespace lists all namespaces", func(t *testing.T) {
+		t.Parallel()
+
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects: []runtime.Object{
+				buildDummyDeviceConfig("neuron-1", defaultDeviceConfigNamespace),
+				buildDummyDeviceConfig("neuron-2", "other-namespace"),
+			},
+			SchemeAttachers: testSchemes,
+		})
+
+		builders, err := ListDeviceConfigs(testSettings, "")
+		require.NoError(t, err)
+		assert.Len(t, builders, 2)
+	})
+
+	t.Run("namespace argument overrides list option", func(t *testing.T) {
+		t.Parallel()
+
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects: []runtime.Object{
+				buildDummyDeviceConfig(defaultDeviceConfigName, defaultDeviceConfigNamespace),
+			},
+			SchemeAttachers: testSchemes,
+		})
+
+		builders, err := ListDeviceConfigs(
+			testSettings,
+			defaultDeviceConfigNamespace,
+			runtimeclient.ListOptions{Namespace: "other-namespace"},
+		)
+		require.NoError(t, err)
+		require.Len(t, builders, 1)
+		assert.Equal(t, defaultDeviceConfigName, builders[0].Definition.Name)
 	})
 }
