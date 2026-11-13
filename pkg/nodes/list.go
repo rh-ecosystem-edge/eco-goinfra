@@ -3,12 +3,14 @@ package nodes
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
-	"slices"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -23,10 +25,9 @@ func List(apiClient *clients.Settings, options ...metav1.ListOptions) ([]*Builde
 	if apiClient == nil {
 		klog.V(100).Info("Nodes 'apiClient' parameter can not be empty")
 
-		return nil, fmt.Errorf("failed to list node objects, 'apiClient' parameter is empty")
+		return nil, commonerrors.NewAPIClientNil(commonkey.NewResourceKey("Node", "", ""))
 	}
 
-	passedOptions := metav1.ListOptions{}
 	logMessage := "Listing all node resources"
 
 	if len(options) > 1 {
@@ -36,33 +37,29 @@ func List(apiClient *clients.Settings, options ...metav1.ListOptions) ([]*Builde
 	}
 
 	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
+		logMessage += fmt.Sprintf(" with the options %v", options[0])
 	}
 
 	klog.V(100).Infof("%v", logMessage)
 
-	nodeList, err := apiClient.CoreV1Interface.Nodes().List(logging.DiscardContext(), passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions(options)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeBuilders, err := common.List[corev1.Node, corev1.NodeList, Builder](
+		context.TODO(), apiClient, corev1.AddToScheme, convertedOptions...)
 	if err != nil {
 		klog.V(100).Infof("Failed to list nodes due to %s", err.Error())
 
 		return nil, err
 	}
 
-	var nodeObjects []*Builder
-
-	for _, runningNode := range nodeList.Items {
-		copiedNode := runningNode
-		nodeBuilder := &Builder{
-			apiClient:  apiClient.K8sClient,
-			Object:     &copiedNode,
-			Definition: &copiedNode,
-		}
-
-		nodeObjects = append(nodeObjects, nodeBuilder)
+	for _, nodeBuilder := range nodeBuilders {
+		nodeBuilder.setKubeClient(apiClient)
 	}
 
-	return nodeObjects, nil
+	return nodeBuilders, nil
 }
 
 // ListExternalIPv4Networks returns a list of node's external ipv4 addresses.

@@ -2,210 +2,255 @@ package nodes
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func TestNodesList(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewListTestConfig(List, corev1.AddToScheme, nodeGVK).ExecuteTests(t)
+}
+
+func TestNodesListWithOptions(t *testing.T) {
+	t.Parallel()
+
+	workerNode := buildDummyNode("worker-node")
+	workerNode.Labels = map[string]string{"role": "worker"}
+	controlPlaneNode := buildDummyNode("control-plane-node")
+	controlPlaneNode.Labels = map[string]string{"role": "control-plane"}
+
 	testCases := []struct {
-		nodes         []*Builder
-		listOptions   []metav1.ListOptions
-		client        bool
-		expectedError error
+		name          string
+		options       []metav1.ListOptions
+		expectedCount int
+		expectedError string
 	}{
 		{
-			nodes:         []*Builder{buildValidNodeTestBuilder(buildTestClientWithDummyNode())},
-			listOptions:   nil,
-			client:        true,
-			expectedError: nil,
+			name:          "applies label selector",
+			options:       []metav1.ListOptions{{LabelSelector: "role=worker"}},
+			expectedCount: 1,
 		},
 		{
-			nodes:         []*Builder{buildValidNodeTestBuilder(buildTestClientWithDummyNode())},
-			listOptions:   []metav1.ListOptions{{LabelSelector: "test"}},
-			client:        true,
-			expectedError: nil,
+			name:          "more than one option returns error",
+			options:       []metav1.ListOptions{{}, {}},
+			expectedError: "error: more than one ListOptions was passed",
 		},
 		{
-			nodes:         []*Builder{buildValidNodeTestBuilder(buildTestClientWithDummyNode())},
-			listOptions:   []metav1.ListOptions{{LabelSelector: "test"}, {LabelSelector: "test"}},
-			client:        true,
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-		},
-		{
-			nodes:         []*Builder{buildValidNodeTestBuilder(buildTestClientWithDummyNode())},
-			listOptions:   nil,
-			client:        false,
-			expectedError: fmt.Errorf("failed to list node objects, 'apiClient' parameter is empty"),
+			name:          "invalid selector returns error",
+			options:       []metav1.ListOptions{{LabelSelector: "role in ("}},
+			expectedError: "failed to parse label selector",
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			testSettings = buildTestClientWithDummyNode()
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  []runtime.Object{workerNode, controlPlaneNode},
+				SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+			})
 
-		nodeBuilders, err := List(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+			nodeBuilders, err := List(testSettings, testCase.options...)
+			if testCase.expectedError != "" {
+				require.ErrorContains(t, err, testCase.expectedError)
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(nodeBuilders), len(testCase.nodes))
-		}
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, nodeBuilders, testCase.expectedCount)
+		})
 	}
 }
 
 func TestNodesListExternalIPv4Networks(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		client        bool
-		expectedError error
+		name        string
+		client      bool
+		assertError func(error) bool
 	}{
 		{
-			client:        true,
-			expectedError: nil,
+			name:        "returns external IPv4 networks",
+			client:      true,
+			assertError: func(err error) bool { return err == nil },
 		},
 		{
-			client:        false,
-			expectedError: fmt.Errorf("failed to list node objects, 'apiClient' parameter is empty"),
+			name:        "nil client returns error",
+			assertError: commonerrors.IsAPIClientNil,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			node := buildDummyNode(defaultNodeName)
-			node.Annotations = map[string]string{
-				ovnExternalAddresses: defaultExternalNetworks,
+			var testSettings *clients.Settings
+
+			if testCase.client {
+				node := buildDummyNode(defaultNodeName)
+				node.Annotations = map[string]string{ovnExternalAddresses: defaultExternalNetworks}
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  []runtime.Object{node},
+					SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+				})
 			}
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: []runtime.Object{node},
-			})
-		}
 
-		ipv4Networks, err := ListExternalIPv4Networks(testSettings)
-		assert.Equal(t, testCase.expectedError, err)
+			ipv4Networks, err := ListExternalIPv4Networks(testSettings)
+			require.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, []string{defaultExternalIPv4}, ipv4Networks)
-		}
+			if err == nil {
+				assert.Equal(t, []string{defaultExternalIPv4}, ipv4Networks)
+			}
+		})
 	}
 }
 
 func TestNodesListExternalIPv6Networks(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		client        bool
-		expectedError error
+		name        string
+		client      bool
+		assertError func(error) bool
 	}{
 		{
-			client:        true,
-			expectedError: nil,
+			name:        "returns external IPv6 networks",
+			client:      true,
+			assertError: func(err error) bool { return err == nil },
 		},
 		{
-			client:        false,
-			expectedError: fmt.Errorf("failed to list node objects, 'apiClient' parameter is empty"),
+			name:        "nil client returns error",
+			assertError: commonerrors.IsAPIClientNil,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			node := buildDummyNode(defaultNodeName)
-			node.Annotations = map[string]string{
-				ovnExternalAddresses: defaultExternalNetworks,
+			var testSettings *clients.Settings
+
+			if testCase.client {
+				node := buildDummyNode(defaultNodeName)
+				node.Annotations = map[string]string{ovnExternalAddresses: defaultExternalNetworks}
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  []runtime.Object{node},
+					SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+				})
 			}
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: []runtime.Object{node},
-			})
-		}
 
-		ipv6Networks, err := ListExternalIPv6Networks(testSettings)
-		assert.Equal(t, testCase.expectedError, err)
+			ipv6Networks, err := ListExternalIPv6Networks(testSettings)
+			require.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, []string{defaultExternalIPv6}, ipv6Networks)
-		}
+			if err == nil {
+				assert.Equal(t, []string{defaultExternalIPv6}, ipv6Networks)
+			}
+		})
 	}
 }
 
 func TestNodesWaitForAllNodesAreReady(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		client        bool
-		ready         bool
-		expectedError error
+		name        string
+		client      bool
+		ready       bool
+		assertError func(error) bool
 	}{
 		{
-			client:        true,
-			ready:         true,
-			expectedError: nil,
+			name:        "all nodes ready",
+			client:      true,
+			ready:       true,
+			assertError: func(err error) bool { return err == nil },
 		},
 		{
-			client:        false,
-			ready:         true,
-			expectedError: fmt.Errorf("failed to list node objects, 'apiClient' parameter is empty"),
+			name:        "nil client returns error",
+			assertError: commonerrors.IsAPIClientNil,
 		},
 		{
-			client:        true,
-			ready:         false,
-			expectedError: context.DeadlineExceeded,
+			name:        "node not ready times out",
+			client:      true,
+			ready:       false,
+			assertError: func(err error) bool { return errors.Is(err, context.DeadlineExceeded) },
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: []runtime.Object{buildDummyNodeWithReadiness(defaultNodeName, testCase.ready)},
-			})
-		}
+			var testSettings *clients.Settings
 
-		ready, err := WaitForAllNodesAreReady(testSettings, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
-		assert.Equal(t, testCase.expectedError == nil, ready)
+			if testCase.client {
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  []runtime.Object{buildDummyNodeWithReadiness(defaultNodeName, testCase.ready)},
+					SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+				})
+			}
+
+			ready, err := WaitForAllNodesAreReady(testSettings, time.Second)
+			require.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
+			assert.Equal(t, err == nil, ready)
+		})
 	}
 }
 
 func TestNodesWaitForAllNodesToReboot(t *testing.T) {
+	t.Parallel()
+
 	// There's no way to test for success without editing the node while the function is running so only failures
 	// are covered here.
 	testCases := []struct {
-		client        bool
-		rebooted      bool
-		expectedError error
+		name        string
+		client      bool
+		rebooted    bool
+		assertError func(error) bool
 	}{
 		{
-			client:        false,
-			rebooted:      true,
-			expectedError: fmt.Errorf("failed to list node objects, 'apiClient' parameter is empty"),
+			name:        "nil client returns error",
+			rebooted:    true,
+			assertError: commonerrors.IsAPIClientNil,
 		},
 		{
-			client:        true,
-			rebooted:      false,
-			expectedError: context.DeadlineExceeded,
+			name:        "node does not reboot times out",
+			client:      true,
+			rebooted:    false,
+			assertError: func(err error) bool { return errors.Is(err, context.DeadlineExceeded) },
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: []runtime.Object{buildDummyNodeWithReadiness(defaultNodeName, testCase.rebooted)},
-			})
-		}
+			var testSettings *clients.Settings
 
-		ready, err := WaitForAllNodesToReboot(testSettings, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
-		assert.Equal(t, testCase.expectedError == nil, ready)
+			if testCase.client {
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  []runtime.Object{buildDummyNodeWithReadiness(defaultNodeName, testCase.rebooted)},
+					SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+				})
+			}
+
+			ready, err := WaitForAllNodesToReboot(testSettings, time.Second)
+			require.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
+			assert.Equal(t, err == nil, ready)
+		})
 	}
 }
 

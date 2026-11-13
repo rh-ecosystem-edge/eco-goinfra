@@ -9,15 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
-
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/kubectl/pkg/drain"
 )
@@ -26,13 +24,51 @@ const (
 	isTrue = "True"
 )
 
+// AdditionalOptions additional options for node object.
+type AdditionalOptions func(builder *Builder) (*Builder, error)
+
 // Builder provides struct for Node object containing connection to the cluster and the list of Node definitions.
 type Builder struct {
-	Definition  *corev1.Node
-	Object      *corev1.Node
-	apiClient   kubernetes.Interface
-	errorMsg    string
+	common.EmbeddableBuilder[corev1.Node, *corev1.Node]
+	common.EmbeddableUpdater[corev1.Node, Builder, *corev1.Node, *Builder]
+	common.EmbeddableDeleter[corev1.Node, *corev1.Node]
+	common.EmbeddableWithOptions[corev1.Node, Builder, *corev1.Node, *Builder, AdditionalOptions]
+
+	kubeClient  kubernetes.Interface
 	drainHelper *drain.Helper
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.EmbeddableUpdater.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the Node GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return corev1.SchemeGroupVersion.WithKind("Node")
+}
+
+// NewBuilder creates a new instance of a Node builder.
+func NewBuilder(apiClient *clients.Settings, nodeName string) *Builder {
+	builder := common.NewClusterScopedBuilder[corev1.Node, Builder](apiClient, corev1.AddToScheme, nodeName)
+	builder.setKubeClient(apiClient)
+
+	return builder
+}
+
+// Pull gathers existing node from cluster.
+func Pull(apiClient *clients.Settings, nodeName string) (*Builder, error) {
+	builder, err := common.PullClusterScopedBuilder[corev1.Node, Builder](
+		context.TODO(), apiClient, corev1.AddToScheme, nodeName)
+	if err != nil {
+		return nil, err
+	}
+
+	builder.setKubeClient(apiClient)
+
+	return builder, nil
 }
 
 // SetDrainHelper builds drain Helper that contains parameters to control the behaviour of drain.
@@ -57,7 +93,7 @@ func (builder *Builder) SetDrainHelper(
 
 	builder.drainHelper = &drain.Helper{
 		Ctx:    logging.DiscardContext(),
-		Client: builder.apiClient,
+		Client: builder.kubeClient,
 		// Delete pods that do not declare a controller.
 		Force: force,
 		// GracePeriodSeconds is how long to wait for a pod to terminate.
@@ -78,7 +114,7 @@ func (builder *Builder) SetDrainHelper(
 
 // Drain evicts or deletes all pods.
 func (builder *Builder) Drain() error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -102,7 +138,7 @@ func (builder *Builder) Drain() error {
 
 // Cordon marks node as unschedulable.
 func (builder *Builder) Cordon() error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -114,7 +150,7 @@ func (builder *Builder) Cordon() error {
 
 // Uncordon marks node as schedulable.
 func (builder *Builder) Uncordon() error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -124,114 +160,9 @@ func (builder *Builder) Uncordon() error {
 	return drain.RunCordonOrUncordon(builder.drainHelper, builder.Definition, false)
 }
 
-// AdditionalOptions additional options for node object.
-type AdditionalOptions func(builder *Builder) (*Builder, error)
-
-// Pull gathers existing node from cluster.
-func Pull(apiClient *clients.Settings, nodeName string) (*Builder, error) {
-	klog.V(100).Infof("Pulling existing node object: %s", nodeName)
-
-	if apiClient == nil {
-		klog.V(100).Info("The node apiClient is nil")
-
-		return nil, fmt.Errorf("node 'apiClient' cannot be nil")
-	}
-
-	builder := Builder{
-		apiClient: apiClient.K8sClient,
-		Definition: &corev1.Node{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: nodeName,
-			},
-		},
-	}
-
-	if nodeName == "" {
-		klog.V(100).Info("The name of the node is empty")
-
-		return nil, fmt.Errorf("node 'name' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("node object %s does not exist", nodeName)
-	}
-
-	builder.Definition = builder.Object
-
-	return &builder, nil
-}
-
-// Update renovates the existing node object with the node definition in builder.
-func (builder *Builder) Update() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating configuration of node %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("node %s object does not exist", builder.Definition.Name)
-	}
-
-	builder.Definition.CreationTimestamp = metav1.Time{}
-	builder.Definition.ResourceVersion = ""
-
-	var err error
-
-	builder.Object, err = builder.apiClient.CoreV1().Nodes().Update(
-		logging.DiscardContext(), builder.Definition, metav1.UpdateOptions{})
-
-	return builder, err
-}
-
-// Exists checks whether the given node exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if node %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.CoreV1().Nodes().Get(
-		logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Delete removes node from the cluster.
-func (builder *Builder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting the node %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("Cannot delete node %s if it does not exist", builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.CoreV1().Nodes().Delete(
-		logging.DiscardContext(),
-		builder.Definition.Name,
-		metav1.DeleteOptions{})
-	if err != nil {
-		return fmt.Errorf("can not delete node %s due to %w", builder.Definition.Name, err)
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
 // WithNewLabel defines the new label placed in the Node metadata.
 func (builder *Builder) WithNewLabel(key, value string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -239,7 +170,7 @@ func (builder *Builder) WithNewLabel(key, value string) *Builder {
 
 	if key == "" {
 		klog.V(100).Infof("Failed to apply label with an empty key to node %s", builder.Definition.Name)
-		builder.errorMsg = "error to set empty key to node"
+		builder.SetError(fmt.Errorf("error to set empty key to node"))
 
 		return builder
 	}
@@ -251,7 +182,7 @@ func (builder *Builder) WithNewLabel(key, value string) *Builder {
 		if !labelExist {
 			builder.Definition.Labels[key] = value
 		} else {
-			builder.errorMsg = fmt.Sprintf("cannot overwrite existing node label: %s", key)
+			builder.SetError(fmt.Errorf("cannot overwrite existing node label: %s", key))
 
 			return builder
 		}
@@ -260,33 +191,9 @@ func (builder *Builder) WithNewLabel(key, value string) *Builder {
 	return builder
 }
 
-// WithOptions creates node with generic mutation options.
-func (builder *Builder) WithOptions(options ...AdditionalOptions) *Builder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting node additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
 // RemoveLabel removes given label from Node metadata.
 func (builder *Builder) RemoveLabel(key, value string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -294,7 +201,7 @@ func (builder *Builder) RemoveLabel(key, value string) *Builder {
 
 	if key == "" {
 		klog.V(100).Infof("Failed to remove empty label's key from node %s", builder.Definition.Name)
-		builder.errorMsg = "error to remove empty key from node"
+		builder.SetError(fmt.Errorf("error to remove empty key from node"))
 
 		return builder
 	}
@@ -306,7 +213,7 @@ func (builder *Builder) RemoveLabel(key, value string) *Builder {
 
 // ExternalIPv4Network returns nodes external ip address.
 func (builder *Builder) ExternalIPv4Network() (string, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return "", err
 	}
 
@@ -333,7 +240,7 @@ func (builder *Builder) ExternalIPv4Network() (string, error) {
 
 // ExternalIPv6Network returns nodes external ipv6 address.
 func (builder *Builder) ExternalIPv6Network() (string, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return "", err
 	}
 
@@ -364,7 +271,7 @@ func (builder *Builder) ExternalIPv6Network() (string, error) {
 
 // IsReady check if the Node is Ready.
 func (builder *Builder) IsReady() (bool, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return false, err
 	}
 
@@ -387,7 +294,7 @@ func (builder *Builder) IsReady() (bool, error) {
 // Reason, and Message fields. For the message field, it matches if the message contains the expected. Zero fields in
 // the expected condition are ignored.
 func (builder *Builder) WaitForCondition(expected corev1.NodeCondition, timeout time.Duration) (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -395,8 +302,7 @@ func (builder *Builder) WaitForCondition(expected corev1.NodeCondition, timeout 
 		context.TODO(), 3*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
 			var err error
 
-			builder.Object, err = builder.apiClient.CoreV1().Nodes().Get(
-				logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
+			builder.Object, err = builder.Get()
 			if err != nil {
 				klog.V(100).Infof("failed to get node %q, retrying: %v", builder.Definition.Name, err)
 
@@ -434,7 +340,7 @@ func (builder *Builder) WaitUntilReady(timeout time.Duration) error {
 
 // WaitUntilNotReady waits for up to timeout until the node's Ready condition is not True (i.e., False or Unknown).
 func (builder *Builder) WaitUntilNotReady(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -442,8 +348,7 @@ func (builder *Builder) WaitUntilNotReady(timeout time.Duration) error {
 		context.TODO(), 3*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
 			var err error
 
-			builder.Object, err = builder.apiClient.CoreV1().Nodes().Get(
-				logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
+			builder.Object, err = builder.Get()
 			if err != nil {
 				klog.V(100).Infof("failed to get node %q, retrying: %v", builder.Definition.Name, err)
 
@@ -462,38 +367,6 @@ func (builder *Builder) WaitUntilNotReady(timeout time.Duration) error {
 		})
 }
 
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "node"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
-}
-
 // ensureDrainHelperIsSet ensures that drainHelper is always set.
 func (builder *Builder) ensureDrainHelperIsSet() {
 	if builder.drainHelper == nil {
@@ -501,5 +374,11 @@ func (builder *Builder) ensureDrainHelperIsSet() {
 			"DrainHelper is not initialized for node %s. Init DrainHelper with defaul parameters",
 			builder.Definition.Name)
 		builder.SetDrainHelper(true, true, true, 300, 180, 10*time.Minute)
+	}
+}
+
+func (builder *Builder) setKubeClient(apiClient *clients.Settings) {
+	if apiClient != nil {
+		builder.kubeClient = apiClient.K8sClient
 	}
 }

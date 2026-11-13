@@ -7,7 +7,10 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -21,388 +24,336 @@ const (
 	defaultExternalIPv6     = "fd00::/8"
 )
 
-func TestNodePull(t *testing.T) {
-	testCases := []struct {
-		name                string
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			name:                defaultNodeName,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			name:                "",
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       fmt.Errorf("node 'name' cannot be empty"),
-		},
-		{
-			name:                defaultNodeName,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("node object %s does not exist", defaultNodeName),
-		},
-		{
-			name:                defaultNodeName,
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("node 'apiClient' cannot be nil"),
-		},
-	}
+var nodeGVK = corev1.SchemeGroupVersion.WithKind("Node")
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+func TestNewBuilder(t *testing.T) {
+	t.Parallel()
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, buildDummyNode(testCase.name))
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
-
-		testBuilder, err := Pull(testSettings, testCase.name)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-		}
-	}
+	testhelper.NewClusterScopedBuilderTestConfig[corev1.Node, Builder](
+		NewBuilder, corev1.AddToScheme, nodeGVK).ExecuteTests(t)
 }
 
-func TestNodeUpdate(t *testing.T) {
-	testCases := []struct {
-		alreadyExists bool
-		expectedError error
-	}{
-		{
-			alreadyExists: true,
-			expectedError: nil,
-		},
-		{
-			alreadyExists: false,
-			expectedError: fmt.Errorf("node %s object does not exist", defaultNodeName),
-		},
-	}
+func TestPull(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.alreadyExists {
-			runtimeObjects = append(runtimeObjects, buildDummyNode(defaultNodeName))
-		}
-
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
-		})
-
-		testBuilder := buildValidNodeTestBuilder(testSettings)
-		assert.False(t, testBuilder.Definition.Spec.Unschedulable)
-
-		testBuilder.Definition.ResourceVersion = "999"
-		testBuilder.Definition.Spec.Unschedulable = true
-
-		testBuilder, err := testBuilder.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.True(t, testBuilder.Object.Spec.Unschedulable)
-		}
-	}
+	testhelper.NewClusterScopedPullTestConfig[corev1.Node, Builder](
+		Pull, corev1.AddToScheme, nodeGVK).ExecuteTests(t)
 }
 
-func TestNodeExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *Builder
-		exists      bool
-	}{
-		{
-			testBuilder: buildValidNodeTestBuilder(buildTestClientWithDummyNode()),
-			exists:      true,
-		},
-		{
-			testBuilder: buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
-		},
-	}
+func TestBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
+	commonTestConfig := newNodeCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		Run(t)
 }
 
-func TestNodeDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *Builder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidNodeTestBuilder(buildTestClientWithDummyNode()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
+func TestWithOptions(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		err := testCase.testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-	}
+	testhelper.NewWithOptionsTestConfig(newNodeCommonTestConfig()).ExecuteTests(t)
 }
 
 func TestNodeWithNewLabel(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		key           string
-		keyExists     bool
-		expectedError string
+		name           string
+		key            string
+		value          string
+		keyExists      bool
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			key:           defaultNodeLabel,
-			keyExists:     false,
-			expectedError: "",
+			name:  "adds label",
+			key:   defaultNodeLabel,
+			value: "test-value",
 		},
 		{
+			name:          "empty key sets builder error",
 			key:           "",
-			keyExists:     false,
+			value:         "test-value",
 			expectedError: "error to set empty key to node",
 		},
 		{
+			name:          "existing label sets builder error",
 			key:           defaultNodeLabel,
+			value:         "test-value",
 			keyExists:     true,
 			expectedError: fmt.Sprintf("cannot overwrite existing node label: %s", defaultNodeLabel),
 		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		if testCase.keyExists {
-			testBuilder.Definition.Labels = map[string]string{testCase.key: ""}
-		}
-
-		testBuilder = testBuilder.WithNewLabel(testCase.key, "")
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-	}
-}
-
-func TestNodeWithOptions(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *Builder
-		options       AdditionalOptions
-		expectedError string
-	}{
 		{
-			testBuilder: buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			options: func(builder *Builder) (*Builder, error) {
-				builder.Definition.Spec.Unschedulable = true
-
-				return builder, nil
-			},
-			expectedError: "",
-		},
-		{
-			testBuilder: buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			options: func(builder *Builder) (*Builder, error) {
-				return builder, fmt.Errorf("error adding additional option")
-			},
-			expectedError: "error adding additional option",
+			name:           "invalid builder short circuits",
+			key:            defaultNodeLabel,
+			value:          "test-value",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := testCase.testBuilder.WithOptions(testCase.options)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.True(t, testBuilder.Definition.Spec.Unschedulable)
-		}
+			testBuilder := buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+			if testCase.keyExists {
+				testBuilder.Definition.Labels = map[string]string{testCase.key: "existing-value"}
+			}
+
+			if testCase.invalidBuilder {
+				testBuilder = buildInvalidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+			}
+
+			result := testBuilder.WithNewLabel(testCase.key, testCase.value)
+			require.Same(t, testBuilder, result)
+
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.value, result.Definition.Labels[testCase.key])
+		})
 	}
 }
 
 func TestNodeRemoveLabel(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		key           string
-		expectedError string
+		name           string
+		key            string
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			key:           defaultNodeLabel,
-			expectedError: "",
+			name: "removes label",
+			key:  defaultNodeLabel,
 		},
 		{
+			name:          "empty key sets builder error",
 			key:           "",
 			expectedError: "error to remove empty key from node",
+		},
+		{
+			name:           "invalid builder short circuits",
+			key:            defaultNodeLabel,
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder = testBuilder.RemoveLabel(testCase.key, "")
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			testBuilder := buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+			testBuilder.Definition.Labels = map[string]string{testCase.key: "test-value"}
 
-		if testCase.expectedError == "" {
-			assert.NotContains(t, testBuilder.Definition.Labels, testCase.key)
-		}
+			if testCase.invalidBuilder {
+				testBuilder = buildInvalidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+			}
+
+			result := testBuilder.RemoveLabel(testCase.key, "test-value")
+			require.Same(t, testBuilder, result)
+
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.NotContains(t, result.Definition.Labels, testCase.key)
+		})
 	}
 }
 
 func TestNodeExternalIPv4Network(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name              string
 		objectNil         bool
 		externalAddresses string
 		expectedError     error
 	}{
 		{
-			objectNil:         false,
+			name:              "returns external IPv4 network",
 			externalAddresses: defaultExternalNetworks,
-			expectedError:     nil,
 		},
 		{
-			objectNil:         true,
-			externalAddresses: defaultExternalNetworks,
-			expectedError:     fmt.Errorf("cannot collect external networks when node object is nil"),
+			name:          "nil object returns error",
+			objectNil:     true,
+			expectedError: fmt.Errorf("cannot collect external networks when node object is nil"),
 		},
 		{
-			objectNil:         false,
-			externalAddresses: "",
-			expectedError:     fmt.Errorf("node %s does not have external addresses annotation", defaultNodeName),
+			name:          "missing annotation returns error",
+			expectedError: fmt.Errorf("node %s does not have external addresses annotation", defaultNodeName),
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidNodeTestBuilder(buildTestClientWithDummyNode())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if !testCase.objectNil {
-			testBuilder.Object = testBuilder.Definition
+			testBuilder := buildValidNodeTestBuilder(buildTestClientWithDummyNode())
 
-			if testCase.externalAddresses != "" {
-				testBuilder.Object.Annotations = map[string]string{ovnExternalAddresses: testCase.externalAddresses}
+			if !testCase.objectNil {
+				testBuilder.Object = testBuilder.Definition
+
+				if testCase.externalAddresses != "" {
+					testBuilder.Object.Annotations = map[string]string{ovnExternalAddresses: testCase.externalAddresses}
+				}
 			}
-		}
 
-		externalIPv4, err := testBuilder.ExternalIPv4Network()
-		assert.Equal(t, testCase.expectedError, err)
+			externalIPv4, err := testBuilder.ExternalIPv4Network()
+			assert.Equal(t, testCase.expectedError, err)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, defaultExternalIPv4, externalIPv4)
-		}
+			if testCase.expectedError == nil {
+				assert.Equal(t, defaultExternalIPv4, externalIPv4)
+			}
+		})
 	}
 }
 
 func TestNodeExternalIPv6Network(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name              string
 		objectNil         bool
 		externalAddresses string
 		expectedError     error
 	}{
 		{
-			objectNil:         false,
+			name:              "returns external IPv6 network",
 			externalAddresses: defaultExternalNetworks,
-			expectedError:     nil,
 		},
 		{
-			objectNil:         true,
-			externalAddresses: defaultExternalNetworks,
-			expectedError:     fmt.Errorf("cannot collect external networks when node object is nil"),
+			name:          "nil object returns error",
+			objectNil:     true,
+			expectedError: fmt.Errorf("cannot collect external networks when node object is nil"),
 		},
 		{
-			objectNil:         false,
-			externalAddresses: "",
-			expectedError:     fmt.Errorf("node %s does not have external addresses annotation", defaultNodeName),
+			name:          "missing annotation returns error",
+			expectedError: fmt.Errorf("node %s does not have external addresses annotation", defaultNodeName),
+		},
+		{
+			name:              "missing IPv6 address returns error",
+			externalAddresses: `{"ipv4":"10.0.0.0/8"}`,
+			expectedError:     fmt.Errorf("node %s does not have external ipv6 addresses", defaultNodeName),
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidNodeTestBuilder(buildTestClientWithDummyNode())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if !testCase.objectNil {
-			testBuilder.Object = testBuilder.Definition
+			testBuilder := buildValidNodeTestBuilder(buildTestClientWithDummyNode())
 
-			if testCase.externalAddresses != "" {
-				testBuilder.Object.Annotations = map[string]string{ovnExternalAddresses: testCase.externalAddresses}
+			if !testCase.objectNil {
+				testBuilder.Object = testBuilder.Definition
+
+				if testCase.externalAddresses != "" {
+					testBuilder.Object.Annotations = map[string]string{ovnExternalAddresses: testCase.externalAddresses}
+				}
 			}
-		}
 
-		externalIPv6, err := testBuilder.ExternalIPv6Network()
-		assert.Equal(t, testCase.expectedError, err)
+			externalIPv6, err := testBuilder.ExternalIPv6Network()
+			assert.Equal(t, testCase.expectedError, err)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, defaultExternalIPv6, externalIPv6)
-		}
+			if testCase.expectedError == nil {
+				assert.Equal(t, defaultExternalIPv6, externalIPv6)
+			}
+		})
 	}
 }
 
 func TestNodeIsReady(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name           string
 		exists         bool
 		readyCondition bool
 		ready          bool
 		expectedError  error
 	}{
 		{
+			name:           "ready node",
 			exists:         true,
 			readyCondition: true,
 			ready:          true,
-			expectedError:  nil,
 		},
 		{
-			exists:         false,
-			readyCondition: true,
-			ready:          true,
-			expectedError:  fmt.Errorf("node object %s does not exist", defaultNodeName),
+			name:          "missing node returns error",
+			expectedError: fmt.Errorf("node object %s does not exist", defaultNodeName),
 		},
 		{
+			name:           "missing Ready condition returns error",
 			exists:         true,
 			readyCondition: false,
-			ready:          true,
 			expectedError:  fmt.Errorf("the Ready condition could not be found for node %s", defaultNodeName),
 		},
 		{
+			name:           "not ready node",
 			exists:         true,
 			readyCondition: true,
 			ready:          false,
-			expectedError:  nil,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			if testCase.readyCondition {
-				runtimeObjects = append(runtimeObjects, buildDummyNodeWithReadiness(defaultNodeName, testCase.ready))
-			} else {
-				runtimeObjects = append(runtimeObjects, buildDummyNode(defaultNodeName))
+			var runtimeObjects []runtime.Object
+
+			if testCase.exists {
+				if testCase.readyCondition {
+					runtimeObjects = append(runtimeObjects, buildDummyNodeWithReadiness(defaultNodeName, testCase.ready))
+				} else {
+					runtimeObjects = append(runtimeObjects, buildDummyNode(defaultNodeName))
+				}
 			}
-		}
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
+			testBuilder := buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  runtimeObjects,
+				SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+			}))
+
+			ready, err := testBuilder.IsReady()
+			assert.Equal(t, testCase.expectedError, err)
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, testCase.ready, ready)
+			}
 		})
-		testBuilder := buildValidNodeTestBuilder(testSettings)
-
-		ready, err := testBuilder.IsReady()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.ready, ready)
-		}
 	}
 }
 
 func TestNodeWaitForCondition(t *testing.T) {
+	t.Parallel()
+
 	expectedCondition := corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionTrue}
 	testNodeWaitUntilConditionHelper(t, expectedCondition, func(testBuilder *Builder, timeout time.Duration) error {
 		_, err := testBuilder.WaitForCondition(expectedCondition, timeout)
@@ -412,6 +363,8 @@ func TestNodeWaitForCondition(t *testing.T) {
 }
 
 func TestNodeWaitUntilConditionTrue(t *testing.T) {
+	t.Parallel()
+
 	expectedCondition := corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionTrue}
 	testNodeWaitUntilConditionHelper(t, expectedCondition, func(testBuilder *Builder, timeout time.Duration) error {
 		return testBuilder.WaitUntilConditionTrue(expectedCondition.Type, timeout)
@@ -419,6 +372,8 @@ func TestNodeWaitUntilConditionTrue(t *testing.T) {
 }
 
 func TestNodeWaitUntilReady(t *testing.T) {
+	t.Parallel()
+
 	expectedCondition := corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionTrue}
 	testNodeWaitUntilConditionHelper(t, expectedCondition, func(testBuilder *Builder, timeout time.Duration) error {
 		return testBuilder.WaitUntilReady(timeout)
@@ -426,27 +381,29 @@ func TestNodeWaitUntilReady(t *testing.T) {
 }
 
 func TestNodeWaitUntilNotReady(t *testing.T) {
+	t.Parallel()
+
+	builderError := fmt.Errorf("test error")
+
 	testCases := []struct {
 		name          string
 		exists        bool
 		hasCondition  bool
 		conditionVal  corev1.ConditionStatus
-		builderErrMsg string
+		builderError  error
 		expectedError error
 	}{
 		{
-			name:          "exists and Ready is False",
-			exists:        true,
-			hasCondition:  true,
-			conditionVal:  corev1.ConditionFalse,
-			expectedError: nil,
+			name:         "exists and Ready is False",
+			exists:       true,
+			hasCondition: true,
+			conditionVal: corev1.ConditionFalse,
 		},
 		{
-			name:          "exists and Ready is Unknown",
-			exists:        true,
-			hasCondition:  true,
-			conditionVal:  corev1.ConditionUnknown,
-			expectedError: nil,
+			name:         "exists and Ready is Unknown",
+			exists:       true,
+			hasCondition: true,
+			conditionVal: corev1.ConditionUnknown,
 		},
 		{
 			name:          "exists and Ready is True",
@@ -457,23 +414,19 @@ func TestNodeWaitUntilNotReady(t *testing.T) {
 		},
 		{
 			name:          "does not exist",
-			exists:        false,
-			hasCondition:  false,
 			expectedError: context.DeadlineExceeded,
 		},
 		{
 			name:          "exists but has no Ready condition",
 			exists:        true,
-			hasCondition:  false,
 			expectedError: context.DeadlineExceeded,
 		},
 		{
-			name:          "invalid builder with error message",
-			exists:        true,
-			hasCondition:  true,
-			conditionVal:  corev1.ConditionFalse,
-			builderErrMsg: "test error",
-			expectedError: fmt.Errorf("test error"),
+			name:         "invalid builder with error message",
+			exists:       true,
+			hasCondition: true,
+			conditionVal: corev1.ConditionFalse,
+			builderError: builderError,
 		},
 	}
 
@@ -492,89 +445,22 @@ func TestNodeWaitUntilNotReady(t *testing.T) {
 				}
 			}
 
-			testSettings := clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-			testBuilder := buildValidNodeTestBuilder(testSettings)
-
-			if testCase.builderErrMsg != "" {
-				testBuilder.errorMsg = testCase.builderErrMsg
-			}
+			testBuilder := buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  runtimeObjects,
+				SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+			}))
+			testBuilder.SetError(testCase.builderError)
 
 			err := testBuilder.WaitUntilNotReady(time.Second)
+
+			if testCase.builderError != nil {
+				assert.ErrorIs(t, err, testCase.builderError)
+
+				return
+			}
+
 			assert.Equal(t, testCase.expectedError, err)
 		})
-	}
-}
-
-func TestNodeValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil      bool
-		definitionNil   bool
-		apiClientNil    bool
-		builderErrorMsg string
-		expectedError   error
-	}{
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   nil,
-		},
-		{
-			builderNil:      true,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("error: received nil node builder"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   true,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("can not redefine the undefined node"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    true,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("node builder cannot have nil apiClient"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "test error",
-			expectedError:   fmt.Errorf("test error"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		if testCase.builderErrorMsg != "" {
-			testBuilder.errorMsg = testCase.builderErrorMsg
-		}
-
-		valid, err := testBuilder.validate()
-
-		assert.Equal(t, testCase.expectedError, err)
-		assert.Equal(t, testCase.expectedError == nil, valid)
 	}
 }
 
@@ -594,22 +480,17 @@ func testNodeWaitUntilConditionHelper(
 		expectedError  error
 	}{
 		{
-			name:           "exists and has condition met",
-			exists:         true,
-			hasCondition:   true,
-			conditionUnmet: false,
-			expectedError:  nil,
+			name:         "exists and has condition met",
+			exists:       true,
+			hasCondition: true,
 		},
 		{
 			name:          "does not exist",
-			exists:        false,
-			hasCondition:  false,
 			expectedError: context.DeadlineExceeded,
 		},
 		{
 			name:          "exists and does not have condition",
 			exists:        true,
-			hasCondition:  false,
 			expectedError: context.DeadlineExceeded,
 		},
 		{
@@ -634,16 +515,17 @@ func testNodeWaitUntilConditionHelper(
 						status = "invalid"
 					}
 
-					runtimeObjects = append(runtimeObjects, buildDummyNodeWithCondition(defaultNodeName, expectedCondition.Type, status))
+					runtimeObjects = append(runtimeObjects,
+						buildDummyNodeWithCondition(defaultNodeName, expectedCondition.Type, status))
 				} else {
 					runtimeObjects = append(runtimeObjects, buildDummyNode(defaultNodeName))
 				}
 			}
 
-			testSettings := clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-			testBuilder := buildValidNodeTestBuilder(testSettings)
+			testBuilder := buildValidNodeTestBuilder(clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  runtimeObjects,
+				SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+			}))
 
 			err := testedFunc(testBuilder, time.Second)
 			assert.Equal(t, testCase.expectedError, err)
@@ -676,24 +558,20 @@ func buildDummyNodeWithCondition(
 // buildTestClientWithDummyNode returns a client with a dummy node.
 func buildTestClientWithDummyNode() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{buildDummyNode(defaultNodeName)},
+		K8sMockObjects:  []runtime.Object{buildDummyNode(defaultNodeName)},
+		SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
 	})
 }
 
 func buildValidNodeTestBuilder(apiClient *clients.Settings) *Builder {
-	return newNodeBuilder(apiClient, defaultNodeName)
+	return NewBuilder(apiClient, defaultNodeName)
 }
 
-// newNodeBuilder creates a new Builder instances for testing purposes.
-func newNodeBuilder(apiClient *clients.Settings, name string) *Builder {
-	if apiClient == nil {
-		return nil
-	}
+func buildInvalidNodeTestBuilder(apiClient *clients.Settings) *Builder {
+	return NewBuilder(apiClient, "")
+}
 
-	builder := Builder{
-		apiClient:  apiClient.K8sClient,
-		Definition: buildDummyNode(name),
-	}
-
-	return &builder
+func newNodeCommonTestConfig() testhelper.CommonTestConfig[corev1.Node, Builder, *corev1.Node, *Builder] {
+	return testhelper.NewCommonTestConfig[corev1.Node, Builder](
+		corev1.AddToScheme, nodeGVK, testhelper.ResourceScopeClusterScoped)
 }
