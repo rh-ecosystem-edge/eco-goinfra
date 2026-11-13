@@ -7,6 +7,8 @@ import (
 	"github.com/nmstate/kubernetes-nmstate/api/shared"
 	nmstateV1beta1 "github.com/nmstate/kubernetes-nmstate/api/v1beta1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,140 +27,28 @@ var (
 )
 
 func TestPullNodeNetworkState(t *testing.T) {
-	generateNodeNetState := func(name string) *nmstateV1beta1.NodeNetworkState {
-		return &nmstateV1beta1.NodeNetworkState{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-			Status: shared.NodeNetworkStateStatus{},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		name                string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-		client              bool
-	}{
-		{
-			name:                "test1",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "",
-			expectedError:       true,
-			expectedErrorText:   "nodeNetworkState 'name' cannot be empty",
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "test1",
-			expectedError:       true,
-			expectedErrorText:   "nodeNetworkState object test1 does not exist",
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-		{
-			name:                "test1",
-			expectedError:       true,
-			expectedErrorText:   "the apiClient cannot be nil",
-			addToRuntimeObjects: true,
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testNodeNetState := generateNodeNetState(testCase.name)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testNodeNetState)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: nmstateV1beta1TestSchemes,
-			})
-		}
-
-		// Test the Pull method
-		builderResult, err := PullNodeNetworkState(testSettings, testCase.name)
-
-		// Check the error
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			// Check the error message
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testNodeNetState.Name, builderResult.Object.Name)
-			assert.Equal(t, testNodeNetState.Namespace, builderResult.Object.Namespace)
-		}
-	}
+	testhelper.NewClusterScopedPullTestConfig(
+		PullNodeNetworkState, nmstateV1beta1.AddToScheme, nodeNetworkStateGVK).ExecuteTests(t)
 }
 
-func TestStateBuilderGet(t *testing.T) {
-	testCases := []struct {
-		nodeNetStateBuilder *StateBuilder
-		expectedError       error
-	}{
-		{
-			nodeNetStateBuilder: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
-			expectedError:       nil,
-		},
-		{
-			nodeNetStateBuilder: buildValidNodeNetworkStateTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:       fmt.Errorf("nodenetworkstates.nmstate.io \"nmstatename\" not found"),
-		},
-	}
+func TestStateBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		nodeNetState, err := testCase.nodeNetStateBuilder.Get()
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testCase.expectedError, err)
-		}
+	commonConfig := testhelper.NewCommonTestConfig[
+		nmstateV1beta1.NodeNetworkState, StateBuilder](
+		nmstateV1beta1.AddToScheme, nodeNetworkStateGVK, testhelper.ResourceScopeClusterScoped)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, nodeNetState.Name, testCase.nodeNetStateBuilder.Object.Name)
-		}
-	}
-}
-
-func TestStateBuilderExist(t *testing.T) {
-	testCases := []struct {
-		testNodeNetState *StateBuilder
-		expectedStatus   bool
-	}{
-		{
-			testNodeNetState: buildValidNodeNetworkStateTestBuilder(buildTestClientWithDummyNodeNetworkStateObject()),
-			expectedStatus:   true,
-		},
-		{
-			testNodeNetState: buildValidNodeNetworkStateTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:   false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testNodeNetState.Exists()
-		assert.Equal(t, testCase.expectedStatus, exists)
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		Run(t)
 }
 
 func TestStateBuilderGetTotalVFs(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNodeNetState   *StateBuilder
 		sriovInterfaceName string
@@ -193,6 +83,8 @@ func TestStateBuilderGetTotalVFs(t *testing.T) {
 }
 
 func TestStateBuilderGetInterfaceType(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNodeNetState *StateBuilder
 		interfaceName    string
@@ -237,6 +129,8 @@ func TestStateBuilderGetInterfaceType(t *testing.T) {
 }
 
 func TestStateBuilderGetInterfaceMACAddress(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNodeNetState *StateBuilder
 		interfaceName    string
@@ -291,6 +185,8 @@ func TestStateBuilderGetInterfaceMACAddress(t *testing.T) {
 }
 
 func TestStateBuilderGetInterfacePCIAddress(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNodeNetState *StateBuilder
 		interfaceName    string
@@ -345,6 +241,8 @@ func TestStateBuilderGetInterfacePCIAddress(t *testing.T) {
 }
 
 func TestStateBuilderGetInterfaceAltnames(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNodeNetState *StateBuilder
 		interfaceName    string
@@ -379,6 +277,8 @@ func TestStateBuilderGetInterfaceAltnames(t *testing.T) {
 }
 
 func TestStateBuilderGetSriovVfs(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNodeNetState *StateBuilder
 		interfaceName    string
@@ -461,25 +361,22 @@ func newNodeNetworkStateBuilder(apiClient *clients.Settings, name string) *State
 	}
 	byteDesiredState, _ := yaml.Marshal(desiredState)
 
-	err := apiClient.AttachScheme(nmstateV1beta1.AddToScheme)
-	if err != nil {
-		return nil
+	builder := common.NewClusterScopedBuilder[nmstateV1beta1.NodeNetworkState, StateBuilder](
+		apiClient, nmstateV1beta1.AddToScheme, name)
+	if builder.GetError() != nil {
+		return builder
 	}
 
-	builder := StateBuilder{
-		apiClient: apiClient.Client,
-		Object: &nmstateV1beta1.NodeNetworkState{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-
-			Status: shared.NodeNetworkStateStatus{
-				CurrentState: shared.State{
-					Raw: byteDesiredState,
-				},
+	builder.Object = &nmstateV1beta1.NodeNetworkState{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Status: shared.NodeNetworkStateStatus{
+			CurrentState: shared.State{
+				Raw: byteDesiredState,
 			},
 		},
 	}
 
-	return &builder
+	return builder
 }
