@@ -8,7 +8,11 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -21,230 +25,205 @@ var (
 	testSchemes = []clients.SchemeAttacher{
 		configv1.Install,
 	}
+	clusterVersionGVK = configv1.GroupVersion.WithKind("ClusterVersion")
 )
 
 func TestPullClusterVersion(t *testing.T) {
-	testCases := []struct {
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("clusterversion object %s does not exist", clusterVersionName),
-		},
-		{
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("clusterversion 'apiClient' cannot be nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testClusterVersion := buildDummyClusterVersion()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testClusterVersion)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		testBuilder, err := Pull(testSettings)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, clusterVersionName, testBuilder.Definition.Name)
-		}
-	}
+	testhelper.NewSingletonClusterScopedPullTestConfig(
+		Pull,
+		configv1.Install,
+		clusterVersionGVK,
+		clusterVersionName,
+	).ExecuteTests(t)
 }
 
-func TestClusterVersionGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *Builder
-		expectedError string
-	}{
-		{
-			testBuilder:   newClusterVersionBuilder(buildTestClientWithDummyClusterVersion()),
-			expectedError: "",
-		},
-		{
-			testBuilder:   newClusterVersionBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "clusterversions.config.openshift.io \"version\" not found",
-		},
-	}
+func TestClusterVersionBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		clusterVersion, err := testCase.testBuilder.Get()
+	commonConfig := testhelper.NewCommonTestConfig[configv1.ClusterVersion, Builder](
+		configv1.Install, clusterVersionGVK, testhelper.ResourceScopeClusterScoped)
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.testBuilder.Definition.Name, clusterVersion.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestClusterVersionExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *Builder
-		exists      bool
-	}{
-		{
-			testBuilder: newClusterVersionBuilder(buildTestClientWithDummyClusterVersion()),
-			exists:      true,
-		},
-		{
-			testBuilder: newClusterVersionBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		With(testhelper.NewUpdateTestConfig(commonConfig)).
+		Run(t)
 }
 
 func TestClusterVersionWithDesiredUpdateImage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name               string
 		desiredUpdateImage string
+		force              bool
 		expectedError      string
+		invalidBuilder     bool
 	}{
 		{
+			name:               "sets desired update image",
 			desiredUpdateImage: "test-image",
+			force:              true,
 			expectedError:      "",
 		},
 		{
+			name:               "empty image sets builder error",
 			desiredUpdateImage: "",
+			force:              true,
 			expectedError:      "clusterversion 'desiredUpdateImage' cannot be empty",
+		},
+		{
+			name:               "invalid builder short circuits",
+			desiredUpdateImage: "test-image",
+			force:              true,
+			invalidBuilder:     true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := newClusterVersionBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder = testBuilder.WithDesiredUpdateImage(testCase.desiredUpdateImage, true)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			testBuilder := newClusterVersionBuilder(clients.GetTestClients(clients.TestClientParams{}))
+			if testCase.invalidBuilder {
+				testBuilder = common.NewClusterScopedBuilder[configv1.ClusterVersion, Builder](
+					clients.GetTestClients(clients.TestClientParams{}), configv1.Install, "")
+			}
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.desiredUpdateImage, testBuilder.Definition.Spec.DesiredUpdate.Image)
-			assert.True(t, testBuilder.Definition.Spec.DesiredUpdate.Force)
-		}
+			result := testBuilder.WithDesiredUpdateImage(testCase.desiredUpdateImage, testCase.force)
+			require.Same(t, testBuilder, result)
+
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.desiredUpdateImage, result.Definition.Spec.DesiredUpdate.Image)
+			assert.Equal(t, testCase.force, result.Definition.Spec.DesiredUpdate.Force)
+		})
 	}
 }
 
 func TestClusterVersionWithDesiredUpdateChannel(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name                 string
 		desiredUpdateChannel string
 		expectedError        string
+		invalidBuilder       bool
 	}{
 		{
+			name:                 "sets desired update channel",
 			desiredUpdateChannel: "test-channel",
 			expectedError:        "",
 		},
 		{
+			name:                 "empty channel sets builder error",
 			desiredUpdateChannel: "",
 			expectedError:        "clusterversion 'updateChannel' cannot be empty",
 		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := newClusterVersionBuilder(clients.GetTestClients(clients.TestClientParams{}))
-		testBuilder = testBuilder.WithDesiredUpdateChannel(testCase.desiredUpdateChannel)
-
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.desiredUpdateChannel, testBuilder.Definition.Spec.Channel)
-		}
-	}
-}
-
-func TestClusterVersionUpdate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *Builder
-		expectedError error
-	}{
 		{
-			testBuilder:   newClusterVersionBuilder(buildTestClientWithDummyClusterVersion()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   newClusterVersionBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("clusterversion object %s does not exist", clusterVersionName),
+			name:                 "invalid builder short circuits",
+			desiredUpdateChannel: "test-channel",
+			invalidBuilder:       true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		assert.Empty(t, testCase.testBuilder.Definition.Spec.Channel)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testCase.testBuilder.Definition.ResourceVersion = "999"
-		testCase.testBuilder.Definition.Spec.Channel = "stable"
+			testBuilder := newClusterVersionBuilder(clients.GetTestClients(clients.TestClientParams{}))
+			if testCase.invalidBuilder {
+				testBuilder = common.NewClusterScopedBuilder[configv1.ClusterVersion, Builder](
+					clients.GetTestClients(clients.TestClientParams{}), configv1.Install, "")
+			}
 
-		testBuilder, err := testCase.testBuilder.Update()
-		assert.Equal(t, testCase.expectedError, err)
+			result := testBuilder.WithDesiredUpdateChannel(testCase.desiredUpdateChannel)
+			require.Same(t, testBuilder, result)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, "stable", testBuilder.Object.Spec.Channel)
-		}
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.desiredUpdateChannel, result.Definition.Spec.Channel)
+		})
 	}
 }
 
 func TestClusterVersionWaitUntilProgressing(t *testing.T) {
+	t.Parallel()
+
 	testWaitUntilConditionTrueHelper(t, configv1.OperatorProgressing, func(builder *Builder) error {
 		return builder.WaitUntilProgressing(time.Second)
 	})
 }
 
 func TestClusterVersionWaitUntilAvailable(t *testing.T) {
+	t.Parallel()
+
 	testWaitUntilConditionTrueHelper(t, configv1.OperatorAvailable, func(builder *Builder) error {
 		return builder.WaitUntilAvailable(time.Second)
 	})
 }
 
 func TestClusterVersionWaitUntilConditionTrue(t *testing.T) {
+	t.Parallel()
+
 	testWaitUntilConditionTrueHelper(t, configv1.OperatorAvailable, func(builder *Builder) error {
 		return builder.WaitUntilConditionTrue(configv1.OperatorAvailable, time.Second)
 	})
 }
 
 func TestClusterVersionWaitUntilUpdateIsStarted(t *testing.T) {
+	t.Parallel()
+
 	testWaitUntilUpdateHistoryStateHelper(t, configv1.PartialUpdate, func(builder *Builder) error {
 		return builder.WaitUntilUpdateIsStarted(time.Second)
 	})
 }
 
 func TestClusterVersionWaitUntilUpdateIsCompleted(t *testing.T) {
+	t.Parallel()
+
 	testWaitUntilUpdateHistoryStateHelper(t, configv1.CompletedUpdate, func(builder *Builder) error {
 		return builder.WaitUntilUpdateIsCompleted(time.Second)
 	})
 }
 
 func TestClusterVersionWaitUntilUpdateHistoryStateTrue(t *testing.T) {
+	t.Parallel()
+
 	testWaitUntilUpdateHistoryStateHelper(t, configv1.CompletedUpdate, func(builder *Builder) error {
 		return builder.WaitUntilUpdateHistoryStateTrue(configv1.CompletedUpdate, time.Second)
 	})
 }
 
 func TestClusterVersionGetNextUpdateVersionImage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name              string
 		stream            string
 		acceptConditional bool
 		exists            bool
@@ -253,6 +232,7 @@ func TestClusterVersionGetNextUpdateVersionImage(t *testing.T) {
 		expectedError     error
 	}{
 		{
+			name:              "available Z stream update",
 			stream:            Z,
 			acceptConditional: false,
 			exists:            true,
@@ -261,6 +241,7 @@ func TestClusterVersionGetNextUpdateVersionImage(t *testing.T) {
 			expectedError:     nil,
 		},
 		{
+			name:              "conditional Z stream update",
 			stream:            Z,
 			acceptConditional: true,
 			exists:            true,
@@ -269,6 +250,7 @@ func TestClusterVersionGetNextUpdateVersionImage(t *testing.T) {
 			expectedError:     nil,
 		},
 		{
+			name:              "empty stream returns error",
 			stream:            "",
 			acceptConditional: false,
 			exists:            true,
@@ -277,6 +259,7 @@ func TestClusterVersionGetNextUpdateVersionImage(t *testing.T) {
 			expectedError:     fmt.Errorf("stream can not be empty"),
 		},
 		{
+			name:              "missing clusterversion returns error",
 			stream:            Z,
 			acceptConditional: false,
 			exists:            false,
@@ -285,6 +268,7 @@ func TestClusterVersionGetNextUpdateVersionImage(t *testing.T) {
 			expectedError:     fmt.Errorf("clusterversion object %s does not exist", clusterVersionName),
 		},
 		{
+			name:              "matching update not found returns error",
 			stream:            Z,
 			acceptConditional: false,
 			exists:            true,
@@ -295,36 +279,43 @@ func TestClusterVersionGetNextUpdateVersionImage(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			clusterVersion := buildDummyClusterVersion()
-			clusterVersion.Status.Desired.Version = "4.17.0"
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects: buildClusterVersionUpdateObjects(
+					testCase.exists, testCase.hasAvailable, testCase.hasConditional),
+				SchemeAttachers: testSchemes,
+			})
+			testBuilder := newClusterVersionBuilder(testSettings)
 
-			if testCase.hasAvailable {
-				clusterVersion.Status.AvailableUpdates = []configv1.Release{defaultRelease}
+			nextUpdate, err := testBuilder.GetNextUpdateVersionImage(testCase.stream, testCase.acceptConditional)
+			assert.Equal(t, testCase.expectedError, err)
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, "test-image", nextUpdate)
 			}
-
-			if testCase.hasConditional {
-				clusterVersion.Status.ConditionalUpdates = []configv1.ConditionalUpdate{{Release: defaultRelease}}
-			}
-
-			runtimeObjects = append(runtimeObjects, clusterVersion)
-		}
-
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: testSchemes,
 		})
-		testBuilder := newClusterVersionBuilder(testSettings)
-
-		nextUpdate, err := testBuilder.GetNextUpdateVersionImage(testCase.stream, testCase.acceptConditional)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, "test-image", nextUpdate)
-		}
 	}
+}
+
+func buildClusterVersionUpdateObjects(exists, hasAvailable, hasConditional bool) []runtime.Object {
+	if !exists {
+		return nil
+	}
+
+	clusterVersion := buildDummyClusterVersion()
+	clusterVersion.Status.Desired.Version = "4.17.0"
+
+	if hasAvailable {
+		clusterVersion.Status.AvailableUpdates = []configv1.Release{defaultRelease}
+	}
+
+	if hasConditional {
+		clusterVersion.Status.ConditionalUpdates = []configv1.ConditionalUpdate{{Release: defaultRelease}}
+	}
+
+	return []runtime.Object{clusterVersion}
 }
 
 // testWaitUntilConditionTrueHelper is a helper for functions that call WaitUntilConditionTrue. It will run the test
@@ -334,21 +325,25 @@ func testWaitUntilConditionTrueHelper(
 	t.Helper()
 
 	testCases := []struct {
+		name          string
 		exists        bool
 		hasCondType   bool
 		expectedError error
 	}{
 		{
+			name:          "condition is true",
 			exists:        true,
 			hasCondType:   true,
 			expectedError: nil,
 		},
 		{
+			name:          "clusterversion does not exist",
 			exists:        false,
 			hasCondType:   true,
 			expectedError: fmt.Errorf("clusterversion object %s does not exist", clusterVersionName),
 		},
 		{
+			name:          "condition is missing",
 			exists:        true,
 			hasCondType:   false,
 			expectedError: context.DeadlineExceeded,
@@ -356,29 +351,33 @@ func testWaitUntilConditionTrueHelper(
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			clusterVersion := buildDummyClusterVersion()
+			var runtimeObjects []runtime.Object
 
-			if testCase.hasCondType {
-				clusterVersion.Status.Conditions = []configv1.ClusterOperatorStatusCondition{{
-					Type:   condType,
-					Status: configv1.ConditionTrue,
-				}}
+			if testCase.exists {
+				clusterVersion := buildDummyClusterVersion()
+
+				if testCase.hasCondType {
+					clusterVersion.Status.Conditions = []configv1.ClusterOperatorStatusCondition{{
+						Type:   condType,
+						Status: configv1.ConditionTrue,
+					}}
+				}
+
+				runtimeObjects = append(runtimeObjects, clusterVersion)
 			}
 
-			runtimeObjects = append(runtimeObjects, clusterVersion)
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  runtimeObjects,
+				SchemeAttachers: testSchemes,
+			})
+			testBuilder := newClusterVersionBuilder(testSettings)
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: testSchemes,
+			err := testFunc(testBuilder)
+			assert.Equal(t, testCase.expectedError, err)
 		})
-		testBuilder := newClusterVersionBuilder(testSettings)
-
-		err := testFunc(testBuilder)
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
@@ -389,21 +388,25 @@ func testWaitUntilUpdateHistoryStateHelper(
 	t.Helper()
 
 	testCases := []struct {
+		name          string
 		exists        bool
 		inState       bool
 		expectedError error
 	}{
 		{
+			name:          "update history state is true",
 			exists:        true,
 			inState:       true,
 			expectedError: nil,
 		},
 		{
+			name:          "clusterversion does not exist",
 			exists:        false,
 			inState:       true,
 			expectedError: fmt.Errorf("clusterversion object %s does not exist", clusterVersionName),
 		},
 		{
+			name:          "update history state is not true",
 			exists:        true,
 			inState:       false,
 			expectedError: context.DeadlineExceeded,
@@ -411,30 +414,34 @@ func testWaitUntilUpdateHistoryStateHelper(
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			clusterVersion := buildDummyClusterVersion()
-			clusterVersion.Status.Desired.Image = "test-image"
+			var runtimeObjects []runtime.Object
 
-			if testCase.inState {
-				clusterVersion.Status.History = []configv1.UpdateHistory{{
-					Image: "test-image",
-					State: state,
-				}}
+			if testCase.exists {
+				clusterVersion := buildDummyClusterVersion()
+				clusterVersion.Status.Desired.Image = "test-image"
+
+				if testCase.inState {
+					clusterVersion.Status.History = []configv1.UpdateHistory{{
+						Image: "test-image",
+						State: state,
+					}}
+				}
+
+				runtimeObjects = append(runtimeObjects, clusterVersion)
 			}
 
-			runtimeObjects = append(runtimeObjects, clusterVersion)
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  runtimeObjects,
+				SchemeAttachers: testSchemes,
+			})
+			testBuilder := newClusterVersionBuilder(testSettings)
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: testSchemes,
+			err := testFunc(testBuilder)
+			assert.Equal(t, testCase.expectedError, err)
 		})
-		testBuilder := newClusterVersionBuilder(testSettings)
-
-		err := testFunc(testBuilder)
-		assert.Equal(t, testCase.expectedError, err)
 	}
 }
 
@@ -447,17 +454,8 @@ func buildDummyClusterVersion() *configv1.ClusterVersion {
 	}
 }
 
-func buildTestClientWithDummyClusterVersion() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  []runtime.Object{buildDummyClusterVersion()},
-		SchemeAttachers: testSchemes,
-	})
-}
-
 // newClusterVersionBuilder returns a Builder with the provided apiClient and the clusterVersionName.
 func newClusterVersionBuilder(apiClient *clients.Settings) *Builder {
-	return &Builder{
-		apiClient:  apiClient.Client,
-		Definition: buildDummyClusterVersion(),
-	}
+	return common.NewClusterScopedBuilder[configv1.ClusterVersion, Builder](
+		apiClient, configv1.Install, clusterVersionName)
 }
