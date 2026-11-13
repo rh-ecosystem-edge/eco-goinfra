@@ -1,302 +1,55 @@
 package sriovvrb
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	sriovvrbtypes "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/fec/vrbtypes"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/klog/v2"
-	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-const (
-	errEmptyVrbNodeConfigNsname = "sriovVrbNodeConfig 'nsname' cannot be empty"
 )
 
 // NodeConfigBuilder provides struct for the SriovVrbNodeConfig object containing connection to
 // the cluster and the SriovVrbNodeConfig definitions.
 type NodeConfigBuilder struct {
-	// SriovVrbNodeConfig definition. Used to create SriovVrbNodeConfig object.
-	Definition *sriovvrbtypes.SriovVrbNodeConfig
-	// Create SriovVrbNodeConfig object.
-	Object *sriovvrbtypes.SriovVrbNodeConfig
-	// apiClient opens a connection to the cluster.
-	apiClient runtimeclient.Client
-	// Used in functions that define SriovVrbNodeConfig definitions. errorMsg is processed before SriovVrbNodeConfig
-	// object is created.
-	errorMsg string
+	common.EmbeddableBuilder[sriovvrbtypes.SriovVrbNodeConfig, *sriovvrbtypes.SriovVrbNodeConfig]
+	common.EmbeddableCreator[
+		sriovvrbtypes.SriovVrbNodeConfig, NodeConfigBuilder, *sriovvrbtypes.SriovVrbNodeConfig, *NodeConfigBuilder]
+	common.EmbeddableDeleteReturner[
+		sriovvrbtypes.SriovVrbNodeConfig, NodeConfigBuilder, *sriovvrbtypes.SriovVrbNodeConfig, *NodeConfigBuilder]
+	common.EmbeddableForceUpdater[
+		sriovvrbtypes.SriovVrbNodeConfig, NodeConfigBuilder, *sriovvrbtypes.SriovVrbNodeConfig, *NodeConfigBuilder]
+	common.EmbeddableWithOptions[
+		sriovvrbtypes.SriovVrbNodeConfig, NodeConfigBuilder, *sriovvrbtypes.SriovVrbNodeConfig, *NodeConfigBuilder,
+		NodeAdditionalOptions]
 }
 
 // NodeAdditionalOptions additional options for SriovVrbnodeconfig object.
 type NodeAdditionalOptions func(builder *NodeConfigBuilder) (*NodeConfigBuilder, error)
 
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *NodeConfigBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleteReturner.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the SriovVrbNodeConfig GVK for this builder.
+func (builder *NodeConfigBuilder) GetGVK() schema.GroupVersionKind {
+	return sriovvrbtypes.GroupVersion.WithKind("SriovVrbNodeConfig")
+}
+
 // NewNodeConfigBuilder creates a new instance of NodeConfigBuilder.
-func NewNodeConfigBuilder(
-	apiClient *clients.Settings,
-	name, nsname string) *NodeConfigBuilder {
-	klog.V(100).Infof(
-		"Initializing new sriovVrbNodeConfig structure with the following params: %s, %s",
-		name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("sriovVrbNodeConfig 'apiClient' cannot be nil")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(sriovvrbtypes.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add sriov-vrb scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &NodeConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &sriovvrbtypes.SriovVrbNodeConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the sriovVrbNodeConfig is empty")
-
-		builder.errorMsg = "sriovVrbNodeConfig 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the sriovVrbNodeConfig is empty")
-
-		builder.errorMsg = errEmptyVrbNodeConfigNsname
-
-		return builder
-	}
-
-	return builder
+func NewNodeConfigBuilder(apiClient *clients.Settings, name, nsname string) *NodeConfigBuilder {
+	return common.NewNamespacedBuilder[sriovvrbtypes.SriovVrbNodeConfig, NodeConfigBuilder](
+		apiClient, sriovvrbtypes.AddToScheme, name, nsname)
 }
 
 // PullNodeConfig retrieves an existing SriovVrbNodeConfig.io object from the cluster.
 func PullNodeConfig(apiClient *clients.Settings, name, nsname string) (*NodeConfigBuilder, error) {
-	klog.V(100).Infof(
-		"Pulling SriovVrbNodeConfig.io object name: %s in namespace: %s", name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("sriovVrbNodeConfig 'apiClient' cannot be nil")
-
-		return nil, fmt.Errorf("sriovVrbNodeConfig 'apiClient' cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(sriovvrbtypes.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add sriov-vrb scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &NodeConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &sriovvrbtypes.SriovVrbNodeConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the sriovVrbNodeConfig is empty")
-
-		return nil, fmt.Errorf("sriovVrbNodeConfig 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the SriovVrbNodeConfig is empty")
-
-		return nil, fmt.Errorf(errEmptyVrbNodeConfigNsname)
-	}
-
-	if !builder.Exists() {
-		klog.V(100).Infof("Cannot pull non-existent sriovVrbNodeConfig object %s in namespace %s", name, nsname)
-
-		return nil, fmt.Errorf("sriovVrbNodeConfig object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Exists checks whether the given SriovVrbNodeConfig exists.
-func (builder *NodeConfigBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if sriovVrbNodeConfig %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-	if err != nil {
-		klog.V(100).Infof("Failed to collect sriovVrbNodeConfig object due to %s", err.Error())
-	}
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Create makes a SriovVrbNodeConfig in the cluster and stores the created object in struct.
-func (builder *NodeConfigBuilder) Create() (*NodeConfigBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the SriovVrbnodeconfig %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err == nil {
-			builder.Object = builder.Definition
-		}
-	}
-
-	return builder, err
-}
-
-// Get returns SriovVrbNodeConfig object if found.
-func (builder *NodeConfigBuilder) Get() (*sriovvrbtypes.SriovVrbNodeConfig, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Collecting SriovVrbNodeConfig object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	nodeConfig := &sriovvrbtypes.SriovVrbNodeConfig{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), runtimeclient.ObjectKey{
-		Name:      builder.Definition.Name,
-		Namespace: builder.Definition.Namespace,
-	}, nodeConfig)
-	if err != nil {
-		klog.V(100).Infof(
-			"SriovVrbNodeConfig object %s does not exist in namespace %s: %v",
-			builder.Definition.Name, builder.Definition.Namespace, err)
-
-		return nil, err
-	}
-
-	return nodeConfig, nil
-}
-
-// Delete removes SriovVrbNodeConfig object from a cluster.
-func (builder *NodeConfigBuilder) Delete() (*NodeConfigBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Deleting the SriovVrbNodeConfig object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	if !builder.Exists() {
-		klog.V(100).Infof(
-			"SriovVrbNodeConfig %s in namespace %s cannot be deleted because it does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Object)
-	if err != nil {
-		return nil, fmt.Errorf("can not delete SriovVrbNodeConfig: %w", err)
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Update renovates the existing SriovVrbNodeConfig object with the SriovVrbNodeConfig definition in builder.
-func (builder *NodeConfigBuilder) Update(force bool) (*NodeConfigBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof(
-		"Updating the SriovVrbNodeConfig object %s in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof(
-			"SriovVrbNodeConfig %s in namespace %s does not exist", builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, fmt.Errorf("cannot update non-existent SriovVrbNodeConfig")
-	}
-
-	builder.Definition.ResourceVersion = builder.Object.ResourceVersion
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		if force {
-			klog.V(100).Infof("%v", msg.FailToUpdateNotification("SriovVrbNodeConfig", builder.Definition.Name, builder.Definition.Namespace))
-
-			builder, err := builder.Delete()
-			builder.Definition.ResourceVersion = ""
-
-			if err != nil {
-				klog.V(100).Infof("%v", msg.FailToUpdateError("SriovVrbNodeConfig", builder.Definition.Name, builder.Definition.Namespace))
-
-				return nil, err
-			}
-
-			return builder.Create()
-		}
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// WithOptions creates SriovVrbNodeConfig with generic mutation options.
-func (builder *NodeConfigBuilder) WithOptions(options ...NodeAdditionalOptions) *NodeConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting SriovVrbNodeConfig additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
+	return common.PullNamespacedBuilder[sriovvrbtypes.SriovVrbNodeConfig, NodeConfigBuilder](
+		context.TODO(), apiClient, sriovvrbtypes.AddToScheme, name, nsname)
 }
 
 // GetSriovVrbNodeConfigIoGVR returns SriovVrbNodeConfig's GroupVersionResource which could be used for Clean function.
@@ -304,36 +57,4 @@ func GetSriovVrbNodeConfigIoGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
 		Group: APIGroup, Version: APIVersion, Resource: NodeConfigsResource,
 	}
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *NodeConfigBuilder) validate() (bool, error) {
-	resourceCRD := "SriovVrbNodeConfig"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
