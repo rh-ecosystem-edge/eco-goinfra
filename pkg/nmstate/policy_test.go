@@ -10,7 +10,9 @@ import (
 	"github.com/nmstate/kubernetes-nmstate/api/shared"
 	nmstatev1 "github.com/nmstate/kubernetes-nmstate/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,209 +24,83 @@ var (
 )
 
 func TestNewPolicyBuilder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("common cluster-scoped builder behavior", func(t *testing.T) {
+		t.Parallel()
+
+		testhelper.NewClusterScopedBuilderTestConfig(
+			func(apiClient *clients.Settings, name string) *PolicyBuilder {
+				return NewPolicyBuilder(apiClient, name, map[string]string{"test": "test"})
+			},
+			nmstatev1.AddToScheme,
+			policyGVK,
+		).ExecuteTests(t)
+	})
+
 	testCases := []struct {
-		name              string
-		nodeSelector      map[string]string
-		expectedErrorText string
-		client            bool
-	}{
-		{
-			name:              "test1",
-			nodeSelector:      map[string]string{"test": "test1"},
-			client:            true,
-			expectedErrorText: "",
-		},
-		{
-			name:              "",
-			nodeSelector:      map[string]string{"test": "test1"},
-			expectedErrorText: "nodeNetworkConfigurationPolicy 'name' cannot be empty",
-			client:            true,
-		},
-		{
-			name:              "test1",
-			nodeSelector:      map[string]string{},
-			expectedErrorText: "nodeNetworkConfigurationPolicy 'nodeSelector' cannot be empty map",
-			client:            true,
-		},
-		{
-			name:              "test1",
-			nodeSelector:      map[string]string{"test": "test1"},
-			expectedErrorText: "",
-			client:            false,
-		},
-	}
-	for _, testCase := range testCases {
-		var (
-			client *clients.Settings
-		)
-
-		if testCase.client {
-			client = clients.GetTestClients(clients.TestClientParams{})
-		}
-
-		testPolicy := NewPolicyBuilder(client, testCase.name, testCase.nodeSelector)
-		if testCase.client {
-			assert.NotNil(t, testPolicy)
-		}
-
-		if len(testCase.expectedErrorText) > 0 {
-			assert.Equal(t, testCase.expectedErrorText, testPolicy.errorMsg)
-		}
-	}
-}
-
-func TestPolicyGet(t *testing.T) {
-	testCases := []struct {
-		policyBuilder *PolicyBuilder
+		name          string
+		nodeSelector  map[string]string
 		expectedError error
 	}{
 		{
-			policyBuilder: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError: nil,
+			name:         "valid node selector",
+			nodeSelector: map[string]string{"test": "test"},
 		},
 		{
-			policyBuilder: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError: fmt.Errorf("nodeNetworkConfigurationPolicy 'nodeSelector' cannot be empty map"),
+			name:          "nil node selector",
+			expectedError: fmt.Errorf(nodeNetConfPolSelectorEmpty),
 		},
 		{
-			policyBuilder: buildValidPolicyTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("nodenetworkconfigurationpolicies.nmstate.io \"policyname\" not found"),
+			name:          "empty node selector",
+			nodeSelector:  map[string]string{},
+			expectedError: fmt.Errorf(nodeNetConfPolSelectorEmpty),
 		},
 	}
 
 	for _, testCase := range testCases {
-		policyBuilder, err := testCase.policyBuilder.Get()
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testCase.expectedError, err)
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, policyBuilder.Name, testCase.policyBuilder.Definition.Name)
-		}
+			testPolicy := NewPolicyBuilder(
+				clients.GetTestClients(clients.TestClientParams{
+					SchemeAttachers: []clients.SchemeAttacher{nmstatev1.AddToScheme},
+				}),
+				defaultPolicyName,
+				testCase.nodeSelector,
+			)
+
+			require.NotNil(t, testPolicy)
+			assert.Equal(t, testCase.expectedError, testPolicy.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, testCase.nodeSelector, testPolicy.Definition.Spec.NodeSelector)
+			}
+		})
 	}
 }
 
-func TestPolicyExist(t *testing.T) {
-	testCases := []struct {
-		testPolicy     *PolicyBuilder
-		expectedStatus bool
-	}{
-		{
-			testPolicy:     buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedStatus: true,
-		},
-		{
-			testPolicy:     buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedStatus: false,
-		},
-		{
-			testPolicy:     buildValidPolicyTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-	}
+func TestPolicyBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		assert.Equal(t, testCase.expectedStatus, testCase.testPolicy.Exists())
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(newPolicyCommonTestConfig())).
+		With(testhelper.NewExistsTestConfig(newPolicyCommonTestConfig())).
+		With(testhelper.NewCreateTestConfig(newPolicyCommonTestConfig())).
+		With(testhelper.NewDeleteReturnerTestConfig(newPolicyCommonTestConfig())).
+		With(testhelper.NewForceUpdateTestConfig(newPolicyCommonTestConfig())).
+		Run(t)
 }
 
-func TestPolicyCreate(t *testing.T) {
-	testCases := []struct {
-		testPolicy    *PolicyBuilder
-		expectedError error
-	}{
-		{
-			testPolicy:    buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError: nil,
-		},
-		{
-			testPolicy:    buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError: fmt.Errorf("nodeNetworkConfigurationPolicy 'nodeSelector' cannot be empty map"),
-		},
-		{
-			testPolicy:    buildValidPolicyTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
+func TestPolicyWithOptions(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		nmStatePolicyBuilder, err := testCase.testPolicy.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, nmStatePolicyBuilder.Definition.Name, nmStatePolicyBuilder.Object.Name)
-		}
-	}
-}
-
-func TestPolicyDelete(t *testing.T) {
-	testCases := []struct {
-		testNMStatePolicy *PolicyBuilder
-		expectedError     error
-	}{
-		{
-			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     nil,
-		},
-		{
-			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     fmt.Errorf("nodeNetworkConfigurationPolicy 'nodeSelector' cannot be empty map"),
-		},
-		{
-			testNMStatePolicy: buildValidPolicyTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:     nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testNMStatePolicy.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testNMStatePolicy.Object)
-		}
-	}
-}
-
-func TestPolicyUpdate(t *testing.T) {
-	testCases := []struct {
-		testNMStatePolicy *PolicyBuilder
-		expectedError     error
-		forceFlag         bool
-	}{
-		{
-			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError:     nil,
-			forceFlag:         false,
-		},
-		{
-			testNMStatePolicy: buildValidPolicyTestBuilder(buildTestClientWithDummyObject()),
-			expectedError:     nil,
-			forceFlag:         true,
-		},
-	}
-	for _, testCase := range testCases {
-		assert.Equal(t, map[string]string{"test": "test"}, testCase.testNMStatePolicy.Definition.Spec.NodeSelector)
-		assert.Nil(t, nil, testCase.testNMStatePolicy.Object)
-		testCase.testNMStatePolicy.Definition.Spec.NodeSelector = map[string]string{"test2": "test2"}
-
-		if !testCase.forceFlag {
-			testCase.testNMStatePolicy.Definition.ResourceVersion = "999"
-		}
-
-		nmStatePolicyBuilder, err := testCase.testNMStatePolicy.Update(testCase.forceFlag)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, map[string]string{"test2": "test2"}, testCase.testNMStatePolicy.Object.Spec.NodeSelector)
-			assert.Equal(t, nmStatePolicyBuilder.Definition, nmStatePolicyBuilder.Object)
-		}
-	}
+	testhelper.NewWithOptionsTestConfig(newPolicyCommonTestConfig()).ExecuteTests(t)
 }
 
 func TestPolicyWithInterfaceAndVFs(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		expectedError     string
@@ -249,10 +125,16 @@ func TestPolicyWithInterfaceAndVFs(t *testing.T) {
 			sriovInterface:    "ens1",
 			numberOfVF:        0,
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     nodeNetConfPolSelectorEmpty,
+			sriovInterface:    "ens1",
+			numberOfVF:        10,
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithInterfaceAndVFs(testCase.sriovInterface, testCase.numberOfVF)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 		numberOfVFs := int(testCase.numberOfVF)
 		desireState := &DesiredState{}
 
@@ -276,7 +158,10 @@ func TestPolicyWithInterfaceAndVFs(t *testing.T) {
 	}
 }
 
+//nolint:funlen // The table includes package validation and invalid-builder cases.
 func TestPolicyWithWithBondInterface(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		slavePorts        []string
@@ -327,6 +212,13 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 			lacpRate:          "",
 			minLinks:          0,
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     nodeNetConfPolSelectorEmpty,
+			slavePorts:        []string{"ens1", "ens2"},
+			bondName:          "bd1",
+			mode:              bondModeActiveBackup,
+		},
 	}
 	for _, testCase := range testCases {
 		options := OptionsLinkAggregation{
@@ -336,7 +228,7 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 		}
 		testPolicy := testCase.testNMStatePolicy.WithBondInterface(testCase.slavePorts, testCase.bondName,
 			testCase.mode, options)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		desireState := &DesiredState{}
 		if testCase.expectedError == "" {
@@ -364,6 +256,8 @@ func TestPolicyWithWithBondInterface(t *testing.T) {
 }
 
 func TestPolicyWithVlanInterface(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		expectedError     string
@@ -388,10 +282,16 @@ func TestPolicyWithVlanInterface(t *testing.T) {
 			sriovInterface:    "ens1",
 			vlanID:            4099,
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     nodeNetConfPolSelectorEmpty,
+			sriovInterface:    "ens1",
+			vlanID:            10,
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithVlanInterface(testCase.sriovInterface, testCase.vlanID)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		desireState := &DesiredState{}
 		if testCase.expectedError == "" {
@@ -413,7 +313,10 @@ func TestPolicyWithVlanInterface(t *testing.T) {
 	}
 }
 
+//nolint:funlen // The table includes package validation and invalid-builder cases.
 func TestPolicyWithVlanInterfaceIP(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		expectedError     string
@@ -462,11 +365,19 @@ func TestPolicyWithVlanInterfaceIP(t *testing.T) {
 			ipv4:              "10.10.10.10",
 			ipv6:              "",
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     nodeNetConfPolSelectorEmpty,
+			sriovInterface:    "ens1",
+			vlanID:            10,
+			ipv4:              "10.10.10.10",
+			ipv6:              "2001:db8::68",
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithVlanInterfaceIP(testCase.sriovInterface,
 			testCase.ipv4, testCase.ipv6, testCase.vlanID)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		desireState := &DesiredState{}
 		if testCase.expectedError == "" {
@@ -502,6 +413,8 @@ func TestPolicyWithVlanInterfaceIP(t *testing.T) {
 }
 
 func TestPolicyWithInterfaceAltnames(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		interfaceName     string
@@ -526,10 +439,16 @@ func TestPolicyWithInterfaceAltnames(t *testing.T) {
 			altnames:          []string{},
 			expectedError:     nodeNetConfPolAltnamesEmpty,
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens1",
+			altnames:          []string{"alt-a"},
+			expectedError:     nodeNetConfPolSelectorEmpty,
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithInterfaceAltnames(testCase.interfaceName, testCase.altnames)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		if testCase.expectedError != "" {
 			continue
@@ -555,6 +474,8 @@ func TestPolicyWithInterfaceAltnames(t *testing.T) {
 }
 
 func TestPolicyWithMACAddressAltnames(t *testing.T) {
+	t.Parallel()
+
 	const testMAC = "52:54:00:ab:cd:ef"
 
 	testCases := []struct {
@@ -599,11 +520,18 @@ func TestPolicyWithMACAddressAltnames(t *testing.T) {
 			altnames:          []string{},
 			expectedError:     nodeNetConfPolAltnamesEmpty,
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens9",
+			mac:               testMAC,
+			altnames:          []string{"vf0"},
+			expectedError:     nodeNetConfPolSelectorEmpty,
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithMACAddressAltnames(
 			testCase.interfaceName, testCase.mac, testCase.altnames)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		if testCase.expectedError != "" {
 			continue
@@ -631,6 +559,8 @@ func TestPolicyWithMACAddressAltnames(t *testing.T) {
 }
 
 func TestPolicyWithPCIAddressAltnames(t *testing.T) {
+	t.Parallel()
+
 	const testPCI = "0000:03:00.0"
 
 	testCases := []struct {
@@ -675,11 +605,18 @@ func TestPolicyWithPCIAddressAltnames(t *testing.T) {
 			altnames:          []string{},
 			expectedError:     nodeNetConfPolAltnamesEmpty,
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens8",
+			pci:               testPCI,
+			altnames:          []string{"nic-pf"},
+			expectedError:     nodeNetConfPolSelectorEmpty,
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithPCIAddressAltnames(
 			testCase.interfaceName, testCase.pci, testCase.altnames)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		if testCase.expectedError != "" {
 			continue
@@ -707,6 +644,8 @@ func TestPolicyWithPCIAddressAltnames(t *testing.T) {
 }
 
 func TestPolicyRemoveInterfaceAltname(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		interfaceName     string
@@ -734,10 +673,16 @@ func TestPolicyRemoveInterfaceAltname(t *testing.T) {
 			expectedError:     "",
 			wantAltnames:      nil,
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			interfaceName:     "ens1",
+			altnames:          []string{"old-alt"},
+			expectedError:     nodeNetConfPolSelectorEmpty,
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.RemoveInterfaceAltname(testCase.interfaceName, testCase.altnames)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		if testCase.expectedError != "" {
 			continue
@@ -757,6 +702,8 @@ func TestPolicyRemoveInterfaceAltname(t *testing.T) {
 }
 
 func TestPolicyWithEthernetInterfaceIP(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		expectedError     string
@@ -792,11 +739,18 @@ func TestPolicyWithEthernetInterfaceIP(t *testing.T) {
 			ipv4:              "10.10.10.10",
 			ipv6:              "",
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     nodeNetConfPolSelectorEmpty,
+			sriovInterface:    "ens1",
+			ipv4:              "10.10.10.10",
+			ipv6:              "2001:db8::68",
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithEthernetInterface(testCase.sriovInterface,
 			testCase.ipv4, testCase.ipv6)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		desireState := &DesiredState{}
 		if testCase.expectedError == "" {
@@ -828,6 +782,8 @@ func TestPolicyWithEthernetInterfaceIP(t *testing.T) {
 }
 
 func TestPolicyWithEthernetIPv6LinkLocalInterface(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		expectedError     string
@@ -843,10 +799,15 @@ func TestPolicyWithEthernetIPv6LinkLocalInterface(t *testing.T) {
 			expectedError:     nodeNetConfPolIntError,
 			sriovInterface:    "",
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     nodeNetConfPolSelectorEmpty,
+			sriovInterface:    "ens1",
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithEthernetIPv6LinkLocalInterface(testCase.sriovInterface)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		desireState := &DesiredState{}
 		if testCase.expectedError == "" {
@@ -871,6 +832,8 @@ func TestPolicyWithEthernetIPv6LinkLocalInterface(t *testing.T) {
 }
 
 func TestPolicyWithEthernetDualStackInterface(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		expectedError     string
@@ -894,7 +857,7 @@ func TestPolicyWithEthernetDualStackInterface(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithEthernetDualStackInterface(testCase.interfaceName)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		desireState := &DesiredState{}
 		if testCase.expectedError == "" {
@@ -919,6 +882,8 @@ func TestPolicyWithEthernetDualStackInterface(t *testing.T) {
 }
 
 func TestPolicyWithAbsentInterface(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		expectedError     string
@@ -934,10 +899,15 @@ func TestPolicyWithAbsentInterface(t *testing.T) {
 			expectedError:     nodeNetConfPolIntError,
 			baseInterface:     "",
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     nodeNetConfPolSelectorEmpty,
+			baseInterface:     "ens1",
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithAbsentInterface(testCase.baseInterface)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		desireState := &DesiredState{}
 		if testCase.expectedError == "" {
@@ -949,6 +919,8 @@ func TestPolicyWithAbsentInterface(t *testing.T) {
 }
 
 func TestPolicyWithInterfaceUp(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		expectedError     string
@@ -964,10 +936,15 @@ func TestPolicyWithInterfaceUp(t *testing.T) {
 			expectedError:     nodeNetConfPolIntError,
 			baseInterface:     "",
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     nodeNetConfPolSelectorEmpty,
+			baseInterface:     "ens1",
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithInterfaceUp(testCase.baseInterface)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		desireState := &DesiredState{}
 		if testCase.expectedError == "" {
@@ -979,6 +956,8 @@ func TestPolicyWithInterfaceUp(t *testing.T) {
 }
 
 func TestPolicyWithStaticRoute(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		expectedError     string
@@ -1033,12 +1012,21 @@ func TestPolicyWithStaticRoute(t *testing.T) {
 			metric:            100,
 			tableID:           254,
 		},
+		{
+			testNMStatePolicy: buildInValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
+			expectedError:     nodeNetConfPolSelectorEmpty,
+			destination:       "192.168.1.0/24",
+			nextHopAddress:    "10.10.10.1",
+			nextHopInterface:  "ens1",
+			metric:            100,
+			tableID:           254,
+		},
 	}
 	for _, testCase := range testCases {
 		testPolicy := testCase.testNMStatePolicy.WithStaticRoute(
 			testCase.destination, testCase.nextHopAddress, testCase.nextHopInterface,
 			testCase.metric, testCase.tableID)
-		assert.Equal(t, testCase.expectedError, testPolicy.errorMsg)
+		assertPolicyError(t, testCase.expectedError, testPolicy)
 
 		if testCase.expectedError == "" {
 			desireState := &DesiredState{}
@@ -1056,23 +1044,9 @@ func TestPolicyWithStaticRoute(t *testing.T) {
 	}
 }
 
-func TestPolicyWithWithOptions(t *testing.T) {
-	testSettings := buildTestClientWithDummyPolicyObject()
-	testBuilder := buildValidPolicyTestBuilder(testSettings).WithOptions(
-		func(builder *PolicyBuilder) (*PolicyBuilder, error) {
-			return builder, nil
-		})
-
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidPolicyTestBuilder(testSettings).WithOptions(
-		func(builder *PolicyBuilder) (*PolicyBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-
-	assert.Equal(t, "error", testBuilder.errorMsg)
-}
-
 func TestPolicyWaitUntilCondition(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testNMStatePolicy *PolicyBuilder
 		expectedError     error
@@ -1100,12 +1074,39 @@ func TestPolicyWaitUntilCondition(t *testing.T) {
 	}
 }
 
-// buildValidTestBuilder returns a valid Builder for testing purposes.
+// assertPolicyError verifies the expected package-specific builder error, if any.
+func assertPolicyError(t *testing.T, expectedError string, builder *PolicyBuilder) {
+	t.Helper()
+
+	if expectedError == "" {
+		assert.NoError(t, builder.GetError(), "expected the Policy builder to remain valid")
+
+		return
+	}
+
+	assert.EqualError(t, builder.GetError(), expectedError, "unexpected Policy builder error")
+}
+
+// newPolicyCommonTestConfig returns the common test configuration for NodeNetworkConfigurationPolicy.
+func newPolicyCommonTestConfig() testhelper.CommonTestConfig[
+	nmstatev1.NodeNetworkConfigurationPolicy,
+	PolicyBuilder,
+	*nmstatev1.NodeNetworkConfigurationPolicy,
+	*PolicyBuilder,
+] {
+	return testhelper.NewCommonTestConfig[nmstatev1.NodeNetworkConfigurationPolicy, PolicyBuilder](
+		nmstatev1.AddToScheme,
+		policyGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
+}
+
+// buildValidPolicyTestBuilder returns a valid PolicyBuilder for testing purposes.
 func buildValidPolicyTestBuilder(apiClient *clients.Settings) *PolicyBuilder {
 	return NewPolicyBuilder(apiClient, defaultPolicyName, map[string]string{"test": "test"})
 }
 
-// buildValidTestBuilder returns a valid Builder for testing purposes.
+// buildInValidPolicyTestBuilder returns an invalid PolicyBuilder for testing purposes.
 func buildInValidPolicyTestBuilder(apiClient *clients.Settings) *PolicyBuilder {
 	return NewPolicyBuilder(apiClient, "test", map[string]string{})
 }
