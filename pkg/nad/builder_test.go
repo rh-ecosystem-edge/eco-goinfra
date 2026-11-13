@@ -6,433 +6,223 @@ import (
 
 	nadV1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"github.com/stretchr/testify/require"
 )
 
-var (
-	testSchemes = []clients.SchemeAttacher{
-		nadV1.AddToScheme,
-	}
+const (
 	defaultNetName   = "nadtest"
 	defaultNetNsName = "nadnamespace"
 )
 
-//nolint:funlen
-func TestNADPull(t *testing.T) {
-	generateNetwork := func(name, namespace string) *nadV1.NetworkAttachmentDefinition {
-		return &nadV1.NetworkAttachmentDefinition{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: nadV1.NetworkAttachmentDefinitionSpec{},
-		}
-	}
+var nadGVK = nadV1.SchemeGroupVersion.WithKind("NetworkAttachmentDefinition")
 
-	testCases := []struct {
-		networkName         string
-		networkNamespace    string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-		client              bool
-	}{
-		{
-			networkName:         "test1",
-			networkNamespace:    "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			networkName:         "test2",
-			networkNamespace:    "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "networkattachmentdefinition object test2 does not exist in namespace test-namespace",
-			client:              true,
-		},
-		{
-			networkName:         "",
-			networkNamespace:    "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "networkattachmentdefinition 'name' cannot be empty",
-			client:              true,
-		},
-		{
-			networkName:         "test3",
-			networkNamespace:    "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "networkattachmentdefinition 'namespace' cannot be empty",
-			client:              true,
-		},
-		{
-			networkName:         "test3",
-			networkNamespace:    "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "the apiClient cannot be nil",
-			client:              false,
-		},
-	}
+func TestNewBuilder(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testNetwork := generateNetwork(testCase.networkName, testCase.networkNamespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testNetwork)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		// Test the Pull method
-		builderResult, err := Pull(testSettings, testNetwork.Name, testNetwork.Namespace)
-
-		// Check the error
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			// Check the error message
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testNetwork.Name, builderResult.Object.Name)
-			assert.Equal(t, testNetwork.Namespace, builderResult.Object.Namespace)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig(NewBuilder, nadV1.AddToScheme, nadGVK).ExecuteTests(t)
 }
 
-func TestNADNewNetworkBuilder(t *testing.T) {
-	testCases := []struct {
-		networkName       string
-		networkNamespace  string
-		expectedErrorText string
-		client            bool
-	}{
-		{
-			networkName:      "test1",
-			networkNamespace: "test-namespace",
-			client:           true,
-		},
-		{
-			networkName:       "",
-			networkNamespace:  "test-namespace",
-			expectedErrorText: "NAD name is empty",
-			client:            true,
-		},
-		{
-			networkName:       "test1",
-			networkNamespace:  "",
-			expectedErrorText: nadNamespaceIsEmpty,
-			client:            true,
-		},
-		{
-			networkName:      "test1",
-			networkNamespace: "test-namespace",
-			client:           false,
-		},
-	}
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
+func TestPull(t *testing.T) {
+	t.Parallel()
 
-		testNetworkStructure := NewBuilder(
-			testSettings, testCase.networkName, testCase.networkNamespace)
-		if testCase.client {
-			assert.NotNil(t, testNetworkStructure)
-		}
-
-		if len(testCase.expectedErrorText) > 0 {
-			assert.Equal(t, testCase.expectedErrorText, testNetworkStructure.errorMsg)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(Pull, nadV1.AddToScheme, nadGVK).ExecuteTests(t)
 }
 
-func TestNADGet(t *testing.T) {
-	testCases := []struct {
-		networkBuilder *Builder
-		expectedError  error
-	}{
-		{
-			networkBuilder: buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError:  nil,
-		},
-		{
-			networkBuilder: buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError:  fmt.Errorf(nadNamespaceIsEmpty),
-		},
-		{
-			networkBuilder: buildValidNADNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:  fmt.Errorf("networkattachmentdefinitions.k8s.cni.cncf.io \"nadtest\" not found"),
-		},
-	}
+func TestNADBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		network, err := testCase.networkBuilder.Get()
+	commonTestConfig := newNADCommonTestConfig()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, network.Name, testCase.networkBuilder.Definition.Name)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestNADCreate(t *testing.T) {
-	testCases := []struct {
-		testNetwork   *Builder
-		expectedError error
-	}{
-		{
-			testNetwork:   buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(nadNamespaceIsEmpty),
-		},
-		{
-			testNetwork:   buildValidNADNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		netBuilder, err := testCase.testNetwork.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, netBuilder.Definition, netBuilder.Object)
-		}
-	}
-}
-
-func TestNADDelete(t *testing.T) {
-	testCases := []struct {
-		testNetwork   *Builder
-		expectedError error
-	}{
-		{
-			testNetwork:   buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(nadNamespaceIsEmpty),
-		},
-		{
-			testNetwork:   buildValidNADNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testNetwork.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testNetwork.Object)
-		}
-	}
-}
-
-func TestNADExist(t *testing.T) {
-	testCases := []struct {
-		testNetwork    *Builder
-		expectedStatus bool
-	}{
-		{
-			testNetwork:    buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testNetwork:    buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedStatus: false,
-		},
-		{
-			testNetwork:    buildValidNADNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testNetwork.Exists()
-		assert.Equal(t, testCase.expectedStatus, exists)
-	}
-}
-
-func TestNADUpdate(t *testing.T) {
-	testCases := []struct {
-		testNetwork   *Builder
-		expectedError error
-	}{
-		{
-			testNetwork:   buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(nadNamespaceIsEmpty),
-		},
-		{
-			testNetwork:   buildValidNADNetworkTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("failed to update NetworkAttachmentDefinition, object does not exist on cluster"),
-		},
-	}
-	for _, testCase := range testCases {
-		assert.Equal(t, "", testCase.testNetwork.Definition.Spec.Config)
-
-		masterPlugin, err := NewMasterMacVlanPlugin("test").GetMasterPluginConfig()
-		assert.Nil(t, err)
-		assert.Nil(t, nil, testCase.testNetwork.Object)
-		testCase.testNetwork.WithMasterPlugin(masterPlugin)
-		testCase.testNetwork.Definition.ResourceVersion = "999"
-		netBuilder, err := testCase.testNetwork.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, fmt.Sprintf(`{"cniVersion":%q,"name":"test","type":"macvlan"}`, cniVersion031),
-				testCase.testNetwork.Object.Spec.Config)
-			assert.Equal(t, netBuilder.Definition, netBuilder.Object)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestNADWithMasterPlugin(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNetwork   *Builder
 		name          string
+		builder       func() *Builder
 		plugin        *MasterPlugin
-		expectedError string
+		expectedError error
+		assertError   func(error) bool
+		expectConfig  string
 	}{
 		{
-			testNetwork: buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			plugin:      &MasterPlugin{CniVersion: cniVersion031, Name: "test", Type: cniTypeIpvlan},
+			name:    "sets master plugin config",
+			builder: func() *Builder { return buildValidNADNetworkTestBuilder(newNADTestClient()) },
+			plugin:  &MasterPlugin{CniVersion: cniVersion031, Name: "test", Type: cniTypeIpvlan},
 		},
 		{
-			testNetwork:   buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
+			name:          "nil master plugin returns error",
+			builder:       func() *Builder { return buildValidNADNetworkTestBuilder(newNADTestClient()) },
 			plugin:        nil,
-			expectedError: "error 'masterPlugin' is empty",
+			expectedError: fmt.Errorf("error 'masterPlugin' is empty"),
 		},
 		{
-			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
+			name: "does not redefine existing config",
+			builder: func() *Builder {
+				return buildValidNADNetworkTestBuilder(newNADTestClient()).
+					WithPlugins("existing", &[]Plugin{{Name: "existing"}})
+			},
 			plugin:        &MasterPlugin{CniVersion: cniVersion031, Name: "test", Type: cniTypeIpvlan},
-			expectedError: nadNamespaceIsEmpty,
+			expectedError: fmt.Errorf("error to redefine predefine NAD"),
+			expectConfig:  `"name":"existing"`,
+		},
+		{
+			name:        "invalid builder short circuits",
+			builder:     func() *Builder { return buildInvalidNADNetworkTestBuilder(newNADTestClient()) },
+			plugin:      &MasterPlugin{CniVersion: cniVersion031, Name: "test", Type: cniTypeIpvlan},
+			assertError: commonerrors.IsBuilderNamespaceEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		builder := testCase.testNetwork.WithMasterPlugin(testCase.plugin)
-		assert.Equal(t, testCase.expectedError, builder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Contains(t, builder.Definition.Spec.Config, testCase.plugin.Name)
-		}
+			testBuilder := testCase.builder()
+			result := testBuilder.WithMasterPlugin(testCase.plugin)
+			require.Same(t, testBuilder, result)
+
+			if testCase.assertError != nil {
+				require.Error(t, result.GetError())
+				assert.True(t, testCase.assertError(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != nil {
+				assert.Equal(t, testCase.expectedError, result.GetError())
+			} else {
+				assert.NoError(t, result.GetError())
+				assert.Contains(t, result.Definition.Spec.Config, testCase.plugin.Name)
+			}
+
+			if testCase.expectConfig != "" {
+				assert.Contains(t, result.Definition.Spec.Config, testCase.expectConfig)
+			}
+		})
 	}
 }
 
 func TestNADWithPlugins(t *testing.T) {
+	t.Parallel()
+
+	plugins := []Plugin{{Name: "test"}, {Name: "test2"}}
+
 	testCases := []struct {
-		testNetwork   *Builder
-		name          string
-		plugins       []Plugin
-		expectedError string
+		name        string
+		builder     func() *Builder
+		assertError func(error) bool
 	}{
 		{
-			testNetwork: buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			name:        "test",
-			plugins:     []Plugin{{Name: "test"}, {Name: "test2"}},
+			name:    "sets plugins config",
+			builder: func() *Builder { return buildValidNADNetworkTestBuilder(newNADTestClient()) },
 		},
 		{
-			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			name:          "test",
-			plugins:       []Plugin{{Name: "test"}, {Name: "test2"}},
-			expectedError: nadNamespaceIsEmpty,
+			name:        "invalid builder short circuits",
+			builder:     func() *Builder { return buildInvalidNADNetworkTestBuilder(newNADTestClient()) },
+			assertError: commonerrors.IsBuilderNamespaceEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		builder := testCase.testNetwork.WithPlugins(testCase.name, &testCase.plugins)
-		assert.Equal(t, testCase.expectedError, builder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			for _, plugin := range testCase.plugins {
-				assert.Contains(t, builder.Definition.Spec.Config, plugin.Name)
+			testBuilder := testCase.builder()
+			result := testBuilder.WithPlugins("test", &plugins)
+			require.Same(t, testBuilder, result)
+
+			if testCase.assertError != nil {
+				require.Error(t, result.GetError())
+				assert.True(t, testCase.assertError(result.GetError()))
+
+				return
 			}
-		}
+
+			require.NoError(t, result.GetError())
+
+			for _, plugin := range plugins {
+				assert.Contains(t, result.Definition.Spec.Config, plugin.Name)
+			}
+		})
 	}
 }
 
 func TestNADGetString(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNetwork   *Builder
-		name          string
-		plugins       []Plugin
-		expectedError error
+		name        string
+		builder     func() *Builder
+		assertError func(error) bool
 	}{
 		{
-			testNetwork:   buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			name:          "test",
-			expectedError: nil,
+			name:    "valid builder",
+			builder: func() *Builder { return buildValidNADNetworkTestBuilder(newNADTestClient()) },
 		},
 		{
-			testNetwork:   buildInvalidNADNetworkTestBuilder(buildTestClientWithDummyObject()),
-			name:          "test",
-			expectedError: fmt.Errorf(nadNamespaceIsEmpty),
+			name:        "invalid builder short circuits",
+			builder:     func() *Builder { return buildInvalidNADNetworkTestBuilder(newNADTestClient()) },
+			assertError: commonerrors.IsBuilderNamespaceEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testNetworkString, err := testCase.testNetwork.GetString()
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.NotEmpty(t, testNetworkString)
-		}
+			testBuilder := testCase.builder()
+			result, err := testBuilder.GetString()
+
+			if testCase.assertError != nil {
+				require.Error(t, err)
+				assert.True(t, testCase.assertError(err))
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, result)
+		})
 	}
 }
 
-// buildValidTestBuilder returns a valid Builder for testing purposes.
+func TestGetGVR(t *testing.T) {
+	t.Parallel()
+
+	testGVR := GetGVR()
+	assert.Equal(t, "network-attachment-definitions", testGVR.Resource)
+	assert.Equal(t, "v1", testGVR.Version)
+	assert.Equal(t, "k8s.cni.cncf.io", testGVR.Group)
+}
+
+func newNADCommonTestConfig() testhelper.CommonTestConfig[
+	nadV1.NetworkAttachmentDefinition, Builder, *nadV1.NetworkAttachmentDefinition, *Builder] {
+	return testhelper.NewCommonTestConfig[nadV1.NetworkAttachmentDefinition, Builder](
+		nadV1.AddToScheme, nadGVK, testhelper.ResourceScopeNamespaced)
+}
+
+func newNADTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{nadV1.AddToScheme},
+	})
+}
+
 func buildValidNADNetworkTestBuilder(apiClient *clients.Settings) *Builder {
 	return NewBuilder(apiClient, defaultNetName, defaultNetNsName)
 }
 
-// buildValidTestBuilder returns a valid Builder for testing purposes.
 func buildInvalidNADNetworkTestBuilder(apiClient *clients.Settings) *Builder {
 	return NewBuilder(apiClient, defaultNetName, "")
-}
-
-func buildTestClientWithDummyObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyNADNetworkObject(),
-		SchemeAttachers: testSchemes,
-	})
-}
-
-func buildDummyNADNetworkObject() []runtime.Object {
-	return append([]runtime.Object{}, &nadV1.NetworkAttachmentDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultNetName,
-			Namespace: defaultNetNsName,
-		},
-		Spec: nadV1.NetworkAttachmentDefinitionSpec{},
-	})
 }
