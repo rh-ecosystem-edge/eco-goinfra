@@ -1,15 +1,17 @@
 package deployment
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const testDeploymentLabelKey = "app"
@@ -22,131 +24,115 @@ var (
 
 	matchingLabelSelector = metav1.ListOptions{LabelSelector: testDeploymentLabelKey + "=match"}
 
-	// testDeployments has one deployment in each of two namespaces, with different labels, so that tests can
-	// observe both namespace scoping and label selector forwarding.
 	testDeployments = []runtime.Object{
-		buildDummyDeployment(defaultDeploymentName, defaultDeploymentNamespace, "match"),
-		buildDummyDeployment(otherDeploymentName, otherDeploymentNamespace, "other"),
+		buildDummyDeploymentWithLabel(defaultDeploymentName, defaultDeploymentNamespace, "match"),
+		buildDummyDeploymentWithLabel(otherDeploymentName, otherDeploymentNamespace, "other"),
 	}
 )
 
-func buildDummyDeployment(name, namespace, labelValue string) *appsv1.Deployment {
-	return &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    map[string]string{testDeploymentLabelKey: labelValue},
-		},
-	}
-}
-
 func TestList(t *testing.T) {
-	testCases := []struct {
-		name          string
-		nsname        string
-		objects       []runtime.Object
-		listOptions   []metav1.ListOptions
-		expectedError error
-		expected      []types.NamespacedName
-	}{
-		{
-			name:          "empty namespace",
-			nsname:        "",
-			expectedError: fmt.Errorf("failed to list deployments, 'nsname' parameter is empty"),
-		},
-		{
-			name:          "too many list options",
-			nsname:        defaultDeploymentNamespace,
-			listOptions:   []metav1.ListOptions{{}, {}},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-		},
-		{
-			name:   "no deployments",
-			nsname: defaultDeploymentNamespace,
-		},
-		{
-			name:     "only deployments in requested namespace",
-			nsname:   otherDeploymentNamespace,
-			objects:  testDeployments,
-			expected: []types.NamespacedName{{Name: otherDeploymentName, Namespace: otherDeploymentNamespace}},
-		},
-		{
-			name:        "label selector excludes non-matching deployment",
-			nsname:      otherDeploymentNamespace,
-			objects:     testDeployments,
-			listOptions: []metav1.ListOptions{matchingLabelSelector},
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			testClient := clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: testCase.objects,
-			})
-
-			result, err := List(testClient, testCase.nsname, testCase.listOptions...)
-			assert.Equal(t, testCase.expectedError, err)
-
-			if testCase.expectedError == nil {
-				assert.ElementsMatch(t, testCase.expected, deploymentKeys(result))
-			}
-		})
-	}
+	testhelper.NewNamespacedListTestConfig(
+		func(apiClient *clients.Settings, nsname string, _ ...runtimeclient.ListOptions) ([]*Builder, error) {
+			return List(apiClient, nsname)
+		},
+		appsv1.AddToScheme,
+		deploymentGVK,
+	).ExecuteTests(t)
 }
 
 func TestListInAllNamespaces(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewListTestConfig(ListInAllNamespaces, appsv1.AddToScheme, deploymentGVK).ExecuteTests(t)
+}
+
+func TestListOptionsAndScoping(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
-		objects       []runtime.Object
+		listAll       bool
+		nsname        string
 		listOptions   []metav1.ListOptions
-		expectedError error
-		expected      []types.NamespacedName
+		expectedNames []types.NamespacedName
 	}{
 		{
-			name:          "too many list options",
-			listOptions:   []metav1.ListOptions{{}, {}},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
+			name:          "only deployments in requested namespace",
+			nsname:        otherDeploymentNamespace,
+			expectedNames: []types.NamespacedName{{Name: otherDeploymentName, Namespace: otherDeploymentNamespace}},
 		},
 		{
-			name: "no deployments",
+			name:          "label selector excludes non-matching deployment",
+			nsname:        defaultDeploymentNamespace,
+			listOptions:   []metav1.ListOptions{matchingLabelSelector},
+			expectedNames: []types.NamespacedName{{Name: defaultDeploymentName, Namespace: defaultDeploymentNamespace}},
 		},
 		{
 			name:    "deployments from all namespaces",
-			objects: testDeployments,
-			expected: []types.NamespacedName{
+			listAll: true,
+			expectedNames: []types.NamespacedName{
 				{Name: defaultDeploymentName, Namespace: defaultDeploymentNamespace},
 				{Name: otherDeploymentName, Namespace: otherDeploymentNamespace},
 			},
 		},
 		{
-			name:        "label selector filters deployments",
-			objects:     testDeployments,
-			listOptions: []metav1.ListOptions{matchingLabelSelector},
-			expected:    []types.NamespacedName{{Name: defaultDeploymentName, Namespace: defaultDeploymentNamespace}},
+			name:          "label selector filters all namespaces",
+			listAll:       true,
+			listOptions:   []metav1.ListOptions{matchingLabelSelector},
+			expectedNames: []types.NamespacedName{{Name: defaultDeploymentName, Namespace: defaultDeploymentNamespace}},
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			testClient := clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: testCase.objects,
-			})
+			t.Parallel()
 
-			result, err := ListInAllNamespaces(testClient, testCase.listOptions...)
-			assert.Equal(t, testCase.expectedError, err)
+			testClient := newDeploymentTestClient(testDeployments...)
 
-			if testCase.expectedError == nil {
-				assert.ElementsMatch(t, testCase.expected, deploymentKeys(result))
+			var (
+				result []*Builder
+				err    error
+			)
+			if testCase.listAll {
+				result, err = ListInAllNamespaces(testClient, testCase.listOptions...)
+			} else {
+				result, err = List(testClient, testCase.nsname, testCase.listOptions...)
 			}
+
+			require.NoError(t, err)
+			assert.ElementsMatch(t, testCase.expectedNames, deploymentKeys(result))
 		})
 	}
 }
 
+func TestListRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
+
+	testClient := newDeploymentTestClient()
+	options := []metav1.ListOptions{{}, {}}
+
+	_, err := List(testClient, defaultDeploymentNamespace, options...)
+	require.EqualError(t, err, "error: more than one ListOptions was passed")
+
+	_, err = ListInAllNamespaces(testClient, options...)
+	require.EqualError(t, err, "error: more than one ListOptions was passed")
+}
+
+func buildDummyDeploymentWithLabel(name, namespace, labelValue string) *appsv1.Deployment {
+	return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      name,
+		Namespace: namespace,
+		Labels:    map[string]string{testDeploymentLabelKey: labelValue},
+	}}
+}
+
 func deploymentKeys(builders []*Builder) []types.NamespacedName {
-	var keys []types.NamespacedName
+	keys := make([]types.NamespacedName, 0, len(builders))
 
 	for _, builder := range builders {
-		keys = append(keys, types.NamespacedName{Name: builder.Object.Name, Namespace: builder.Object.Namespace})
+		keys = append(keys, types.NamespacedName{Name: builder.GetObject().Name, Namespace: builder.GetObject().Namespace})
 	}
 
 	return keys

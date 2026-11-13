@@ -1,12 +1,17 @@
 package deployment
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // List returns deployment inventory in the given namespace.
@@ -14,11 +19,9 @@ func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOpti
 	if nsname == "" {
 		klog.V(100).Info("deployment 'nsname' parameter can not be empty")
 
-		return nil, fmt.Errorf("failed to list deployments, 'nsname' parameter is empty")
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey("Deployment", "", ""), commonerrors.BuilderFieldNamespace)
 	}
-
-	passedOptions := metav1.ListOptions{}
-	logMessage := fmt.Sprintf("Listing deployments in the namespace %s", nsname)
 
 	if len(options) > 1 {
 		klog.V(100).Info("'options' parameter must be empty or single-valued")
@@ -26,73 +29,30 @@ func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOpti
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
-
-	klog.V(100).Infof("%v", logMessage)
-
-	deploymentList, err := apiClient.Deployments(nsname).List(logging.DiscardContext(), passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions(options)
 	if err != nil {
-		klog.V(100).Infof("Failed to list deployments in the namespace %s due to %s", nsname, err.Error())
-
 		return nil, err
 	}
 
-	var deploymentObjects []*Builder
+	allOptions := append([]runtimeclient.ListOption{runtimeclient.InNamespace(nsname)}, convertedOptions...)
 
-	for _, runningDeployment := range deploymentList.Items {
-		copiedDeployment := runningDeployment
-		deploymentBuilder := &Builder{
-			apiClient:  apiClient.AppsV1Interface,
-			Object:     &copiedDeployment,
-			Definition: &copiedDeployment,
-		}
-
-		deploymentObjects = append(deploymentObjects, deploymentBuilder)
-	}
-
-	return deploymentObjects, nil
+	return common.List[appsv1.Deployment, appsv1.DeploymentList, Builder](
+		context.TODO(), apiClient, appsv1.AddToScheme, allOptions...)
 }
 
 // ListInAllNamespaces returns deployment inventory in the all the namespaces.
 func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOptions) ([]*Builder, error) {
-	passedOptions := metav1.ListOptions{}
-	logMessage := "Listing deployments in all namespaces"
-
 	if len(options) > 1 {
 		klog.V(100).Info("'options' parameter must be either empty or single-valued")
 
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
-
-	klog.V(100).Infof("%v", logMessage)
-
-	deploymentList, err := apiClient.Deployments("").List(logging.DiscardContext(), passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions(options)
 	if err != nil {
-		klog.V(100).Infof("Failed to list deployments in all namespaces due to %s", err.Error())
-
 		return nil, err
 	}
 
-	var deploymentObjects []*Builder
-
-	for _, runningDeployment := range deploymentList.Items {
-		copiedDeployment := runningDeployment
-		deploymentBuilder := &Builder{
-			apiClient:  apiClient.AppsV1Interface,
-			Object:     &copiedDeployment,
-			Definition: &copiedDeployment,
-		}
-
-		deploymentObjects = append(deploymentObjects, deploymentBuilder)
-	}
-
-	return deploymentObjects, nil
+	return common.List[appsv1.Deployment, appsv1.DeploymentList, Builder](
+		context.TODO(), apiClient, appsv1.AddToScheme, convertedOptions...)
 }

@@ -249,8 +249,6 @@ func GetModifiableTestClients(tcp TestClientParams) (*Settings, *fakeRuntimeClie
 			k8sClientObjects = append(k8sClientObjects, v)
 		case *corev1.Secret:
 			k8sClientObjects = append(k8sClientObjects, v)
-		case *appsv1.Deployment:
-			k8sClientObjects = append(k8sClientObjects, v)
 		case *appsv1.StatefulSet:
 			k8sClientObjects = append(k8sClientObjects, v)
 		case *appsv1.ReplicaSet:

@@ -10,6 +10,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/deployment"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/namespace"
 	"github.com/stretchr/testify/assert"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 const (
@@ -95,7 +96,8 @@ func TestDeploymentDelete(t *testing.T) {
 
 		// Check if the deployment was deleted
 		deploymentBuilder, err = deployment.Pull(client, deploymentName, testNamespace)
-		assert.Equal(t, "deployment object delete-test does not exist in namespace "+testNamespace, err.Error())
+		assert.Nil(t, deploymentBuilder)
+		assert.True(t, k8serrors.IsNotFound(err))
 	}()
 
 	// Check if the deployment was created
