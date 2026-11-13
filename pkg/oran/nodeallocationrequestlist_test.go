@@ -1,63 +1,60 @@
 package oran
 
 import (
-	"fmt"
 	"testing"
 
+	hardwaremanagementv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestListNodeAllocationRequests(t *testing.T) {
-	testCases := []struct {
-		nodeAllocationRequests []*NARBuilder
-		listOptions            []runtimeclient.ListOptions
-		client                 bool
-		expectedError          error
-	}{
-		{
-			nodeAllocationRequests: []*NARBuilder{buildValidNARTestBuilder(buildTestClientWithDummyNAR())},
-			listOptions:            nil,
-			client:                 true,
-			expectedError:          nil,
-		},
-		{
-			nodeAllocationRequests: []*NARBuilder{buildValidNARTestBuilder(buildTestClientWithDummyNAR())},
-			listOptions:            []runtimeclient.ListOptions{{LabelSelector: labels.NewSelector()}},
-			client:                 true,
-			expectedError:          nil,
-		},
-		{
-			nodeAllocationRequests: []*NARBuilder{buildValidNARTestBuilder(buildTestClientWithDummyNAR())},
-			listOptions: []runtimeclient.ListOptions{
-				{LabelSelector: labels.NewSelector()},
-				{LabelSelector: labels.NewSelector()},
-			},
-			client:        true,
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-		},
-		{
-			nodeAllocationRequests: []*NARBuilder{buildValidNARTestBuilder(buildTestClientWithDummyNAR())},
-			listOptions:            nil,
-			client:                 false,
-			expectedError:          fmt.Errorf("failed to list nodeAllocationRequests, 'apiClient' parameter is nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	testhelper.NewListTestConfig(
+		ListNodeAllocationRequests,
+		hardwaremanagementv1alpha1.AddToScheme,
+		nodeAllocationRequestGVK,
+	).ExecuteTests(t)
+}
 
-		if testCase.client {
-			testSettings = buildTestClientWithDummyNAR()
-		}
+func TestListNodeAllocationRequestsOptions(t *testing.T) {
+	t.Parallel()
 
-		builders, err := ListNodeAllocationRequests(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: []runtime.Object{
+			buildListNodeAllocationRequest("matching", map[string]string{"selected": "true"}),
+			buildListNodeAllocationRequest("not-matching", nil),
+		},
+		SchemeAttachers: pluginsTestSchemes,
+	})
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.nodeAllocationRequests), len(builders))
-		}
+	builders, err := ListNodeAllocationRequests(testSettings, runtimeclient.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{"selected": "true"}),
+	})
+	require.NoError(t, err)
+	require.Len(t, builders, 1)
+	assert.Equal(t, "matching", builders[0].Definition.Name)
+
+	builders, err = ListNodeAllocationRequests(testSettings,
+		runtimeclient.ListOptions{}, runtimeclient.ListOptions{})
+	assert.Nil(t, builders)
+	assert.EqualError(t, err, "error: more than one ListOptions was passed")
+}
+
+func buildListNodeAllocationRequest(
+	name string, objectLabels map[string]string) *hardwaremanagementv1alpha1.NodeAllocationRequest {
+	return &hardwaremanagementv1alpha1.NodeAllocationRequest{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "test-namespace",
+			Labels:    objectLabels,
+		},
 	}
 }
