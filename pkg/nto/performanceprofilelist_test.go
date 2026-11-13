@@ -8,6 +8,7 @@ import (
 
 	performanceprofilev2 "github.com/openshift/cluster-node-tuning-operator/pkg/apis/performanceprofile/v2"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +32,8 @@ var (
 )
 
 func TestListProfiles(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
 		apiClient     *clients.Settings
@@ -68,6 +71,8 @@ func TestListProfiles(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			result, err := ListProfiles(testCase.apiClient, testCase.listOptions...)
 			assert.Equal(t, testCase.expectedError, err)
 
@@ -84,6 +89,8 @@ func TestListProfiles(t *testing.T) {
 }
 
 func TestCleanAllPerformanceProfiles(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name           string
 		apiClient      *clients.Settings
@@ -132,8 +139,16 @@ func TestCleanAllPerformanceProfiles(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := CleanAllPerformanceProfiles(testCase.apiClient, testCase.listOptions...)
-			assert.Equal(t, testCase.expectedError, err)
+
+			if errors.Is(testCase.expectedError, errSimulatedDelete) {
+				assert.ErrorIs(t, err, testCase.expectedError)
+				assert.True(t, commonerrors.IsAPICallFailedWithVerb(err, "delete"))
+			} else {
+				assert.Equal(t, testCase.expectedError, err)
+			}
 
 			if testCase.expectedError == nil {
 				var remaining performanceprofilev2.PerformanceProfileList

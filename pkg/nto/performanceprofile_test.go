@@ -1,13 +1,14 @@
 package nto //nolint:misspell
 
 import (
-	"fmt"
 	"testing"
 
 	performanceprofilev2 "github.com/openshift/cluster-node-tuning-operator/pkg/apis/performanceprofile/v2"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -52,767 +53,827 @@ var (
 )
 
 func TestPullPerformanceProfile(t *testing.T) {
-	generatePerformanceProfile := func(name string) *performanceprofilev2.PerformanceProfile {
-		return &performanceprofilev2.PerformanceProfile{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		perfProfileName     string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			perfProfileName:     "test",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			perfProfileName:     "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("performanceProfile 'name' cannot be empty"),
-			client:              true,
-		},
-		{
-			perfProfileName:     "pptest",
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("PerformanceProfile object pptest does not exist"),
-			client:              true,
-		},
-		{
-			perfProfileName:     "pptest",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("performanceProfile 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testPerformanceProfile := generatePerformanceProfile(testCase.perfProfileName)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testPerformanceProfile)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: paoTestSchemes,
-			})
-		}
-
-		builderResult, err := Pull(testSettings, testCase.perfProfileName)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testPerformanceProfile.Name, builderResult.Object.Name)
-		}
-	}
+	testhelper.NewClusterScopedPullTestConfig[performanceprofilev2.PerformanceProfile, Builder](
+		Pull,
+		performanceprofilev2.AddToScheme,
+		performanceProfileGVK,
+	).ExecuteTests(t)
 }
 
 func TestNewBuilder(t *testing.T) {
-	testCases := []struct {
-		perfProfileName string
-		cpuIsolated     string
-		cpuReserved     string
-		nodeSelector    map[string]string
-		expectedError   string
-	}{
-		{
-			perfProfileName: defaultPerformanceProfileName,
-			cpuIsolated:     defaultIsolatedCPU,
-			cpuReserved:     defaultReservedCPU,
-			nodeSelector:    defaultNodeSelector,
-			expectedError:   "",
-		},
-		{
-			perfProfileName: "",
-			cpuIsolated:     defaultIsolatedCPU,
-			cpuReserved:     defaultReservedCPU,
-			nodeSelector:    defaultNodeSelector,
-			expectedError:   performanceprofileSNameIsEmpty,
-		},
-		{
-			perfProfileName: defaultPerformanceProfileName,
-			cpuIsolated:     "",
-			cpuReserved:     defaultReservedCPU,
-			nodeSelector:    defaultNodeSelector,
-			expectedError:   "PerformanceProfile's 'cpuIsolated' is empty",
-		},
-		{
-			perfProfileName: defaultPerformanceProfileName,
-			cpuIsolated:     defaultIsolatedCPU,
-			cpuReserved:     "",
-			nodeSelector:    defaultNodeSelector,
-			expectedError:   "PerformanceProfile's 'cpuReserved' is empty",
-		},
-		{
-			perfProfileName: defaultPerformanceProfileName,
-			cpuIsolated:     defaultIsolatedCPU,
-			cpuReserved:     defaultReservedCPU,
-			nodeSelector:    map[string]string{},
-			expectedError:   "PerformanceProfile's 'nodeSelector' is empty",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		testBuilder := NewBuilder(testSettings,
-			testCase.perfProfileName,
-			testCase.cpuIsolated,
-			testCase.cpuReserved,
-			testCase.nodeSelector)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-		assert.NotNil(t, testBuilder.Definition)
+	t.Run("common cluster scoped builder behavior", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.perfProfileName, testBuilder.Definition.Name)
+		testhelper.NewClusterScopedBuilderTestConfig[performanceprofilev2.PerformanceProfile, Builder](
+			func(apiClient *clients.Settings, name string) *Builder {
+				return NewBuilder(apiClient, name, defaultIsolatedCPU, defaultReservedCPU, defaultNodeSelector)
+			},
+			performanceprofilev2.AddToScheme,
+			performanceProfileGVK,
+		).ExecuteTests(t)
+	})
+
+	t.Run("performance profile specific inputs", func(t *testing.T) {
+		t.Parallel()
+
+		testCases := []struct {
+			name          string
+			cpuIsolated   string
+			cpuReserved   string
+			nodeSelector  map[string]string
+			expectedError string
+		}{
+			{
+				name:         "valid inputs",
+				cpuIsolated:  defaultIsolatedCPU,
+				cpuReserved:  defaultReservedCPU,
+				nodeSelector: defaultNodeSelector,
+			},
+			{
+				name:          "empty isolated CPU",
+				cpuIsolated:   "",
+				cpuReserved:   defaultReservedCPU,
+				nodeSelector:  defaultNodeSelector,
+				expectedError: "PerformanceProfile's 'cpuIsolated' is empty",
+			},
+			{
+				name:          "empty reserved CPU",
+				cpuIsolated:   defaultIsolatedCPU,
+				cpuReserved:   "",
+				nodeSelector:  defaultNodeSelector,
+				expectedError: "PerformanceProfile's 'cpuReserved' is empty",
+			},
+			{
+				name:          "empty node selector",
+				cpuIsolated:   defaultIsolatedCPU,
+				cpuReserved:   defaultReservedCPU,
+				nodeSelector:  map[string]string{},
+				expectedError: "PerformanceProfile's 'nodeSelector' is empty",
+			},
 		}
-	}
-}
 
-func TestPerformanceProfileExists(t *testing.T) {
-	testCases := []struct {
-		testPerformanceProfile *Builder
-		expectedStatus         bool
-	}{
-		{
-			testPerformanceProfile: buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedStatus:         true,
-		},
-		{
-			testPerformanceProfile: buildInValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedStatus:         false,
-		},
-		{
-			testPerformanceProfile: buildValidPerformanceProfileBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:         false,
-		},
-	}
+		for _, testCase := range testCases {
+			t.Run(testCase.name, func(t *testing.T) {
+				t.Parallel()
 
-	for _, testCase := range testCases {
-		exist := testCase.testPerformanceProfile.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
+				builder := NewBuilder(
+					clients.GetTestClients(clients.TestClientParams{SchemeAttachers: paoTestSchemes}),
+					defaultPerformanceProfileName,
+					testCase.cpuIsolated,
+					testCase.cpuReserved,
+					testCase.nodeSelector,
+				)
 
-func TestPerformanceProfileGet(t *testing.T) {
-	testCases := []struct {
-		testPerformanceProfile *Builder
-		expectedError          error
-	}{
-		{
-			testPerformanceProfile: buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          nil,
-		},
-		{
-			testPerformanceProfile: buildInValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          fmt.Errorf(performanceprofileSNameIsEmpty),
-		},
-		{
-			testPerformanceProfile: buildValidPerformanceProfileBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:          fmt.Errorf("performanceprofiles.performance.openshift.io \"default\" not found"),
-		},
-	}
+				require.NotNil(t, builder)
+				require.NotNil(t, builder.Definition)
+				require.NotNil(t, builder.Definition.Spec.CPU)
+				assert.Equal(t, performanceprofilev2.CPUSet(testCase.cpuIsolated),
+					*builder.Definition.Spec.CPU.Isolated)
+				assert.Equal(t, performanceprofilev2.CPUSet(testCase.cpuReserved),
+					*builder.Definition.Spec.CPU.Reserved)
+				assert.Equal(t, testCase.nodeSelector, builder.Definition.Spec.NodeSelector)
 
-	for _, testCase := range testCases {
-		performanceProfileObj, err := testCase.testPerformanceProfile.Get()
+				if testCase.expectedError != "" {
+					assert.EqualError(t, builder.GetError(), testCase.expectedError)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, performanceProfileObj.Name, testCase.testPerformanceProfile.Definition.Name)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
+					return
+				}
+
+				require.NoError(t, builder.GetError())
+			})
 		}
-	}
+	})
 }
 
-func TestPerformanceProfileCreate(t *testing.T) {
-	testCases := []struct {
-		testPerformanceProfile *Builder
-		expectedError          string
-	}{
-		{
-			testPerformanceProfile: buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          "",
-		},
-		{
-			testPerformanceProfile: buildInValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          performanceprofileSNameIsEmpty,
-		},
-		{
-			testPerformanceProfile: buildValidPerformanceProfileBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:          "",
-		},
-	}
+func TestPerformanceProfileBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testPerformanceProfileBuilder, err := testCase.testPerformanceProfile.Create()
+	commonTestConfig := testhelper.NewCommonTestConfig[performanceprofilev2.PerformanceProfile, Builder](
+		performanceprofilev2.AddToScheme,
+		performanceProfileGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testPerformanceProfileBuilder.Definition.Name, testPerformanceProfileBuilder.Object.Name)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
-func TestPerformanceProfileDelete(t *testing.T) {
-	testCases := []struct {
-		testPerformanceProfile *Builder
-		expectedError          error
-	}{
-		{
-			testPerformanceProfile: buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          nil,
-		},
-		{
-			testPerformanceProfile: buildInValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          fmt.Errorf(performanceprofileSNameIsEmpty),
-		},
-		{
-			testPerformanceProfile: buildValidPerformanceProfileBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:          nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testPerformanceProfile.Delete()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testPerformanceProfile.Object)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestPerformanceProfileUpdate(t *testing.T) {
-	testCases := []struct {
-		testPerformanceProfile *Builder
-		topologyPolicy         string
-		forceFlag              bool
-		expectedError          string
-	}{
-		{
-			testPerformanceProfile: buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			topologyPolicy:         defaultNumaTopology,
-			forceFlag:              true,
-			expectedError:          "",
-		},
-		{
-			testPerformanceProfile: buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			topologyPolicy:         defaultNumaTopology,
-			forceFlag:              false,
-			expectedError:          "",
-		},
-		{
-			testPerformanceProfile: buildInValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject()),
-			expectedError:          performanceprofileSNameIsEmpty,
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Nil(t, nil, testCase.testPerformanceProfile.Definition.Spec.NUMA)
-		assert.Nil(t, nil, testCase.testPerformanceProfile.Object)
-		testCase.testPerformanceProfile.WithNumaTopology(testCase.topologyPolicy)
-		_, err := testCase.testPerformanceProfile.Update(testCase.forceFlag)
-
-		if testCase.expectedError != "" {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.Equal(t, testCase.topologyPolicy,
-				*testCase.testPerformanceProfile.Definition.Spec.NUMA.TopologyPolicy)
-		}
-	}
-}
-
+//nolint:funlen // Table-driven test cases are intentionally colocated.
 func TestPerformanceProfileWithHugePages(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testHugePageSize  string
-		testPages         []performanceprofilev2.HugePage
+		name              string
+		hugePageSize      string
+		pages             []performanceprofilev2.HugePage
+		validBuilder      bool
 		expectedErrorText string
 	}{
 		{
-			testHugePageSize:  defaultHugepageSize,
-			testPages:         defaultHugepages,
-			expectedErrorText: "",
+			name:         "valid 2M huge pages",
+			hugePageSize: defaultHugepageSize,
+			pages:        defaultHugepages,
+			validBuilder: true,
 		},
 		{
-			testHugePageSize: "1G",
-			testPages: []performanceprofilev2.HugePage{
+			name:         "valid 1G huge pages",
+			hugePageSize: "1G",
+			pages: []performanceprofilev2.HugePage{
 				{
 					Size:  "1G",
 					Count: 32768,
 					Node:  &defaultHugePagesNodeOne,
 				},
 			},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testHugePageSize:  defaultHugepageSize,
-			testPages:         defaultHugepagesTwoNumaNodes,
-			expectedErrorText: "",
+			name:         "valid pages on two NUMA nodes",
+			hugePageSize: defaultHugepageSize,
+			pages:        defaultHugepagesTwoNumaNodes,
+			validBuilder: true,
 		},
 		{
-			testHugePageSize: defaultHugepageSize,
-			testPages: []performanceprofilev2.HugePage{
+			name:         "valid page without NUMA node",
+			hugePageSize: defaultHugepageSize,
+			pages: []performanceprofilev2.HugePage{
 				{
 					Size:  performanceprofilev2.HugePageSize(defaultHugepageSize),
 					Count: 32768,
 				},
 			},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testHugePageSize:  "2G",
-			testPages:         defaultHugepages,
+			name:              "invalid huge page size",
+			hugePageSize:      "2G",
+			pages:             defaultHugepages,
+			validBuilder:      true,
 			expectedErrorText: "'hugePageSize' argument is not in allowed list: [2M 1G]",
 		},
 		{
-			testHugePageSize:  "",
-			testPages:         defaultHugepages,
+			name:              "empty huge page size",
+			pages:             defaultHugepages,
+			validBuilder:      true,
 			expectedErrorText: "'hugePageSize' argument cannot be empty",
 		},
 		{
-			testHugePageSize:  defaultHugepageSize,
-			testPages:         []performanceprofilev2.HugePage{},
+			name:              "empty huge pages",
+			hugePageSize:      defaultHugepageSize,
+			pages:             []performanceprofilev2.HugePage{},
+			validBuilder:      true,
 			expectedErrorText: "'hugePages' argument cannot be empty",
+		},
+		{
+			name:         "invalid builder",
+			hugePageSize: defaultHugepageSize,
+			pages:        defaultHugepages,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithHugePages(testCase.testHugePageSize, testCase.testPages)
+			builder := buildPerformanceProfileBuilderForTest(testCase.validBuilder)
+			result := builder.WithHugePages(testCase.hugePageSize, testCase.pages)
 
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, performanceprofilev2.HugePageSize(testCase.testHugePageSize),
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.HugePages)
+
+				return
+			}
+
+			if testCase.expectedErrorText != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedErrorText)
+				assert.Nil(t, result.Definition.Spec.HugePages)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.HugePages)
+			assert.Equal(t, performanceprofilev2.HugePageSize(testCase.hugePageSize),
 				*result.Definition.Spec.HugePages.DefaultHugePagesSize)
-			assert.Equal(t, testCase.testPages, result.Definition.Spec.HugePages.Pages)
-		}
+			assert.Equal(t, testCase.pages, result.Definition.Spec.HugePages.Pages)
+		})
 	}
 }
 
 func TestPerformanceProfileWithMachineConfigPoolSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testMachineConfigPoolSelector map[string]string
-		expectedErrorText             string
+		name          string
+		selector      map[string]string
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			testMachineConfigPoolSelector: defaultMCPSelector,
-			expectedErrorText:             "",
+			name:         "valid selector",
+			selector:     defaultMCPSelector,
+			validBuilder: true,
 		},
 		{
-			testMachineConfigPoolSelector: map[string]string{},
-			expectedErrorText:             "'machineConfigPoolSelector' argument cannot be empty",
+			name:          "empty selector",
+			selector:      map[string]string{},
+			validBuilder:  true,
+			expectedError: "'machineConfigPoolSelector' argument cannot be empty",
+		},
+		{
+			name:     "invalid builder",
+			selector: defaultMCPSelector,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithMachineConfigPoolSelector(testCase.testMachineConfigPoolSelector)
+			builder := buildPerformanceProfileBuilderForTest(testCase.validBuilder)
+			result := builder.WithMachineConfigPoolSelector(testCase.selector)
 
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testMachineConfigPoolSelector, result.Definition.Spec.MachineConfigPoolSelector)
-		}
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.MachineConfigPoolSelector)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Nil(t, result.Definition.Spec.MachineConfigPoolSelector)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.selector, result.Definition.Spec.MachineConfigPoolSelector)
+		})
 	}
 }
 
 func TestPerformanceProfileWithNodeSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNodeSelector  map[string]string
-		expectedErrorText string
+		name          string
+		nodeSelector  map[string]string
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			testNodeSelector:  defaultNodeSelector,
-			expectedErrorText: "",
+			name:         "valid node selector",
+			nodeSelector: defaultNodeSelector,
+			validBuilder: true,
 		},
 		{
-			testNodeSelector:  map[string]string{},
-			expectedErrorText: "'nodeSelector' argument cannot be empty",
+			name:         "invalid builder",
+			nodeSelector: map[string]string{"node-role.kubernetes.io/master": ""},
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithNodeSelector(testCase.testNodeSelector)
+			builder := buildPerformanceProfileBuilderForTest(testCase.validBuilder)
+			result := builder.WithNodeSelector(testCase.nodeSelector)
 
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testNodeSelector, result.Definition.Spec.NodeSelector)
-		}
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Equal(t, defaultNodeSelector, result.Definition.Spec.NodeSelector)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.nodeSelector, result.Definition.Spec.NodeSelector)
+		})
 	}
+
+	t.Run("empty node selector returns error", func(t *testing.T) {
+		t.Parallel()
+
+		result := buildValidPerformanceProfileBuilder(
+			clients.GetTestClients(clients.TestClientParams{SchemeAttachers: paoTestSchemes}),
+		).WithNodeSelector(map[string]string{})
+
+		assert.EqualError(t, result.GetError(), "'nodeSelector' argument cannot be empty")
+	})
 }
 
 func TestPerformanceProfileWithNumaTopology(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNumaTopology  string
-		expectedErrorText string
+		name           string
+		topologyPolicy string
+		validBuilder   bool
+		expectedError  string
 	}{
 		{
-			testNumaTopology:  "best-effort",
-			expectedErrorText: "",
+			name:           "best effort",
+			topologyPolicy: "best-effort",
+			validBuilder:   true,
 		},
 		{
-			testNumaTopology:  "restricted",
-			expectedErrorText: "",
+			name:           "restricted",
+			topologyPolicy: "restricted",
+			validBuilder:   true,
 		},
 		{
-			testNumaTopology:  "single-numa-node",
-			expectedErrorText: "",
+			name:           "single NUMA node",
+			topologyPolicy: "single-numa-node",
+			validBuilder:   true,
 		},
 		{
-			testNumaTopology: "some-not-supported-policy",
-			expectedErrorText: "'allowedTopologyPolicies' argument is not in allowed list " +
+			name:           "unsupported policy",
+			topologyPolicy: "some-not-supported-policy",
+			validBuilder:   true,
+			expectedError: "'allowedTopologyPolicies' argument is not in allowed list " +
 				"[best-effort restricted single-numa-node]",
 		},
 		{
-			testNumaTopology:  "",
-			expectedErrorText: "'topologyPolicy' argument cannot be empty",
+			name:          "empty policy",
+			validBuilder:  true,
+			expectedError: "'topologyPolicy' argument cannot be empty",
+		},
+		{
+			name:           "invalid builder",
+			topologyPolicy: defaultNumaTopology,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithNumaTopology(testCase.testNumaTopology)
+			builder := buildPerformanceProfileBuilderForTest(testCase.validBuilder)
+			result := builder.WithNumaTopology(testCase.topologyPolicy)
 
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testNumaTopology, *result.Definition.Spec.NUMA.TopologyPolicy)
-		}
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.NUMA)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Nil(t, result.Definition.Spec.NUMA)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.topologyPolicy, *result.Definition.Spec.NUMA.TopologyPolicy)
+		})
 	}
 }
 
 func TestPerformanceProfileWithRTKernel(t *testing.T) {
-	testCases := []struct {
-		expectedErrorText string
-	}{
-		{
-			expectedErrorText: "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testBuilder := buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject())
+	t.Run("valid builder", func(t *testing.T) {
+		t.Parallel()
 
-		result := testBuilder.WithRTKernel()
+		result := buildPerformanceProfileBuilderForTest(true).WithRTKernel()
 
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, true, *result.Definition.Spec.RealTimeKernel.Enabled)
-		}
-	}
+		require.NoError(t, result.GetError())
+		require.NotNil(t, result.Definition.Spec.RealTimeKernel)
+		assert.True(t, *result.Definition.Spec.RealTimeKernel.Enabled)
+	})
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		result := buildPerformanceProfileBuilderForTest(false).WithRTKernel()
+
+		require.Error(t, result.GetError())
+		assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+		assert.Nil(t, result.Definition.Spec.RealTimeKernel)
+	})
 }
 
 func TestPerformanceProfileWithGloballyDisableIrqLoadBalancing(t *testing.T) {
-	testCases := []struct {
-		expectedErrorText string
-	}{
-		{
-			expectedErrorText: "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testBuilder := buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject())
+	t.Run("valid builder", func(t *testing.T) {
+		t.Parallel()
 
-		result := testBuilder.WithGloballyDisableIrqLoadBalancing()
+		result := buildPerformanceProfileBuilderForTest(true).WithGloballyDisableIrqLoadBalancing()
 
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, true, *result.Definition.Spec.GloballyDisableIrqLoadBalancing)
-		}
-	}
+		require.NoError(t, result.GetError())
+		require.NotNil(t, result.Definition.Spec.GloballyDisableIrqLoadBalancing)
+		assert.True(t, *result.Definition.Spec.GloballyDisableIrqLoadBalancing)
+	})
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		result := buildPerformanceProfileBuilderForTest(false).WithGloballyDisableIrqLoadBalancing()
+
+		require.Error(t, result.GetError())
+		assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+		assert.Nil(t, result.Definition.Spec.GloballyDisableIrqLoadBalancing)
+	})
 }
 
 func TestPerformanceProfileWithWorkloadHints(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name                string
 		rtHint              bool
 		perPodPowerMgmtHint bool
 		highPowerHint       bool
-		expectedErrorText   string
+		validBuilder        bool
 	}{
 		{
+			name:                "all enabled",
 			rtHint:              true,
 			perPodPowerMgmtHint: true,
 			highPowerHint:       true,
-			expectedErrorText:   "",
+			validBuilder:        true,
 		},
 		{
-			rtHint:              false,
+			name:                "real time disabled",
 			perPodPowerMgmtHint: true,
 			highPowerHint:       true,
-			expectedErrorText:   "",
+			validBuilder:        true,
 		},
 		{
-			rtHint:              true,
-			perPodPowerMgmtHint: false,
-			highPowerHint:       true,
-			expectedErrorText:   "",
+			name:          "per pod power management disabled",
+			rtHint:        true,
+			highPowerHint: true,
+			validBuilder:  true,
 		},
 		{
+			name:                "high power consumption disabled",
 			rtHint:              true,
 			perPodPowerMgmtHint: true,
-			highPowerHint:       false,
-			expectedErrorText:   "",
+			validBuilder:        true,
 		},
 		{
-			rtHint:              false,
-			perPodPowerMgmtHint: false,
-			highPowerHint:       false,
-			expectedErrorText:   "",
+			name:         "all disabled",
+			validBuilder: true,
+		},
+		{
+			name:                "invalid builder",
+			rtHint:              true,
+			perPodPowerMgmtHint: true,
+			highPowerHint:       true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithWorkloadHints(testCase.rtHint,
-			testCase.perPodPowerMgmtHint, testCase.highPowerHint)
+			builder := buildPerformanceProfileBuilderForTest(testCase.validBuilder)
+			result := builder.WithWorkloadHints(
+				testCase.rtHint, testCase.perPodPowerMgmtHint, testCase.highPowerHint)
 
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-		} else {
-			assert.NotNil(t, result)
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.WorkloadHints)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.WorkloadHints)
 			assert.Equal(t, testCase.rtHint, *result.Definition.Spec.WorkloadHints.RealTime)
-			assert.Equal(t, testCase.perPodPowerMgmtHint, *result.Definition.Spec.WorkloadHints.PerPodPowerManagement)
+			assert.Equal(t, testCase.perPodPowerMgmtHint,
+				*result.Definition.Spec.WorkloadHints.PerPodPowerManagement)
 			assert.Equal(t, testCase.highPowerHint, *result.Definition.Spec.WorkloadHints.HighPowerConsumption)
-		}
+		})
 	}
 }
 
 func TestPerformanceProfileWithAnnotations(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testAnnotations   map[string]string
-		expectedErrorText string
+		name          string
+		annotations   map[string]string
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			testAnnotations:   map[string]string{"performance.openshift.io/ignore-cgroups-version": "true"},
-			expectedErrorText: "",
+			name:         "single annotation",
+			annotations:  map[string]string{"performance.openshift.io/ignore-cgroups-version": "true"},
+			validBuilder: true,
 		},
 		{
-			testAnnotations: map[string]string{
+			name: "experimental kubelet config annotation",
+			annotations: map[string]string{
 				"kubeletconfig.experimental": "{'systemReserved':{'cpu':'500m','memory':'28Gi'}}",
 			},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testAnnotations: map[string]string{"performance.openshift.io/ignore-cgroups-version": "true",
-				"kubeletconfig.experimental": "{\"systemReserved\":{\"cpu\":\"500m\",\"memory\":\"28Gi\"}}"},
-			expectedErrorText: "",
+			name: "multiple annotations",
+			annotations: map[string]string{
+				"performance.openshift.io/ignore-cgroups-version": "true",
+				"kubeletconfig.experimental":                      "{\"systemReserved\":{\"cpu\":\"500m\",\"memory\":\"28Gi\"}}",
+			},
+			validBuilder: true,
 		},
 		{
-			testAnnotations:   map[string]string{},
-			expectedErrorText: "'annotations' argument cannot be empty",
+			name:          "empty annotations",
+			annotations:   map[string]string{},
+			validBuilder:  true,
+			expectedError: "'annotations' argument cannot be empty",
+		},
+		{
+			name:         "invalid builder",
+			annotations:  map[string]string{"test": "value"},
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithAnnotations(testCase.testAnnotations)
+			builder := buildPerformanceProfileBuilderForTest(testCase.validBuilder)
+			result := builder.WithAnnotations(testCase.annotations)
 
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testAnnotations, result.Definition.Annotations)
-		}
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Annotations)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Nil(t, result.Definition.Annotations)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.annotations, result.Definition.Annotations)
+		})
 	}
 }
 
-//nolint:funlen
+//nolint:funlen // Table-driven test cases are intentionally colocated.
 func TestPerformanceProfileWithNet(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testUserLevelNet  bool
-		testDevices       []performanceprofilev2.Device
-		expectedErrorText string
+		name          string
+		userLevelNet  bool
+		devices       []performanceprofilev2.Device
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			testUserLevelNet: true,
-			testDevices: []performanceprofilev2.Device{{
+			name:         "user level networking enabled",
+			userLevelNet: true,
+			devices: []performanceprofilev2.Device{{
 				InterfaceName: &defaultNetInterfaceNameOne,
 				VendorID:      &defaultVendorID,
 				DeviceID:      &defaultDeviceID,
 			}},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testUserLevelNet: false,
-			testDevices: []performanceprofilev2.Device{{
+			name: "user level networking disabled",
+			devices: []performanceprofilev2.Device{{
 				InterfaceName: &defaultNetInterfaceNameOne,
 				VendorID:      &defaultVendorID,
 				DeviceID:      &defaultDeviceID,
 			}},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testUserLevelNet: true,
-			testDevices: []performanceprofilev2.Device{{
+			name:         "empty device ID",
+			userLevelNet: true,
+			devices: []performanceprofilev2.Device{{
 				InterfaceName: &defaultNetInterfaceNameOne,
 				VendorID:      &defaultVendorID,
 				DeviceID:      &emptyString,
 			}},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testUserLevelNet: true,
-			testDevices: []performanceprofilev2.Device{{
+			name:         "empty vendor ID",
+			userLevelNet: true,
+			devices: []performanceprofilev2.Device{{
 				InterfaceName: &defaultNetInterfaceNameOne,
 				VendorID:      &emptyString,
 				DeviceID:      &defaultDeviceID,
 			}},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testUserLevelNet: true,
-			testDevices: []performanceprofilev2.Device{{
+			name:         "interface only",
+			userLevelNet: true,
+			devices: []performanceprofilev2.Device{{
 				InterfaceName: &defaultNetInterfaceNameOne,
 			}},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testUserLevelNet: true,
-			testDevices: []performanceprofilev2.Device{{
+			name:         "empty interface name",
+			userLevelNet: true,
+			devices: []performanceprofilev2.Device{{
 				InterfaceName: &emptyString,
 				VendorID:      &defaultVendorID,
 				DeviceID:      &emptyString,
 			}},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testUserLevelNet: true,
-			testDevices: []performanceprofilev2.Device{{
+			name:         "empty interface and vendor IDs",
+			userLevelNet: true,
+			devices: []performanceprofilev2.Device{{
 				InterfaceName: &emptyString,
 				VendorID:      &emptyString,
 				DeviceID:      &defaultDeviceID,
 			}},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testUserLevelNet: true,
-			testDevices: []performanceprofilev2.Device{{
+			name:         "empty vendor and device IDs",
+			userLevelNet: true,
+			devices: []performanceprofilev2.Device{{
 				InterfaceName: &defaultNetInterfaceNameOne,
 				VendorID:      &emptyString,
 				DeviceID:      &emptyString,
 			}},
-			expectedErrorText: "",
+			validBuilder: true,
 		},
 		{
-			testUserLevelNet: true,
-			testDevices: []performanceprofilev2.Device{{
+			name:         "multiple interfaces",
+			userLevelNet: true,
+			devices: []performanceprofilev2.Device{
+				{InterfaceName: &defaultNetInterfaceNameOne},
+				{InterfaceName: &defaultNetInterfaceNameTwo},
+			},
+			validBuilder: true,
+		},
+		{
+			name:          "empty devices",
+			userLevelNet:  true,
+			devices:       []performanceprofilev2.Device{},
+			validBuilder:  true,
+			expectedError: "'net' argument cannot be empty",
+		},
+		{
+			name:         "invalid builder",
+			userLevelNet: true,
+			devices: []performanceprofilev2.Device{{
 				InterfaceName: &defaultNetInterfaceNameOne,
-			}, {
-				InterfaceName: &defaultNetInterfaceNameTwo,
 			}},
-			expectedErrorText: "",
-		},
-		{
-			testUserLevelNet:  true,
-			testDevices:       []performanceprofilev2.Device{},
-			expectedErrorText: "'net' argument cannot be empty",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithNet(testCase.testUserLevelNet, testCase.testDevices)
+			builder := buildPerformanceProfileBuilderForTest(testCase.validBuilder)
+			result := builder.WithNet(testCase.userLevelNet, testCase.devices)
 
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, &testCase.testUserLevelNet, result.Definition.Spec.Net.UserLevelNetworking)
-			assert.Equal(t, testCase.testDevices, result.Definition.Spec.Net.Devices)
-		}
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.Net)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Nil(t, result.Definition.Spec.Net)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.Net)
+			assert.Equal(t, testCase.userLevelNet, *result.Definition.Spec.Net.UserLevelNetworking)
+			assert.Equal(t, testCase.devices, result.Definition.Spec.Net.Devices)
+		})
 	}
 }
 
 func TestPerformanceProfileWithAdditionalKernelArgs(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testAdditionalKernelArgs []string
-		expectedErrorText        string
+		name          string
+		kernelArgs    []string
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			testAdditionalKernelArgs: []string{"nohz_full=2-27,30-55"},
-			expectedErrorText:        "",
+			name:         "single kernel argument",
+			kernelArgs:   []string{"nohz_full=2-27,30-55"},
+			validBuilder: true,
 		},
 		{
-			testAdditionalKernelArgs: []string{"nohz_full=2-27,30-55", "intel_idle.max_cstate=0", "audit=0"},
-			expectedErrorText:        "",
+			name:         "multiple kernel arguments",
+			kernelArgs:   []string{"nohz_full=2-27,30-55", "intel_idle.max_cstate=0", "audit=0"},
+			validBuilder: true,
 		},
 		{
-			testAdditionalKernelArgs: []string{},
-			expectedErrorText:        "'additionalKernelArgs' argument cannot be empty",
+			name:          "empty kernel arguments",
+			kernelArgs:    []string{},
+			validBuilder:  true,
+			expectedError: "'additionalKernelArgs' argument cannot be empty",
+		},
+		{
+			name:         "invalid builder",
+			kernelArgs:   []string{"audit=0"},
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidPerformanceProfileBuilder(buildPerformanceProfileWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithAdditionalKernelArgs(testCase.testAdditionalKernelArgs)
+			builder := buildPerformanceProfileBuilderForTest(testCase.validBuilder)
+			result := builder.WithAdditionalKernelArgs(testCase.kernelArgs)
 
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testAdditionalKernelArgs, result.Definition.Spec.AdditionalKernelArgs)
-		}
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.AdditionalKernelArgs)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Nil(t, result.Definition.Spec.AdditionalKernelArgs)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.kernelArgs, result.Definition.Spec.AdditionalKernelArgs)
+		})
 	}
 }
 
+func buildPerformanceProfileBuilderForTest(valid bool) *Builder {
+	if valid {
+		return buildValidPerformanceProfileBuilder(
+			clients.GetTestClients(clients.TestClientParams{SchemeAttachers: paoTestSchemes}))
+	}
+
+	return buildInvalidPerformanceProfileBuilder(
+		clients.GetTestClients(clients.TestClientParams{SchemeAttachers: paoTestSchemes}))
+}
+
 func buildValidPerformanceProfileBuilder(apiClient *clients.Settings) *Builder {
-	performanceProfileBuilder := NewBuilder(
+	return NewBuilder(
 		apiClient,
 		defaultPerformanceProfileName,
 		defaultIsolatedCPU,
 		defaultReservedCPU,
-		defaultNodeSelector)
-
-	return performanceProfileBuilder
+		defaultNodeSelector,
+	)
 }
 
-func buildInValidPerformanceProfileBuilder(apiClient *clients.Settings) *Builder {
-	performanceProfileBuilder := NewBuilder(apiClient,
+func buildInvalidPerformanceProfileBuilder(apiClient *clients.Settings) *Builder {
+	return NewBuilder(
+		apiClient,
 		"",
 		defaultIsolatedCPU,
 		defaultReservedCPU,
-		defaultNodeSelector)
-
-	return performanceProfileBuilder
+		defaultNodeSelector,
+	)
 }
 
 func buildPerformanceProfileWithDummyObject() *clients.Settings {
