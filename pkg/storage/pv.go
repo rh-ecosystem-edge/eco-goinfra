@@ -2,112 +2,45 @@ package storage
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
 
+var persistentVolumeGVK = corev1.SchemeGroupVersion.WithKind("PersistentVolume")
+
 // PVBuilder provides struct for persistentvolume object containing connection
 // to the cluster and the persistentvolume definitions.
 type PVBuilder struct {
-	// PersistentVolume definition. Used to create a persistentvolume object
-	Definition *corev1.PersistentVolume
-	// Created persistentvolume object
-	Object *corev1.PersistentVolume
-	// api client to interact with the cluster.
-	apiClient *clients.Settings
-	// Used in functions that define or mutate storageSystem definition. errorMsg is processed before the
-	// storageSystem object is created.
-	errorMsg string
+	common.EmbeddableBuilder[corev1.PersistentVolume, *corev1.PersistentVolume]
+	common.EmbeddableDeleter[corev1.PersistentVolume, *corev1.PersistentVolume]
+}
+
+// AttachMixins wires the embedded deletion mixin to this builder instance.
+func (builder *PVBuilder) AttachMixins() {
+	builder.SetBase(builder)
+}
+
+// GetGVK returns the PersistentVolume GVK for this builder.
+func (builder *PVBuilder) GetGVK() schema.GroupVersionKind {
+	return persistentVolumeGVK
 }
 
 // PullPersistentVolume gets an existing PersistentVolume from the cluster.
 func PullPersistentVolume(apiClient *clients.Settings, name string) (*PVBuilder, error) {
-	klog.V(100).Infof("Pulling existing PersistentVolume object: %s", name)
-
-	if apiClient == nil {
-		klog.V(100).Info("The PersistentVolume apiClient is nil")
-
-		return nil, fmt.Errorf("persistentVolume 'apiClient' cannot be empty")
-	}
-
-	builder := &PVBuilder{
-		apiClient: apiClient,
-		Definition: &corev1.PersistentVolume{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the PersistentVolume is empty")
-
-		return nil, fmt.Errorf("persistentVolume 'name' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("PersistentVolume object %s does not exist", name)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Exists checks whether the given PersistentVolume exists.
-func (builder *PVBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if PersistentVolume %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.PersistentVolumes().Get(
-		logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Delete removes a PersistentVolume from the apiClient if it exists.
-func (builder *PVBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting the PersistentVolume %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("PersistentVolume %s cannot be deleted because it does not exist", builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.PersistentVolumes().Delete(logging.DiscardContext(), builder.Definition.Name, metav1.DeleteOptions{})
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
+	return common.PullClusterScopedBuilder[corev1.PersistentVolume, PVBuilder](
+		context.TODO(), apiClient, corev1.AddToScheme, name)
 }
 
 // DeleteAndWait deletes the PersistentVolume and waits up to timeout until it has been removed.
 func (builder *PVBuilder) DeleteAndWait(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -124,7 +57,7 @@ func (builder *PVBuilder) DeleteAndWait(timeout time.Duration) error {
 
 // WaitUntilDeleted waits for the duration of timeout or until the PersistentVolume has been deleted.
 func (builder *PVBuilder) WaitUntilDeleted(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -132,7 +65,7 @@ func (builder *PVBuilder) WaitUntilDeleted(timeout time.Duration) error {
 
 	return wait.PollUntilContextTimeout(
 		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-			_, err := builder.apiClient.PersistentVolumes().Get(logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
+			_, err := builder.Get()
 			if err == nil {
 				klog.V(100).Infof("PersistentVolume %s still present", builder.Definition.Name)
 
@@ -149,36 +82,4 @@ func (builder *PVBuilder) WaitUntilDeleted(timeout time.Duration) error {
 
 			return false, err
 		})
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *PVBuilder) validate() (bool, error) {
-	resourceCRD := "PersistentVolume"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
