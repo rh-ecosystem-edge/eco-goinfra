@@ -1,508 +1,362 @@
 package daemonset
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
-func TestWithNodeSelector(t *testing.T) {
-	testBuilder := buildValidTestBuilderWithClient([]runtime.Object{})
-	testBuilder.WithNodeSelector(map[string]string{
-		"test-node-selector-key": "test-node-selector-value",
-	})
+var (
+	defaultDaemonSetLabels    = map[string]string{"test-key": "test-value"}
+	defaultDaemonSetContainer = corev1.Container{Name: "test-container"}
+)
 
-	assert.Equal(t, "test-node-selector-value",
-		testBuilder.Definition.Spec.Template.Spec.NodeSelector["test-node-selector-key"])
+func TestNewBuilder(t *testing.T) {
+	t.Parallel()
 
-	testBuilder.WithNodeSelector(map[string]string{})
-	assert.Equal(t, "cannot accept empty map as nodeselector", testBuilder.errorMsg)
+	testhelper.NewNamespacedBuilderTestConfig[appsv1.DaemonSet, Builder](
+		func(apiClient *clients.Settings, name, nsname string) *Builder {
+			return NewBuilder(apiClient, name, nsname, defaultDaemonSetLabels, defaultDaemonSetContainer)
+		},
+		appsv1.AddToScheme,
+		daemonSetGVK,
+	).ExecuteTests(t)
 }
 
-func TestWithAdditionalContainerSpecs(t *testing.T) {
-	testBuilder := buildValidTestBuilderWithClient([]runtime.Object{})
-	testBuilder.WithAdditionalContainerSpecs([]corev1.Container{
-		{
-			Name: "test-additional-container",
-		},
-	})
+func TestNewBuilderSetsSpec(t *testing.T) {
+	t.Parallel()
 
-	assert.Equal(t, "test-additional-container",
-		testBuilder.Definition.Spec.Template.Spec.Containers[1].Name)
+	builder := buildValidDaemonSetTestBuilder()
+	require.NoError(t, builder.GetError())
+	require.NotNil(t, builder.Definition.Spec.Selector)
+	assert.Equal(t, defaultDaemonSetLabels, builder.Definition.Spec.Selector.MatchLabels)
+	assert.Equal(t, defaultDaemonSetLabels, builder.Definition.Spec.Template.Labels)
+	assert.Equal(t, []corev1.Container{defaultDaemonSetContainer}, builder.Definition.Spec.Template.Spec.Containers)
+}
 
-	testBuilder.WithAdditionalContainerSpecs([]corev1.Container{})
-	assert.Equal(t, "cannot accept empty list as container specs", testBuilder.errorMsg)
+func TestNewBuilderRejectsEmptyLabels(t *testing.T) {
+	t.Parallel()
+
+	builder := NewBuilder(
+		newDaemonSetTestClient(), "test-name", "test-namespace", map[string]string{}, defaultDaemonSetContainer)
+
+	require.Error(t, builder.GetError())
+	assert.Equal(t, "daemonset 'labels' cannot be empty", builder.GetError().Error())
+}
+
+func TestPull(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig[appsv1.DaemonSet, Builder](
+		Pull, appsv1.AddToScheme, daemonSetGVK,
+	).ExecuteTests(t)
+}
+
+func TestBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonConfig := newDaemonSetCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		With(testhelper.NewCreateTestConfig(commonConfig)).
+		With(testhelper.NewDeleterTestConfig(commonConfig)).
+		With(testhelper.NewUpdateTestConfig(commonConfig)).
+		Run(t)
 }
 
 func TestWithOptions(t *testing.T) {
-	testBuilder := buildValidTestBuilderWithClient([]runtime.Object{})
-	testBuilder.WithOptions(func(builder *Builder) (*Builder, error) {
-		builder.Definition.Spec.Template.Spec.Containers[0].Name = "test-container-name"
+	t.Parallel()
 
-		return builder, nil
-	})
-
-	assert.Equal(t, "test-container-name",
-		testBuilder.Definition.Spec.Template.Spec.Containers[0].Name)
+	testhelper.NewWithOptionsTestConfig(newDaemonSetCommonTestConfig()).ExecuteTests(t)
 }
 
-func TestNewDaemonsetBuilder(t *testing.T) {
+func TestWithNodeSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		name          string
-		namespace     string
-		nodeLabels    map[string]string
-		containerSpec corev1.Container
-		expectedError string
-		apiClientNil  bool
+		name        string
+		builder     func() *Builder
+		selector    map[string]string
+		assertError func(error) bool
 	}{
-		{ // Test case 1 - API client is nil
-			name:      "test-name",
-			namespace: "test-namespace",
-			nodeLabels: map[string]string{
-				"test-key": "test-value",
-			},
-			containerSpec: corev1.Container{
-				Name: "test-container",
-			},
-			expectedError: "",
-			apiClientNil:  true,
+		{
+			name:        "sets node selector",
+			builder:     buildValidDaemonSetTestBuilder,
+			selector:    map[string]string{"test-node-selector-key": "test-node-selector-value"},
+			assertError: func(err error) bool { return err == nil },
 		},
-		{ // Test case 2 - name is empty
-			name:          "",
-			namespace:     "test-namespace",
-			nodeLabels:    map[string]string{},
-			containerSpec: corev1.Container{},
-			expectedError: "daemonset 'name' cannot be empty",
-			apiClientNil:  false,
-		},
-		{ // Test case 3 - namespace is empty
-			name:          "test-name",
-			namespace:     "",
-			nodeLabels:    map[string]string{},
-			containerSpec: corev1.Container{},
-			expectedError: "daemonset 'namespace' cannot be empty",
-			apiClientNil:  false,
-		},
-		{ // Test case 4 - API client is not nil
-			name:      "test-name",
-			namespace: "test-namespace",
-			nodeLabels: map[string]string{
-				"test-key": "test-value",
+		{
+			name:     "empty selector sets builder error",
+			builder:  buildValidDaemonSetTestBuilder,
+			selector: map[string]string{},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "cannot accept empty map as nodeselector"
 			},
-			containerSpec: corev1.Container{
-				Name: "test-container",
-			},
-			expectedError: "",
-			apiClientNil:  false,
 		},
-		{ // Test case 5 - labels are empty
-			name:       "test-name",
-			namespace:  "test-namespace",
-			nodeLabels: map[string]string{},
-			containerSpec: corev1.Container{
-				Name: "test-container",
-			},
-			expectedError: "daemonset 'labels' cannot be empty",
+		{
+			name:        "invalid builder short circuits",
+			builder:     buildInvalidDaemonSetTestBuilder,
+			selector:    map[string]string{"test-node-selector-key": "test-node-selector-value"},
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testClients *clients.Settings
+		testCase := testCase
 
-		if testCase.apiClientNil {
-			testClients = nil
-		} else {
-			testClients = clients.GetTestClients(clients.TestClientParams{})
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder := NewBuilder(testClients, testCase.name, testCase.namespace, testCase.nodeLabels, testCase.containerSpec)
+			builder := testCase.builder()
+			result := builder.WithNodeSelector(testCase.selector)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
 
-		if testCase.apiClientNil {
-			assert.Nil(t, testBuilder)
-		} else {
-			if testCase.expectedError != "" {
-				assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-			} else {
-				assert.NotNil(t, testBuilder)
-				assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-				assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-				assert.Equal(t, testCase.nodeLabels, testBuilder.Definition.Spec.Selector.MatchLabels)
-				assert.Equal(t, testCase.containerSpec.Name, testBuilder.Definition.Spec.Template.Spec.Containers[0].Name)
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.selector, result.Definition.Spec.Template.Spec.NodeSelector)
 			}
-		}
-	}
-}
-
-func TestDaemonsetPull(t *testing.T) {
-	generateDaemonset := func(name, namespace string) *appsv1.DaemonSet {
-		return &appsv1.DaemonSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
-
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedErrorText   string
-		apiClientNil        bool
-	}{
-		{ // Test Case 1 - happy path
-			name:                "test-name",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedErrorText:   "",
-			apiClientNil:        false,
-		},
-		{ // Test Case 2 - daemonset not found
-			name:                "test-name",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: false,
-			expectedErrorText:   "daemonset object test-name does not exist in namespace test-namespace",
-			apiClientNil:        false,
-		},
-		{ // Test Case 3 - daemonset name is empty
-			name:                "",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: false,
-			expectedErrorText:   "daemonset name cannot be empty",
-			apiClientNil:        false,
-		},
-		{ // Test Case 4 - daemonset namespace is empty
-			name:                "test-name",
-			namespace:           "",
-			addToRuntimeObjects: false,
-			expectedErrorText:   "daemonset namespace cannot be empty",
-			apiClientNil:        false,
-		},
-		{ // Test Case 5 - API client is nil
-			name:                "test-name",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: false,
-			expectedErrorText:   "apiClient cannot be nil",
-			apiClientNil:        true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testDaemonset := generateDaemonset(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testDaemonset)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
 		})
-
-		if testCase.apiClientNil {
-			testSettings = nil
-		}
-
-		builderResult, err := Pull(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.expectedErrorText != "" {
-			assert.Equal(t, testCase.expectedErrorText, err.Error())
-		} else {
-			assert.Nil(t, err)
-			assert.NotNil(t, builderResult)
-			assert.Equal(t, testCase.name, builderResult.Definition.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Definition.Namespace)
-		}
 	}
 }
 
-func TestDaemonsetWithHostNetwork(t *testing.T) {
-	testBuilder := buildValidTestBuilderWithClient([]runtime.Object{})
-	testBuilder.WithHostNetwork()
+func TestWithHostNetwork(t *testing.T) {
+	t.Parallel()
 
-	assert.Equal(t, true, testBuilder.Definition.Spec.Template.Spec.HostNetwork)
-}
-
-func TestDaemonsetWithPodAffinity(t *testing.T) {
 	testCases := []struct {
-		podAffinity   *corev1.Affinity
-		expectedError error
+		name        string
+		builder     func() *Builder
+		assertError func(error) bool
 	}{
 		{
-			podAffinity: &corev1.Affinity{
-				NodeAffinity: &corev1.NodeAffinity{
-					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-						NodeSelectorTerms: []corev1.NodeSelectorTerm{
-							{
-								MatchExpressions: []corev1.NodeSelectorRequirement{
-									{
-										Key:      "kubernetes.io/hostname",
-										Operator: corev1.NodeSelectorOpIn,
-										Values:   []string{"host1", "host2"},
-									},
-								},
-							},
-						}},
-				},
-			},
-			expectedError: nil,
+			name:        "enables host network",
+			builder:     buildValidDaemonSetTestBuilder,
+			assertError: func(err error) bool { return err == nil },
 		},
 		{
-			podAffinity:   nil,
-			expectedError: fmt.Errorf("affinity parameter is empty"),
+			name:        "invalid builder short circuits",
+			builder:     buildInvalidDaemonSetTestBuilder,
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilderWithClient([]runtime.Object{})
+		testCase := testCase
 
-		testBuilder.WithPodAffinity(testCase.podAffinity)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.podAffinity, testBuilder.Definition.Spec.Template.Spec.Affinity)
-			assert.Equal(t, "", testBuilder.errorMsg)
-			assert.NotNil(t, testBuilder)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), testBuilder.errorMsg)
-		}
-	}
-}
+			builder := testCase.builder()
+			result := builder.WithHostNetwork()
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
 
-func TestDaemonsetWithVolume(t *testing.T) {
-	testBuilder := buildValidTestBuilderWithClient([]runtime.Object{})
-	testBuilder.WithVolume(corev1.Volume{
-		Name: "test-volume",
-	})
-
-	assert.Equal(t, "test-volume", testBuilder.Definition.Spec.Template.Spec.Volumes[0].Name)
-
-	testBuilder.WithVolume(corev1.Volume{})
-	assert.Equal(t, "Volume name parameter is empty", testBuilder.errorMsg)
-}
-
-func TestDaemonsetCreate(t *testing.T) {
-	testCases := []struct {
-		existsAlready bool
-	}{
-		{ // Test Case 1 - daemonset does not exist
-			existsAlready: false,
-		},
-		{ // Test Case 2 - daemonset exists
-			existsAlready: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.existsAlready {
-			runtimeObjects = append(runtimeObjects, &appsv1.DaemonSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test1",
-					Namespace: "testNamespace",
-				},
-			})
-		}
-
-		testBuilder := buildValidTestBuilderWithClient(runtimeObjects)
-
-		builder, err := testBuilder.Create()
-		assert.Nil(t, err)
-		assert.NotNil(t, builder)
-		assert.Equal(t, "test-name", builder.Definition.Name)
-		assert.Equal(t, "test-namespace", builder.Definition.Namespace)
-	}
-}
-
-func TestDaemonsetUpdate(t *testing.T) {
-	testCases := []struct {
-		existsAlready bool
-	}{
-		{ // Test Case 1 - daemonset does not exist
-			existsAlready: false,
-		},
-		{ // Test Case 2 - daemonset exists
-			existsAlready: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.existsAlready {
-			runtimeObjects = append(runtimeObjects, &appsv1.DaemonSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-name",
-					Namespace: "test-namespace",
-				},
-				Spec: appsv1.DaemonSetSpec{
-					UpdateStrategy: appsv1.DaemonSetUpdateStrategy{
-						Type: appsv1.OnDeleteDaemonSetStrategyType,
-					},
-				},
-			})
-		}
-
-		testBuilder := buildValidTestBuilderWithClient(runtimeObjects)
-
-		testBuilder.Definition.Spec.UpdateStrategy = appsv1.DaemonSetUpdateStrategy{
-			Type: appsv1.RollingUpdateDaemonSetStrategyType,
-		}
-
-		builder, err := testBuilder.Update()
-
-		if testCase.existsAlready {
-			assert.Nil(t, err)
-			assert.NotNil(t, builder)
-			assert.Equal(t, "test-name", builder.Definition.Name)
-			assert.Equal(t, "test-namespace", builder.Definition.Namespace)
-			assert.Equal(t, appsv1.RollingUpdateDaemonSetStrategyType, builder.Definition.Spec.UpdateStrategy.Type)
-		} else {
-			assert.NotNil(t, err)
-			assert.Equal(t, "daemonsets.apps \"test-name\" not found", err.Error())
-		}
-	}
-}
-
-func TestDaemonsetDelete(t *testing.T) {
-	testCases := []struct {
-		existsAlready bool
-	}{
-		{ // Test Case 1 - daemonset does not exist
-			existsAlready: false,
-		},
-		{ // Test Case 2 - daemonset exists
-			existsAlready: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.existsAlready {
-			runtimeObjects = append(runtimeObjects, &appsv1.DaemonSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-name",
-					Namespace: "test-namespace",
-				},
-			})
-		}
-
-		testBuilder := buildValidTestBuilderWithClient(runtimeObjects)
-
-		err := testBuilder.Delete()
-		assert.Nil(t, err)
-		assert.Nil(t, testBuilder.Object)
-	}
-}
-
-func TestDaemonsetValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		expectedError string
-		builderErrMsg string
-	}{
-		{
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "error: received nil DaemonSet builder",
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: "can not redefine the undefined DaemonSet",
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: "DaemonSet builder cannot have nil apiClient",
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
-			builderErrMsg: "",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
-			builderErrMsg: "test error",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilderWithClient([]runtime.Object{})
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		if testCase.builderErrMsg != "" {
-			testBuilder.errorMsg = testCase.builderErrMsg
-		}
-
-		result, err := testBuilder.validate()
-		if testCase.expectedError != "" {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.False(t, result)
-		} else {
-			if testCase.builderErrMsg != "" {
-				assert.Equal(t, testCase.builderErrMsg, testBuilder.errorMsg)
-			} else {
-				assert.Nil(t, err)
-				assert.True(t, result)
+			if result.GetError() == nil {
+				assert.True(t, result.Definition.Spec.Template.Spec.HostNetwork)
 			}
-		}
+		})
 	}
 }
 
-func buildValidTestBuilderWithClient(objects []runtime.Object) *Builder {
-	fakeClient := k8sfake.NewSimpleClientset(objects...)
+func TestWithPodAffinity(t *testing.T) {
+	t.Parallel()
 
-	return NewBuilder(&clients.Settings{
-		K8sClient:       fakeClient,
-		CoreV1Interface: fakeClient.CoreV1(),
-		AppsV1Interface: fakeClient.AppsV1(),
-	}, "test-name", "test-namespace", map[string]string{
-		"test-key": "test-value",
-	}, corev1.Container{
-		Name: "test-container",
+	affinity := &corev1.Affinity{
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key:      "kubernetes.io/hostname",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"host1", "host2"},
+					}},
+				}},
+			},
+		},
+	}
+
+	testCases := []struct {
+		name        string
+		builder     func() *Builder
+		affinity    *corev1.Affinity
+		assertError func(error) bool
+	}{
+		{
+			name:        "sets pod affinity",
+			builder:     buildValidDaemonSetTestBuilder,
+			affinity:    affinity,
+			assertError: func(err error) bool { return err == nil },
+		},
+		{
+			name:     "nil affinity sets builder error",
+			builder:  buildValidDaemonSetTestBuilder,
+			affinity: nil,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "affinity parameter is empty"
+			},
+		},
+		{
+			name:        "invalid builder short circuits",
+			builder:     buildInvalidDaemonSetTestBuilder,
+			affinity:    affinity,
+			assertError: commonerrors.IsBuilderNameEmpty,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := testCase.builder()
+			result := builder.WithPodAffinity(testCase.affinity)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.affinity, result.Definition.Spec.Template.Spec.Affinity)
+			}
+		})
+	}
+}
+
+func TestWithVolume(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		builder     func() *Builder
+		volume      corev1.Volume
+		assertError func(error) bool
+	}{
+		{
+			name:        "adds volume",
+			builder:     buildValidDaemonSetTestBuilder,
+			volume:      corev1.Volume{Name: "test-volume"},
+			assertError: func(err error) bool { return err == nil },
+		},
+		{
+			name:    "empty volume name sets builder error",
+			builder: buildValidDaemonSetTestBuilder,
+			volume:  corev1.Volume{},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "volume name parameter is empty"
+			},
+		},
+		{
+			name:        "invalid builder short circuits",
+			builder:     buildInvalidDaemonSetTestBuilder,
+			volume:      corev1.Volume{Name: "test-volume"},
+			assertError: commonerrors.IsBuilderNameEmpty,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := testCase.builder()
+			result := builder.WithVolume(testCase.volume)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Contains(t, result.Definition.Spec.Template.Spec.Volumes, testCase.volume)
+			}
+		})
+	}
+}
+
+func TestWithAdditionalContainerSpecs(t *testing.T) {
+	t.Parallel()
+
+	additionalContainer := corev1.Container{Name: "test-additional-container"}
+
+	testCases := []struct {
+		name        string
+		builder     func() *Builder
+		specs       []corev1.Container
+		assertError func(error) bool
+	}{
+		{
+			name:        "appends container specs",
+			builder:     buildValidDaemonSetTestBuilder,
+			specs:       []corev1.Container{additionalContainer},
+			assertError: func(err error) bool { return err == nil },
+		},
+		{
+			name:    "empty specs set builder error",
+			builder: buildValidDaemonSetTestBuilder,
+			specs:   []corev1.Container{},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "cannot accept empty list as container specs"
+			},
+		},
+		{
+			name:        "invalid builder short circuits",
+			builder:     buildInvalidDaemonSetTestBuilder,
+			specs:       []corev1.Container{additionalContainer},
+			assertError: commonerrors.IsBuilderNameEmpty,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := testCase.builder()
+			result := builder.WithAdditionalContainerSpecs(testCase.specs)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, append([]corev1.Container{defaultDaemonSetContainer}, testCase.specs...),
+					result.Definition.Spec.Template.Spec.Containers)
+			}
+		})
+	}
+}
+
+func TestGetGVR(t *testing.T) {
+	t.Parallel()
+
+	testGVR := GetGVR()
+	assert.Equal(t, "apps", testGVR.Group)
+	assert.Equal(t, "v1", testGVR.Version)
+	assert.Equal(t, "daemonsets", testGVR.Resource)
+}
+
+func newDaemonSetCommonTestConfig() testhelper.CommonTestConfig[appsv1.DaemonSet, Builder, *appsv1.DaemonSet, *Builder] {
+	return testhelper.NewCommonTestConfig[appsv1.DaemonSet, Builder](
+		appsv1.AddToScheme, daemonSetGVK, testhelper.ResourceScopeNamespaced)
+}
+
+func newDaemonSetTestClient(objects ...runtime.Object) *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects:  objects,
+		SchemeAttachers: []clients.SchemeAttacher{appsv1.AddToScheme},
 	})
+}
+
+func buildValidDaemonSetTestBuilder() *Builder {
+	return NewBuilder(
+		newDaemonSetTestClient(), "test-name", "test-namespace", defaultDaemonSetLabels, defaultDaemonSetContainer)
+}
+
+func buildInvalidDaemonSetTestBuilder() *Builder {
+	return NewBuilder(
+		newDaemonSetTestClient(), "", "test-namespace", defaultDaemonSetLabels, defaultDaemonSetContainer)
 }
