@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	oplmV1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/olm/operators/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -71,204 +74,140 @@ func TestListCatalogSources(t *testing.T) {
 }
 
 func TestListClusterServiceVersion(t *testing.T) {
-	testCases := []struct {
-		clusterVersion []*ClusterServiceVersionBuilder
-		nsName         string
-		listOptions    []client.ListOptions
-		expectedError  error
-		client         bool
-	}{
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "test-namespace",
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "",
-			expectedError: fmt.Errorf("failed to list clusterserviceversion, 'nsname' parameter is empty"),
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "test-namespace",
-			expectedError: nil,
-			listOptions:   []client.ListOptions{{Continue: "true"}},
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "test-namespace",
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			listOptions:   []client.ListOptions{{Continue: "true"}, {Limit: 100}},
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "test-namespace",
-			expectedError: fmt.Errorf("clusterserviceversion 'apiClient' cannot be empty"),
-			listOptions:   []client.ListOptions{},
-			client:        false,
-		},
-	}
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyClusterService(nil, ""),
-				SchemeAttachers: testSchemes,
-			})
-		}
+	testhelper.NewNamespacedListTestConfig(
+		func(apiClient *clients.Settings, nsname string, _ ...client.ListOptions) (
+			[]*ClusterServiceVersionBuilder, error) {
+			return ListClusterServiceVersion(apiClient, nsname)
+		},
+		oplmV1alpha1.AddToScheme,
+		clusterServiceVersionGVK,
+	).ExecuteTests(t)
+}
 
-		netBuilders, err := ListClusterServiceVersion(testSettings, testCase.nsName, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+func TestListClusterServiceVersionRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(netBuilders), len(testCase.clusterVersion))
-		}
-	}
+	testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+
+	builders, err := ListClusterServiceVersion(
+		testSettings,
+		"test-namespace",
+		client.ListOptions{Continue: "true"},
+		client.ListOptions{Limit: 100},
+	)
+
+	assert.EqualError(t, err, "error: more than one ListOptions was passed")
+	assert.Nil(t, builders)
 }
 
 func TestListClusterServiceVersionWithNamePattern(t *testing.T) {
-	testCases := []struct {
-		clusterVersion []*ClusterServiceVersionBuilder
-		nsName         string
-		namePattern    string
-		listOptions    []client.ListOptions
-		expectedError  error
-		client         bool
-	}{
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "test-namespace",
-			namePattern:   "cluster",
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "",
-			namePattern:   "cluster",
-			expectedError: fmt.Errorf("failed to list clusterserviceversion, 'nsname' parameter is empty"),
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "test-namespace",
-			namePattern:   "",
-			expectedError: fmt.Errorf("the namePattern field to filter out all relevant clusterserviceversion cannot be empty"),
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "test-namespace",
-			namePattern:   "cluster",
-			expectedError: nil,
-			listOptions:   []client.ListOptions{{Continue: "true"}},
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "test-namespace",
-			namePattern:   "cluster",
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			listOptions:   []client.ListOptions{{Continue: "true"}, {Limit: 100}},
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			nsName:        "test-namespace",
-			namePattern:   "cluster",
-			expectedError: fmt.Errorf("clusterserviceversion 'apiClient' cannot be empty"),
-			listOptions:   []client.ListOptions{},
-			client:        false,
-		},
-	}
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyClusterService(nil, ""),
-				SchemeAttachers: testSchemes,
-			})
-		}
+	testhelper.NewNamespacedListTestConfig(
+		func(apiClient *clients.Settings, nsname string, _ ...client.ListOptions) (
+			[]*ClusterServiceVersionBuilder, error) {
+			return ListClusterServiceVersionWithNamePattern(apiClient, "resource", nsname)
+		},
+		oplmV1alpha1.AddToScheme,
+		clusterServiceVersionGVK,
+	).ExecuteTests(t)
+}
 
-		netBuilders, err := ListClusterServiceVersionWithNamePattern(
-			testSettings, testCase.namePattern, testCase.nsName, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+func TestListClusterServiceVersionWithNamePatternSpecificBehavior(t *testing.T) {
+	t.Parallel()
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(netBuilders), len(testCase.clusterVersion))
-		}
-	}
+	t.Run("filters matching resources", func(t *testing.T) {
+		t.Parallel()
+
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects:  buildDummyClusterService(nil, ""),
+			SchemeAttachers: testSchemes,
+		})
+
+		builders, err := ListClusterServiceVersionWithNamePattern(
+			testSettings, "cluster", "test-namespace")
+
+		assert.NoError(t, err)
+		assert.Len(t, builders, 1)
+	})
+
+	t.Run("does not return non-matching resources", func(t *testing.T) {
+		t.Parallel()
+
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects:  buildDummyClusterService(nil, ""),
+			SchemeAttachers: testSchemes,
+		})
+
+		builders, err := ListClusterServiceVersionWithNamePattern(
+			testSettings, "not-present", "test-namespace")
+
+		assert.NoError(t, err)
+		assert.Empty(t, builders)
+	})
+
+	t.Run("rejects empty name pattern", func(t *testing.T) {
+		t.Parallel()
+
+		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+
+		builders, err := ListClusterServiceVersionWithNamePattern(
+			testSettings, "", "test-namespace")
+
+		assert.EqualError(t, err,
+			"the namePattern field to filter out all relevant clusterserviceversion cannot be empty")
+		assert.Nil(t, builders)
+	})
+
+	t.Run("rejects nil client", func(t *testing.T) {
+		t.Parallel()
+
+		builders, err := ListClusterServiceVersionWithNamePattern(nil, "cluster", "test-namespace")
+
+		assert.True(t, commonerrors.IsAPIClientNil(err))
+		assert.Nil(t, builders)
+	})
+
+	t.Run("rejects empty namespace", func(t *testing.T) {
+		t.Parallel()
+
+		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+
+		builders, err := ListClusterServiceVersionWithNamePattern(testSettings, "cluster", "")
+
+		assert.True(t, commonerrors.IsBuilderNamespaceEmpty(err))
+		assert.Nil(t, builders)
+	})
 }
 
 func TestListClusterServiceVersionInAllNamespaces(t *testing.T) {
-	testCases := []struct {
-		clusterVersion []*ClusterServiceVersionBuilder
-		listOptions    []client.ListOptions
-		expectedError  error
-		client         bool
-	}{
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			expectedError: nil,
-			listOptions:   []client.ListOptions{{Continue: "true"}},
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			listOptions:   []client.ListOptions{{Continue: "true"}, {Limit: 100}},
-			client:        true,
-		},
-		{
-			clusterVersion: []*ClusterServiceVersionBuilder{
-				buildValidClusterServiceBuilder(buildTestClientWithDummyClusterServiceObject())},
-			expectedError: fmt.Errorf("clusterserviceversion 'apiClient' cannot be empty"),
-			listOptions:   []client.ListOptions{},
-			client:        false,
-		},
-	}
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyClusterService(nil, ""),
-				SchemeAttachers: testSchemes,
-			})
-		}
+	testhelper.NewListTestConfig(
+		func(apiClient *clients.Settings, _ ...client.ListOptions) (
+			[]*ClusterServiceVersionBuilder, error) {
+			return ListClusterServiceVersionInAllNamespaces(apiClient)
+		},
+		oplmV1alpha1.AddToScheme,
+		clusterServiceVersionGVK,
+	).ExecuteTests(t)
+}
 
-		netBuilders, err := ListClusterServiceVersionInAllNamespaces(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+func TestListClusterServiceVersionInAllNamespacesRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(netBuilders), len(testCase.clusterVersion))
-		}
-	}
+	testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+
+	builders, err := ListClusterServiceVersionInAllNamespaces(
+		testSettings,
+		client.ListOptions{Continue: "true"},
+		client.ListOptions{Limit: 100},
+	)
+
+	assert.EqualError(t, err, "error: more than one ListOptions was passed")
+	assert.Nil(t, builders)
 }
 
 func TestListInstallPlan(t *testing.T) {
