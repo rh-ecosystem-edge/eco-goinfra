@@ -1,32 +1,27 @@
 package poddisruptionbudget
 
 import (
+	"context"
 	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 	policyv1 "k8s.io/api/policy/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // List returns podDisruptionBudget inventory in the given namespace.
 func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOptions) ([]*Builder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("podDisruptionBudget apiClient is empty")
-
-		return nil, fmt.Errorf("podDisruptionBudget 'apiClient' cannot be empty")
-	}
-
 	if nsname == "" {
 		klog.V(100).Info("podDisruptionBudget 'nsname' parameter can not be empty")
 
-		return nil, fmt.Errorf("failed to list podDisruptionBudgets, 'nsname' parameter is empty")
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey("PodDisruptionBudget", "", ""), commonerrors.BuilderFieldNamespace)
 	}
-
-	logMessage := fmt.Sprintf("Listing podDisruptionBudget in the nsname %s", nsname)
-	passedOptions := metav1.ListOptions{}
 
 	if len(options) > 1 {
 		klog.V(100).Info("'options' parameter must be empty or single-valued")
@@ -34,71 +29,30 @@ func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOpti
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions(options)
+	if err != nil {
+		return nil, err
 	}
 
-	klog.V(100).Infof("%v", logMessage)
+	allOptions := append([]runtimeclient.ListOption{runtimeclient.InNamespace(nsname)}, convertedOptions...)
 
-	return list(apiClient, nsname, passedOptions)
+	return common.List[policyv1.PodDisruptionBudget, policyv1.PodDisruptionBudgetList, Builder](
+		context.TODO(), apiClient, policyv1.AddToScheme, allOptions...)
 }
 
 // ListInAllNamespaces returns a cluster-wide podDisruptionBudget inventory.
 func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOptions) ([]*Builder, error) {
-	logMessage := "Listing all podDisruptionBudget in all namespaces"
-	passedOptions := metav1.ListOptions{}
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("podDisruptionBudget 'apiClient' cannot be empty")
-	}
-
 	if len(options) > 1 {
 		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
-
-	klog.V(100).Infof("%v", logMessage)
-
-	return list(apiClient, "", passedOptions)
-}
-
-// list lists the podDisruptionBudget according to the provided options.
-func list(apiClient *clients.Settings, nsname string, options metav1.ListOptions) ([]*Builder, error) {
-	err := apiClient.AttachScheme(policyv1.AddToScheme)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions(options)
 	if err != nil {
-		klog.V(100).Info("Failed to add policyv1 scheme to client schemes")
-
 		return nil, err
 	}
 
-	pdbList, err := apiClient.PodDisruptionBudgets(nsname).List(logging.DiscardContext(), options)
-	if err != nil {
-		klog.V(100).Infof("Failed to list podDisruptionBudget due to %s", err.Error())
-
-		return nil, err
-	}
-
-	var pdbObjects []*Builder
-
-	for _, _pdb := range pdbList.Items {
-		copiedPDB := _pdb
-		pdbBuilder := &Builder{
-			apiClient:  apiClient.PolicyV1Interface,
-			Object:     &copiedPDB,
-			Definition: &copiedPDB,
-		}
-
-		pdbObjects = append(pdbObjects, pdbBuilder)
-	}
-
-	return pdbObjects, nil
+	return common.List[policyv1.PodDisruptionBudget, policyv1.PodDisruptionBudgetList, Builder](
+		context.TODO(), apiClient, policyv1.AddToScheme, convertedOptions...)
 }
