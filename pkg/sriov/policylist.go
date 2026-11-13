@@ -1,39 +1,27 @@
 package sriov
 
 import (
+	"context"
 	"fmt"
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 	"k8s.io/klog/v2"
 )
 
 // ListPolicy returns SriovNetworkNodePolicies inventory in the given namespace.
 func ListPolicy(apiClient *clients.Settings, nsname string, options ...client.ListOptions) ([]*PolicyBuilder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("SriovNetworkNodePolicies 'apiClient' parameter can not be empty")
-
-		return nil, fmt.Errorf("failed to list SriovNetworkNodePolicies, 'apiClient' parameter is empty")
-	}
-
-	err := apiClient.AttachScheme(srIovV1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add sriovv1 scheme to client schemes")
-
-		return nil, err
-	}
-
 	if nsname == "" {
 		klog.V(100).Info("SriovNetworkNodePolicies 'nsname' parameter can not be empty")
 
-		return nil, fmt.Errorf("failed to list SriovNetworkNodePolicies, 'nsname' parameter is empty")
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey(policyGVK.Kind, "", ""), commonerrors.BuilderFieldNamespace)
 	}
-
-	passedOptions := client.ListOptions{}
-	logMessage := fmt.Sprintf("Listing SriovNetworkNodePolicies in the namespace %s", nsname)
 
 	if len(options) > 1 {
 		klog.V(100).Info("'options' parameter must be empty or single-valued")
@@ -41,36 +29,11 @@ func ListPolicy(apiClient *clients.Settings, nsname string, options ...client.Li
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
+	allOptions := append([]client.ListOption{client.InNamespace(nsname)},
+		common.ConvertListOptionsToOptions(options)...)
 
-	klog.V(100).Infof("%v", logMessage)
-
-	networkNodePoliciesList := new(srIovV1.SriovNetworkNodePolicyList)
-
-	err = apiClient.List(logging.DiscardContext(), networkNodePoliciesList, &passedOptions)
-	if err != nil {
-		klog.V(100).Infof("Failed to list SriovNetworkNodePolicies in the namespace %s due to %s",
-			nsname, err.Error())
-
-		return nil, err
-	}
-
-	var networkNodePolicyObjects []*PolicyBuilder
-
-	for _, policy := range networkNodePoliciesList.Items {
-		copiedNetworkNodePolicy := policy
-		policyBuilder := &PolicyBuilder{
-			apiClient:  apiClient.Client,
-			Object:     &copiedNetworkNodePolicy,
-			Definition: &copiedNetworkNodePolicy}
-
-		networkNodePolicyObjects = append(networkNodePolicyObjects, policyBuilder)
-	}
-
-	return networkNodePolicyObjects, nil
+	return common.List[srIovV1.SriovNetworkNodePolicy, srIovV1.SriovNetworkNodePolicyList, PolicyBuilder](
+		context.TODO(), apiClient, srIovV1.AddToScheme, allOptions...)
 }
 
 // CleanAllNetworkNodePolicies removes all SriovNetworkNodePolicies that are not set as default.
