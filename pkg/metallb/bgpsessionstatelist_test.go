@@ -1,72 +1,51 @@
 package metallb
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/frrtypes"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestBGPSessionStateList(t *testing.T) {
-	testCases := []struct {
-		Definition    *frrtypes.BGPSessionState
-		states        []*BGPSessionStateBuilder
-		listOptions   []metav1.ListOptions
-		client        bool
-		expectedError error
-	}{
-		{
-			states: []*BGPSessionStateBuilder{buildValidBGPSessionStateTestBuilder(
-				buildTestBGPSessionStateClientWithDummyState(defaultBGPSessionStateName))},
-			listOptions:   nil,
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			states: []*BGPSessionStateBuilder{buildValidBGPSessionStateTestBuilder(
-				buildTestBGPSessionStateClientWithDummyState(defaultBGPSessionStateName))},
-			listOptions:   []metav1.ListOptions{{LabelSelector: "test"}},
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			states: []*BGPSessionStateBuilder{buildValidBGPSessionStateTestBuilder(
-				buildTestBGPSessionStateClientWithDummyState(defaultBGPSessionStateName))},
-			listOptions:   nil,
-			client:        false,
-			expectedError: fmt.Errorf("failed to list BGPSessionStates, 'apiClient' parameter is empty"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	testhelper.NewListTestConfig(
+		ListBGPSessionState,
+		frrtypes.AddToScheme,
+		bgpSessionStateGVK,
+	).ExecuteTests(t)
+}
 
-		if testCase.client {
-			testSettings = buildTestBGPSessionStateClientWithDummyState(defaultBGPSessionStateName)
-		}
+func TestBGPSessionStateListOptions(t *testing.T) {
+	t.Parallel()
 
-		var (
-			bgpSessionStates []*BGPSessionStateBuilder
-			err              error
+	t.Run("applies a single list option", func(t *testing.T) {
+		t.Parallel()
+
+		builders, err := ListBGPSessionState(
+			buildTestBGPSessionStateClientWithDummyState(defaultBGPSessionStateName),
+			client.ListOptions{LabelSelector: labels.SelectorFromSet(labels.Set{"missing": "true"})},
 		)
 
-		if len(testCase.listOptions) > 0 {
-			clientOptions := client.ListOptions{
-				Raw: &testCase.listOptions[0],
-			}
-			bgpSessionStates, err = ListBGPSessionState(testSettings, clientOptions)
-		} else {
-			bgpSessionStates, err = ListBGPSessionState(testSettings)
-		}
+		require.NoError(t, err)
+		assert.Empty(t, builders)
+	})
 
-		assert.Equal(t, testCase.expectedError, err)
+	t.Run("rejects multiple list options", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.states), len(bgpSessionStates))
-		}
-	}
+		builders, err := ListBGPSessionState(
+			buildTestBGPSessionStateClientWithDummyState(defaultBGPSessionStateName),
+			client.ListOptions{},
+			client.ListOptions{},
+		)
+
+		assert.EqualError(t, err, "error: more than one ListOptions was passed")
+		assert.Nil(t, builders)
+	})
 }

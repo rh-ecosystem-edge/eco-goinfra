@@ -4,211 +4,145 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/frrtypes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 var (
-	defaultBGPSessionStateName = "bgpsessionstate-0"
+	defaultBGPSessionStateName     = "bgpsessionstate-0"
+	defaultBGPSessionStateNodeName = "worker-0"
+	defaultBGPSessionStatePeerIP   = "192.168.1.1"
+	bgpSessionStateGVK             = frrtypes.GroupVersion.WithKind("BGPSessionState")
 )
 
-func TestBGPSessionStateGet(t *testing.T) {
-	var runtimeObjects []runtime.Object
-
-	testCases := []struct {
-		testBGPSessionState *BGPSessionStateBuilder
-		addToRuntimeObjects bool
-		expectedError       string
-		client              bool
-	}{
-		{
-			testBGPSessionState: buildValidBGPSessionStateTestBuilder(
-				buildTestBGPSessionStateClientWithDummyState(defaultBGPSessionStateName)),
-			expectedError: "",
-		},
-		{
-			testBGPSessionState: buildValidBGPSessionStateTestBuilder(clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: frrTestSchemes,
-			})),
-			expectedError: "bgpsessionstates.frrk8s.metallb.io \"bgpsessionstate-0\" not found",
-		},
-	}
-
-	for _, testCase := range testCases {
-		bgpSessionState, err := testCase.testBGPSessionState.Get()
-
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, bgpSessionState.Name, testCase.testBGPSessionState.Definition.Name, bgpSessionState.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestBGPSessionStateExist(t *testing.T) {
-	testCases := []struct {
-		testBGPSessionState *BGPSessionStateBuilder
-		exist               bool
-	}{
-		{
-			testBGPSessionState: buildValidBGPSessionStateTestBuilder(
-				buildTestBGPSessionStateClientWithDummyState("test-state")),
-			exist: false,
-		},
-		{
-			testBGPSessionState: buildValidBGPSessionStateTestBuilder(
-				buildTestBGPSessionStateClientWithDummyState(defaultBGPSessionStateName)),
-			exist: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.testBGPSessionState.Exists()
-		assert.Equal(t, testCase.exist, exist)
-	}
-}
-
 func TestPullBGPSessionState(t *testing.T) {
-	generateBGPSessionState := func(name string) *frrtypes.BGPSessionState {
-		return &frrtypes.BGPSessionState{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-			Status: frrtypes.BGPSessionStateStatus{},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		name                string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-		client              bool
-	}{
-		{
-			name:                "test1",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "",
-			expectedError:       true,
-			expectedErrorText:   "BGPSessionState 'name' cannot be empty",
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "test1",
-			expectedError:       true,
-			expectedErrorText:   "BGPSessionState object test1 does not exist",
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-		{
-			name:                "test1",
-			expectedError:       true,
-			expectedErrorText:   "the apiClient cannot be nil",
-			addToRuntimeObjects: true,
-			client:              false,
-		},
-	}
+	testhelper.NewClusterScopedPullTestConfig(
+		PullBGPSessionState,
+		frrtypes.AddToScheme,
+		bgpSessionStateGVK,
+	).ExecuteTests(t)
+}
 
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
+func TestBGPSessionStateMethods(t *testing.T) {
+	t.Parallel()
 
-		var testSettings *clients.Settings
+	commonTestConfig := newBGPSessionStateCommonTestConfig()
 
-		testBGPSessionState := generateBGPSessionState(testCase.name)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testBGPSessionState)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: frrTestSchemes,
-			})
-		}
-
-		builderResult, err := PullBGPSessionState(testSettings, testCase.name)
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testBGPSessionState.Name, builderResult.Object.Name)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestPullBGPSessionStateByNodeAndPeer(t *testing.T) {
-	generateBGPSessionState := func(name, nodeName, peerIP string) *frrtypes.BGPSessionState {
-		return &frrtypes.BGPSessionState{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-			Status: frrtypes.BGPSessionStateStatus{
-				Node: nodeName,
-				Peer: peerIP,
-			},
-		}
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		nodeName      string
+		peerIP        string
+		objects       []runtime.Object
+		client        bool
+		expectedError string
+	}{
+		{
+			name:     "finds matching node and peer",
+			nodeName: defaultBGPSessionStateNodeName,
+			peerIP:   defaultBGPSessionStatePeerIP,
+			objects: []runtime.Object{buildDummyBGPSessionState(
+				defaultBGPSessionStateName, defaultBGPSessionStateNodeName, defaultBGPSessionStatePeerIP)},
+			client: true,
+		},
+		{
+			name:     "rejects empty node name",
+			nodeName: "",
+			peerIP:   defaultBGPSessionStatePeerIP,
+			objects: []runtime.Object{buildDummyBGPSessionState(
+				defaultBGPSessionStateName, defaultBGPSessionStateNodeName, defaultBGPSessionStatePeerIP)},
+			client:        true,
+			expectedError: "node name cannot be empty",
+		},
+		{
+			name:     "rejects empty peer IP",
+			nodeName: defaultBGPSessionStateNodeName,
+			peerIP:   "",
+			objects: []runtime.Object{buildDummyBGPSessionState(
+				defaultBGPSessionStateName, defaultBGPSessionStateNodeName, defaultBGPSessionStatePeerIP)},
+			client:        true,
+			expectedError: "peer IP cannot be empty",
+		},
+		{
+			name:     "returns error when no session matches",
+			nodeName: defaultBGPSessionStateNodeName,
+			peerIP:   defaultBGPSessionStatePeerIP,
+			objects: []runtime.Object{buildDummyBGPSessionState(
+				defaultBGPSessionStateName, "other-node", defaultBGPSessionStatePeerIP)},
+			client:        true,
+			expectedError: "BGPSessionState for node worker-0 and peer 192.168.1.1 not found",
+		},
+		{
+			name:          "rejects nil client",
+			nodeName:      defaultBGPSessionStateNodeName,
+			peerIP:        defaultBGPSessionStatePeerIP,
+			expectedError: "the apiClient cannot be nil",
+		},
 	}
 
-	testCases := getPullByNodeAndPeerTestCases()
-
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		var testSettings *clients.Settings
-
-		testBGPSessionState := generateBGPSessionState(
-			testCase.name, testCase.nodeName, testCase.peerIP)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testBGPSessionState)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: frrTestSchemes,
-			})
-		}
-
-		builderResult, err := PullBGPSessionStateByNodeAndPeer(
-			testSettings, testCase.nodeName, testCase.peerIP)
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
+			var testSettings *clients.Settings
+			if testCase.client {
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  testCase.objects,
+					SchemeAttachers: frrTestSchemes,
+				})
 			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testBGPSessionState.Name, builderResult.Object.Name)
-			assert.Equal(t, testCase.nodeName, builderResult.Object.Status.Node)
-			assert.Equal(t, testCase.peerIP, builderResult.Object.Status.Peer)
-		}
+
+			builder, err := PullBGPSessionStateByNodeAndPeer(testSettings, testCase.nodeName, testCase.peerIP)
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+				assert.Nil(t, builder)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, builder)
+			require.NotNil(t, builder.Object)
+			assert.Equal(t, defaultBGPSessionStateName, builder.Object.Name)
+			assert.Equal(t, testCase.nodeName, builder.Object.Status.Node)
+			assert.Equal(t, testCase.peerIP, builder.Object.Status.Peer)
+		})
 	}
 }
 
-// buildDummyBGPSessionState returns a BGPSessionState with the provided name.
-func buildDummyBGPSessionState(name string) *frrtypes.BGPSessionState {
+func newBGPSessionStateCommonTestConfig() testhelper.CommonTestConfig[
+	frrtypes.BGPSessionState, BGPSessionStateBuilder, *frrtypes.BGPSessionState, *BGPSessionStateBuilder] {
+	return testhelper.NewCommonTestConfig[frrtypes.BGPSessionState, BGPSessionStateBuilder](
+		frrtypes.AddToScheme,
+		bgpSessionStateGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
+}
+
+// buildDummyBGPSessionState returns a BGPSessionState with the provided identity.
+func buildDummyBGPSessionState(name, nodeName, peerIP string) *frrtypes.BGPSessionState {
 	return &frrtypes.BGPSessionState{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
+		},
+		Status: frrtypes.BGPSessionStateStatus{
+			Node: nodeName,
+			Peer: peerIP,
 		},
 	}
 }
@@ -216,88 +150,8 @@ func buildDummyBGPSessionState(name string) *frrtypes.BGPSessionState {
 // buildTestBGPSessionStateClientWithDummyState returns a client with a dummy BGPSessionState.
 func buildTestBGPSessionStateClientWithDummyState(stateName string) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  []runtime.Object{buildDummyBGPSessionState(stateName)},
+		K8sMockObjects: []runtime.Object{buildDummyBGPSessionState(
+			stateName, defaultBGPSessionStateNodeName, defaultBGPSessionStatePeerIP)},
 		SchemeAttachers: frrTestSchemes,
 	})
-}
-
-func buildValidBGPSessionStateTestBuilder(apiClient *clients.Settings) *BGPSessionStateBuilder {
-	return newBGPSessionStateBuilder(apiClient, defaultBGPSessionStateName)
-}
-
-func newBGPSessionStateBuilder(apiClient *clients.Settings, name string) *BGPSessionStateBuilder {
-	if apiClient == nil {
-		return nil
-	}
-
-	builder := BGPSessionStateBuilder{
-		apiClient:  apiClient.Client,
-		Definition: buildDummyBGPSessionState(name),
-	}
-
-	return &builder
-}
-func getPullByNodeAndPeerTestCases() []struct {
-	name                string
-	nodeName            string
-	peerIP              string
-	expectedError       bool
-	addToRuntimeObjects bool
-	expectedErrorText   string
-	client              bool
-} {
-	return []struct {
-		name                string
-		nodeName            string
-		peerIP              string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-		client              bool
-	}{
-		{
-			name:                defaultBGPSessionStateName,
-			nodeName:            defaultNodeName,
-			peerIP:              "192.168.1.1",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                defaultBGPSessionStateName,
-			nodeName:            "",
-			peerIP:              "192.168.1.1",
-			expectedError:       true,
-			expectedErrorText:   "node name cannot be empty",
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                defaultBGPSessionStateName,
-			nodeName:            defaultNodeName,
-			peerIP:              "",
-			expectedError:       true,
-			expectedErrorText:   "peer IP cannot be empty",
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                defaultBGPSessionStateName,
-			nodeName:            defaultNodeName,
-			peerIP:              "192.168.1.1",
-			expectedError:       true,
-			expectedErrorText:   "BGPSessionState for node worker-0 and peer 192.168.1.1 not found",
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-		{
-			name:                defaultBGPSessionStateName,
-			nodeName:            defaultNodeName,
-			peerIP:              "192.168.1.1",
-			expectedError:       true,
-			expectedErrorText:   "the apiClient cannot be nil",
-			addToRuntimeObjects: true,
-			client:              false,
-		},
-	}
 }
