@@ -2,22 +2,20 @@ package assisted
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"time"
 
-	"slices"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	agentInstallV1Beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -30,49 +28,65 @@ const (
 )
 
 var (
-	validIPXEOptions = []string{ipxeEnabled, "disabled"}
+	agentServiceConfigGVK = agentInstallV1Beta1.GroupVersion.WithKind("AgentServiceConfig")
+	validIPXEOptions      = []string{ipxeEnabled, "disabled"}
 )
 
 // AgentServiceConfigBuilder provides struct for the agentserviceconfig object containing connection to
 // the cluster and the agentserviceconfig definition.
 type AgentServiceConfigBuilder struct {
-	Definition *agentInstallV1Beta1.AgentServiceConfig
-	Object     *agentInstallV1Beta1.AgentServiceConfig
-	errorMsg   string
-	apiClient  goclient.Client
+	common.EmbeddableBuilder[agentInstallV1Beta1.AgentServiceConfig, *agentInstallV1Beta1.AgentServiceConfig]
+	common.EmbeddableCreator[
+		agentInstallV1Beta1.AgentServiceConfig,
+		AgentServiceConfigBuilder,
+		*agentInstallV1Beta1.AgentServiceConfig,
+		*AgentServiceConfigBuilder,
+	]
+	common.EmbeddableDeleter[agentInstallV1Beta1.AgentServiceConfig, *agentInstallV1Beta1.AgentServiceConfig]
+	common.EmbeddableForceUpdater[
+		agentInstallV1Beta1.AgentServiceConfig,
+		AgentServiceConfigBuilder,
+		*agentInstallV1Beta1.AgentServiceConfig,
+		*AgentServiceConfigBuilder,
+	]
+	common.EmbeddableWithOptions[
+		agentInstallV1Beta1.AgentServiceConfig,
+		AgentServiceConfigBuilder,
+		*agentInstallV1Beta1.AgentServiceConfig,
+		*AgentServiceConfigBuilder,
+		AgentServiceConfigAdditionalOptions,
+	]
 }
 
 // AgentServiceConfigAdditionalOptions additional options for AgentServiceConfig object.
 type AgentServiceConfigAdditionalOptions func(builder *AgentServiceConfigBuilder) (*AgentServiceConfigBuilder, error)
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *AgentServiceConfigBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the AgentServiceConfig GVK for this builder.
+func (builder *AgentServiceConfigBuilder) GetGVK() schema.GroupVersionKind {
+	return agentServiceConfigGVK
+}
 
 // NewAgentServiceConfigBuilder creates a new instance of AgentServiceConfigBuilder.
 func NewAgentServiceConfigBuilder(
 	apiClient *clients.Settings,
 	databaseStorageSpec,
 	filesystemStorageSpec corev1.PersistentVolumeClaimSpec) *AgentServiceConfigBuilder {
-	klog.V(100).Infof(
-		"Initializing new agentserviceconfig structure with the following params: "+
-			"databaseStorageSpec: %v, filesystemStorageSpec: %v",
-		databaseStorageSpec, filesystemStorageSpec)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil
+	builder := common.NewClusterScopedBuilder[agentInstallV1Beta1.AgentServiceConfig, AgentServiceConfigBuilder](
+		apiClient, agentInstallV1Beta1.AddToScheme, agentServiceConfigName)
+	if builder.GetError() != nil {
+		return builder
 	}
 
-	builder := &AgentServiceConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &agentInstallV1Beta1.AgentServiceConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: agentServiceConfigName,
-			},
-			Spec: agentInstallV1Beta1.AgentServiceConfigSpec{
-				DatabaseStorage:   databaseStorageSpec,
-				FileSystemStorage: filesystemStorageSpec,
-			},
-		},
-	}
+	builder.Definition.Spec.DatabaseStorage = databaseStorageSpec
+	builder.Definition.Spec.FileSystemStorage = filesystemStorageSpec
 
 	return builder
 }
@@ -80,30 +94,15 @@ func NewAgentServiceConfigBuilder(
 // NewDefaultAgentServiceConfigBuilder creates a new instance of AgentServiceConfigBuilder
 // with default storage specs already set.
 func NewDefaultAgentServiceConfigBuilder(apiClient *clients.Settings) *AgentServiceConfigBuilder {
-	klog.V(100).Infof(
-		"Initializing new agentserviceconfig structure")
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil
-	}
-
-	builder := &AgentServiceConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &agentInstallV1Beta1.AgentServiceConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: agentServiceConfigName,
-			},
-			Spec: agentInstallV1Beta1.AgentServiceConfigSpec{},
-		},
+	builder := common.NewClusterScopedBuilder[agentInstallV1Beta1.AgentServiceConfig, AgentServiceConfigBuilder](
+		apiClient, agentInstallV1Beta1.AddToScheme, agentServiceConfigName)
+	if builder.GetError() != nil {
+		return builder
 	}
 
 	imageStorageSpec, err := GetDefaultStorageSpec(defaultImageStoreStorageSize)
 	if err != nil {
-		klog.V(100).Info("The ImageStorage size is in wrong format")
-
-		builder.errorMsg = fmt.Sprintf("error retrieving the storage size: %v", err)
+		builder.SetError(fmt.Errorf("error retrieving the storage size: %w", err))
 
 		return builder
 	}
@@ -112,9 +111,7 @@ func NewDefaultAgentServiceConfigBuilder(apiClient *clients.Settings) *AgentServ
 
 	databaseStorageSpec, err := GetDefaultStorageSpec(defaultDatabaseStorageSize)
 	if err != nil {
-		klog.V(100).Info("The DatabaseStorage size is in wrong format")
-
-		builder.errorMsg = fmt.Sprintf("error retrieving the storage size: %v", err)
+		builder.SetError(fmt.Errorf("error retrieving the storage size: %w", err))
 
 		return builder
 	}
@@ -123,9 +120,7 @@ func NewDefaultAgentServiceConfigBuilder(apiClient *clients.Settings) *AgentServ
 
 	fileSystemStorageSpec, err := GetDefaultStorageSpec(defaultFilesystemStorageSize)
 	if err != nil {
-		klog.V(100).Info("The FileSystemStorage size is in wrong format")
-
-		builder.errorMsg = fmt.Sprintf("error retrieving the storage size: %v", err)
+		builder.SetError(fmt.Errorf("error retrieving the storage size: %w", err))
 
 		return builder
 	}
@@ -138,7 +133,7 @@ func NewDefaultAgentServiceConfigBuilder(apiClient *clients.Settings) *AgentServ
 // WithImageStorage sets the imageStorageSpec used by the agentserviceconfig.
 func (builder *AgentServiceConfigBuilder) WithImageStorage(
 	imageStorageSpec corev1.PersistentVolumeClaimSpec) *AgentServiceConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -151,16 +146,14 @@ func (builder *AgentServiceConfigBuilder) WithImageStorage(
 
 // WithMirrorRegistryRef adds a configmap ref to the agentserviceconfig containing mirroring information.
 func (builder *AgentServiceConfigBuilder) WithMirrorRegistryRef(configMapName string) *AgentServiceConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	klog.V(100).Infof("Adding mirrorRegistryRef %s to agentserviceconfig %s", configMapName, builder.Definition.Name)
 
 	if configMapName == "" {
-		klog.V(100).Info("The configMapName is empty")
-
-		builder.errorMsg = "cannot add agentserviceconfig mirrorRegistryRef with empty configmap name"
+		builder.SetError(errors.New("cannot add agentserviceconfig mirrorRegistryRef with empty configmap name"))
 
 		return builder
 	}
@@ -174,7 +167,7 @@ func (builder *AgentServiceConfigBuilder) WithMirrorRegistryRef(configMapName st
 
 // WithOSImage appends an OSImage to the OSImages list used by the agentserviceconfig.
 func (builder *AgentServiceConfigBuilder) WithOSImage(osImage agentInstallV1Beta1.OSImage) *AgentServiceConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -187,16 +180,14 @@ func (builder *AgentServiceConfigBuilder) WithOSImage(osImage agentInstallV1Beta
 
 // WithUnauthenticatedRegistry appends an unauthenticated registry to the agentserviceconfig.
 func (builder *AgentServiceConfigBuilder) WithUnauthenticatedRegistry(registry string) *AgentServiceConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	klog.V(100).Infof("Adding unauthenticatedRegistry %s to agentserviceconfig %s", registry, builder.Definition.Name)
 
 	if registry == "" {
-		klog.V(100).Info("AgentServiceConfig UnauthenticatedRegistry supplied empty registry")
-
-		builder.errorMsg = "agentserviceconfig cannot have empty unauthenticated registry"
+		builder.SetError(errors.New("agentserviceconfig cannot have empty unauthenticated registry"))
 
 		return builder
 	}
@@ -208,17 +199,15 @@ func (builder *AgentServiceConfigBuilder) WithUnauthenticatedRegistry(registry s
 
 // WithIPXEHTTPRoute sets the IPXEHTTPRoute type to be used by the agentserviceconfig.
 func (builder *AgentServiceConfigBuilder) WithIPXEHTTPRoute(route string) *AgentServiceConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	klog.V(100).Infof("Adding IPXEHTTPRout %s to agentserviceconfig %s", route, builder.Definition.Name)
 
 	if !slices.Contains(validIPXEOptions, route) {
-		klog.V(100).Infof("Receieved incorrect IPXEHTTPRoute option: %s, valid options: %v", route, validIPXEOptions)
-
-		builder.errorMsg =
-			fmt.Sprintf("agentserviceconfig passed invalid ipxeroute: %s, valid options: %v", route, validIPXEOptions)
+		builder.SetError(fmt.Errorf(
+			"agentserviceconfig passed invalid ipxeroute: %s, valid options: %v", route, validIPXEOptions))
 
 		return builder
 	}
@@ -228,43 +217,18 @@ func (builder *AgentServiceConfigBuilder) WithIPXEHTTPRoute(route string) *Agent
 	return builder
 }
 
-// WithOptions creates AgentServiceConfig with generic mutation options.
-func (builder *AgentServiceConfigBuilder) WithOptions(
-	options ...AgentServiceConfigAdditionalOptions) *AgentServiceConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting AgentServiceConfig additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
 // WaitUntilDeployed waits the specified timeout for the agentserviceconfig to deploy.
 func (builder *AgentServiceConfigBuilder) WaitUntilDeployed(timeout time.Duration) (*AgentServiceConfigBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
-	klog.V(100).Infof("Waiting for agetserviceconfig %s to be deployed", builder.Definition.Name)
+	klog.V(100).Infof("Waiting for agentserviceconfig %s to be deployed", builder.Definition.Name)
 
 	if !builder.Exists() {
 		klog.V(100).Info("The agentserviceconfig does not exist on the cluster")
 
-		return builder, fmt.Errorf("cannot wait for non-existent agentserviceconfig to be deployed")
+		return builder, errors.New("cannot wait for non-existent agentserviceconfig to be deployed")
 	}
 
 	// Polls every retryInterval to determine if agentserviceconfig is in desired state.
@@ -291,7 +255,7 @@ func (builder *AgentServiceConfigBuilder) WaitUntilDeployed(timeout time.Duratio
 				return false, nil
 			}
 
-			return builder.Object.Status.Conditions[conditionIndex].Status == "True", nil
+			return builder.Object.Status.Conditions[conditionIndex].Status == corev1.ConditionTrue, nil
 		})
 	if err == nil {
 		return builder, nil
@@ -302,152 +266,18 @@ func (builder *AgentServiceConfigBuilder) WaitUntilDeployed(timeout time.Duratio
 
 // PullAgentServiceConfig loads the existing agentserviceconfig into AgentServiceConfigBuilder struct.
 func PullAgentServiceConfig(apiClient *clients.Settings) (*AgentServiceConfigBuilder, error) {
-	klog.V(100).Infof("Pulling existing agentserviceconfig name: %s", agentServiceConfigName)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil, fmt.Errorf("the apiClient is nil")
-	}
-
-	builder := AgentServiceConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &agentInstallV1Beta1.AgentServiceConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: agentServiceConfigName,
-			},
-		},
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("agentserviceconfig object %s does not exist", agentServiceConfigName)
-	}
-
-	builder.Definition = builder.Object
-
-	return &builder, nil
-}
-
-// Get fetches the defined agentserviceconfig from the cluster.
-func (builder *AgentServiceConfigBuilder) Get() (*agentInstallV1Beta1.AgentServiceConfig, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting agentserviceconfig %s",
-		builder.Definition.Name)
-
-	agentServiceConfig := &agentInstallV1Beta1.AgentServiceConfig{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name: builder.Definition.Name,
-	}, agentServiceConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return agentServiceConfig, nil
-}
-
-// Create generates an agentserviceconfig on the cluster.
-func (builder *AgentServiceConfigBuilder) Create() (*AgentServiceConfigBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the agentserviceconfig %s",
-		builder.Definition.Name)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err == nil {
-			builder.Object = builder.Definition
-		}
-	}
-
-	return builder, err
-}
-
-// Update modifies an existing agentserviceconfig on the cluster.
-func (builder *AgentServiceConfigBuilder) Update(force bool) (*AgentServiceConfigBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating agentserviceconfig %s",
-		builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("agentserviceconfig %s does not exist",
-			builder.Definition.Name)
-
-		return builder, fmt.Errorf("cannot update non-existent agentserviceconfig")
-	}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		if force {
-			klog.V(100).Infof("%v", msg.FailToUpdateNotification("agentserviceconfig", builder.Definition.Name))
-
-			err = builder.DeleteAndWait(time.Second * 5)
-			builder.Definition.ResourceVersion = ""
-			builder.Definition.CreationTimestamp = metav1.Time{}
-
-			if err != nil {
-				klog.V(100).Infof("%v", msg.FailToUpdateError("agentserviceconfig", builder.Definition.Name))
-
-				return nil, err
-			}
-
-			return builder.Create()
-		}
-	}
-
-	if err == nil {
-		builder.Object = builder.Definition
-	}
-
-	return builder, err
-}
-
-// Delete removes an agentserviceconfig from the cluster.
-func (builder *AgentServiceConfigBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting the agentserviceconfig %s",
-		builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("agentserviceconfig %s does not exist",
-			builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return fmt.Errorf("cannot delete agentserviceconfig: %w", err)
-	}
-
-	builder.Object = nil
-	builder.Definition.ResourceVersion = ""
-
-	return nil
+	return common.PullClusterScopedBuilder[agentInstallV1Beta1.AgentServiceConfig, AgentServiceConfigBuilder](
+		context.TODO(), apiClient, agentInstallV1Beta1.AddToScheme, agentServiceConfigName)
 }
 
 // DeleteAndWait deletes an agentserviceconfig and waits until it is removed from the cluster.
 func (builder *AgentServiceConfigBuilder) DeleteAndWait(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
 	klog.V(100).Infof(`Deleting agentserviceconfig %s and
-	waiting for the defined period until it is removed`,
+		waiting for the defined period until it is removed`,
 		builder.Definition.Name)
 
 	if err := builder.Delete(); err != nil {
@@ -466,28 +296,12 @@ func (builder *AgentServiceConfigBuilder) DeleteAndWait(timeout time.Duration) e
 		})
 }
 
-// Exists checks if the defined agentserviceconfig has already been created.
-func (builder *AgentServiceConfigBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if agentserviceconfig %s exists",
-		builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
 // GetDefaultStorageSpec returns a default PVC spec for the respective
 // agentserviceconfig component's storage and a possible error.
 func GetDefaultStorageSpec(defaultStorageSize string) (corev1.PersistentVolumeClaimSpec, error) {
 	checkedDefaultStorageSize, err := resource.ParseQuantity(defaultStorageSize)
 	if err != nil {
-		return corev1.PersistentVolumeClaimSpec{}, fmt.Errorf("the storage size is in wrong format")
+		return corev1.PersistentVolumeClaimSpec{}, errors.New("the storage size is in wrong format")
 	}
 
 	defaultSpec := corev1.PersistentVolumeClaimSpec{
@@ -504,36 +318,4 @@ func GetDefaultStorageSpec(defaultStorageSize string) (corev1.PersistentVolumeCl
 	klog.V(100).Infof("Getting default PVC spec: %v", defaultSpec)
 
 	return defaultSpec, nil
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *AgentServiceConfigBuilder) validate() (bool, error) {
-	resourceCRD := "AgentServiceConfig"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }

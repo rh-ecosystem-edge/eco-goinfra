@@ -1,775 +1,620 @@
 package assisted
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	conditionsv1 "github.com/openshift/custom-resource-status/conditions/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	agentInstallV1Beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	fakeRuntimeClient "sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	agentInstallV1Beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"
 )
 
 func TestNewAgentServiceConfigBuilder(t *testing.T) {
-	testCases := []struct {
-		databaseStorageSize   resource.Quantity
-		filesystemStorageSize resource.Quantity
-		databaseStorage       corev1.PersistentVolumeClaimSpec
-		filesystemStorage     corev1.PersistentVolumeClaimSpec
-		client                bool
-	}{
-		{
-			databaseStorageSize:   resource.MustParse("50Gi"),
-			filesystemStorageSize: resource.MustParse("10Gi"),
-			databaseStorage: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{
-					accessModeReadWriteOnce,
-				},
-				Resources: corev1.VolumeResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceStorage: resource.MustParse("50Gi"),
-					},
-				},
-			},
-			filesystemStorage: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{
-					accessModeReadWriteOnce,
-				},
-				Resources: corev1.VolumeResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceStorage: resource.MustParse("10Gi"),
-					},
-				},
-			},
-			client: true,
-		},
-		{
-			databaseStorageSize:   resource.MustParse("50Gi"),
-			filesystemStorageSize: resource.MustParse("10Gi"),
-			databaseStorage: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{
-					accessModeReadWriteOnce,
-				},
-				Resources: corev1.VolumeResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceStorage: resource.MustParse("50Gi"),
-					},
-				},
-			},
-			filesystemStorage: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{
-					accessModeReadWriteOnce,
-				},
-				Resources: corev1.VolumeResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceStorage: resource.MustParse("10Gi"),
-					},
-				},
-			},
-			client: false,
-		},
-	}
+	t.Parallel()
 
-	for _, testcase := range testCases {
-		var testSettings *clients.Settings
-		if testcase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
+	databaseStorage, err := GetDefaultStorageSpec("50Gi")
+	require.NoError(t, err)
 
-		testBuilder := NewAgentServiceConfigBuilder(
-			testSettings, testcase.databaseStorage, testcase.filesystemStorage)
+	filesystemStorage, err := GetDefaultStorageSpec("40Gi")
+	require.NoError(t, err)
 
-		if testcase.client {
-			assert.Equal(t, testcase.databaseStorageSize,
-				*testBuilder.Definition.Spec.DatabaseStorage.Resources.Requests.Storage())
-			assert.Equal(t, testcase.filesystemStorageSize,
-				*testBuilder.Definition.Spec.FileSystemStorage.Resources.Requests.Storage())
-			assert.Empty(t, testBuilder.errorMsg)
-		} else {
-			assert.Nil(t, testBuilder)
-		}
-	}
+	t.Run("valid builder", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewAgentServiceConfigBuilder(
+			buildAgentServiceConfigTestClient(), databaseStorage, filesystemStorage)
+
+		require.NotNil(t, builder)
+		assert.NoError(t, builder.GetError())
+		assert.Equal(t, agentServiceConfigName, builder.Definition.Name)
+		assert.Equal(t, databaseStorage, builder.Definition.Spec.DatabaseStorage)
+		assert.Equal(t, filesystemStorage, builder.Definition.Spec.FileSystemStorage)
+		assert.Equal(t, agentServiceConfigGVK, builder.GetGVK())
+	})
+
+	t.Run("nil client returns error-bearing builder", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewAgentServiceConfigBuilder(nil, databaseStorage, filesystemStorage)
+
+		require.NotNil(t, builder)
+		assert.True(t, commonerrors.IsAPIClientNil(builder.GetError()))
+	})
 }
 
 func TestNewDefaultAgentServiceConfigBuilder(t *testing.T) {
-	testCases := []struct {
-		client            bool
-		databaseStorage   resource.Quantity
-		filesystemStorage resource.Quantity
-	}{
-		{
-			client:            true,
-			databaseStorage:   resource.MustParse(defaultDatabaseStorageSize),
-			filesystemStorage: resource.MustParse(defaultFilesystemStorageSize),
-		},
-		{
-			client:            false,
-			databaseStorage:   resource.MustParse(defaultDatabaseStorageSize),
-			filesystemStorage: resource.MustParse(defaultFilesystemStorageSize),
-		},
-	}
+	t.Parallel()
 
-	for _, testcase := range testCases {
-		var testSettings *clients.Settings
-		if testcase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
+	t.Run("valid builder", func(t *testing.T) {
+		t.Parallel()
 
-		testBuilder := NewDefaultAgentServiceConfigBuilder(testSettings)
+		builder := NewDefaultAgentServiceConfigBuilder(buildAgentServiceConfigTestClient())
 
-		if testcase.client {
-			assert.Equal(t, testcase.databaseStorage,
-				*testBuilder.Definition.Spec.DatabaseStorage.Resources.Requests.Storage())
-			assert.Equal(t, testcase.filesystemStorage,
-				*testBuilder.Definition.Spec.FileSystemStorage.Resources.Requests.Storage())
-			assert.Empty(t, testBuilder.errorMsg)
-		} else {
-			assert.Nil(t, testBuilder)
-		}
-	}
+		require.NotNil(t, builder)
+		assert.NoError(t, builder.GetError())
+		assert.Equal(t, agentServiceConfigName, builder.Definition.Name)
+		assert.Equal(t, resource.MustParse(defaultDatabaseStorageSize),
+			*builder.Definition.Spec.DatabaseStorage.Resources.Requests.Storage())
+		assert.Equal(t, resource.MustParse(defaultFilesystemStorageSize),
+			*builder.Definition.Spec.FileSystemStorage.Resources.Requests.Storage())
+		assert.Equal(t, resource.MustParse(defaultImageStoreStorageSize),
+			*builder.Definition.Spec.ImageStorage.Resources.Requests.Storage())
+		assert.Equal(t, agentServiceConfigGVK, builder.GetGVK())
+	})
+
+	t.Run("nil client returns error-bearing builder", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewDefaultAgentServiceConfigBuilder(nil)
+
+		require.NotNil(t, builder)
+		assert.True(t, commonerrors.IsAPIClientNil(builder.GetError()))
+	})
 }
 
 func TestPullAgentServiceConfig(t *testing.T) {
-	testCases := []struct {
-		client        bool
-		exists        bool
-		expectedError error
-	}{
-		{
-			client:        true,
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			client:        false,
-			exists:        true,
-			expectedError: fmt.Errorf("the apiClient is nil"),
-		},
-		{
-			client:        true,
-			exists:        false,
-			expectedError: fmt.Errorf("agentserviceconfig object agent does not exist"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentServiceConfig())
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{K8sMockObjects: runtimeObjects})
-		}
-
-		testBuilder, err := PullAgentServiceConfig(testSettings)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.Nil(t, testBuilder)
-		} else {
-			assert.NotNil(t, testBuilder)
-			assert.Equal(t, agentServiceConfigName, testBuilder.Object.Name)
-			assert.Empty(t, testBuilder.errorMsg)
-		}
-	}
+	testhelper.NewSingletonClusterScopedPullTestConfig(
+		PullAgentServiceConfig,
+		agentInstallV1Beta1.AddToScheme,
+		agentServiceConfigGVK,
+		agentServiceConfigName,
+	).ExecuteTests(t)
 }
 
-func TestAgentServiceConfigGet(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError string
-	}{
-		{
-			exists:        true,
-			expectedError: "",
-		},
-		{
-			exists: false,
-			expectedError: fmt.Sprintf("agentserviceconfigs.agent-install.openshift.io \"%s\" not found",
-				agentServiceConfigName),
-		},
-	}
+func TestAgentServiceConfigBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+	commonTestConfig := testhelper.NewCommonTestConfig[
+		agentInstallV1Beta1.AgentServiceConfig, AgentServiceConfigBuilder,
+	](
+		agentInstallV1Beta1.AddToScheme,
+		agentServiceConfigGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
 
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentServiceConfig())
-		}
-
-		testBuilder := buildTestASCBuilderWithFakeObjects(runtimeObjects)
-
-		aci, err := testBuilder.Get()
-		if testCase.exists {
-			assert.Nil(t, err)
-			assert.NotNil(t, aci)
-		} else {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.Nil(t, aci)
-		}
-	}
-}
-func TestAgentServiceConfigCreate(t *testing.T) {
-	testCases := []struct {
-		exists bool
-	}{
-		{
-			exists: true,
-		},
-		{
-			exists: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentServiceConfig())
-		}
-
-		testBuilder := buildTestASCBuilderWithFakeObjects(runtimeObjects)
-
-		result, err := testBuilder.Create()
-		assert.Nil(t, err)
-		assert.NotNil(t, result)
-		assert.Equal(t, agentServiceConfigName, result.Definition.Name)
-	}
-}
-func TestAgentServiceConfigUpdate(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError error
-	}{
-		{
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			exists:        false,
-			expectedError: fmt.Errorf("cannot update non-existent agentserviceconfig"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentServiceConfig())
-		}
-
-		testBuilder := buildTestASCBuilderWithFakeObjects(runtimeObjects)
-
-		testBuilder.Definition.Spec.IPXEHTTPRoute = ipxeEnabled
-
-		aci, err := testBuilder.Update(true)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, aci.Object.Spec.IPXEHTTPRoute, ipxeEnabled)
-		}
-	}
-}
-func TestAgentServiceConfigDelete(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError error
-	}{
-		{
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			exists:        false,
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentServiceConfig())
-		}
-
-		testBuilder := buildTestASCBuilderWithFakeObjects(runtimeObjects)
-
-		err := testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testBuilder.Object)
-		}
-	}
-}
-func TestAgentServiceConfigDeleteAndWait(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError error
-	}{
-		{
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			exists:        false,
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentServiceConfig())
-		}
-
-		testBuilder := buildTestASCBuilderWithFakeObjects(runtimeObjects)
-
-		err := testBuilder.DeleteAndWait(time.Second * 1)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testBuilder.Object)
-		}
-	}
-}
-func TestAgentServiceConfigExists(t *testing.T) {
-	testCases := []struct {
-		exists bool
-	}{
-		{
-			exists: true,
-		},
-		{
-			exists: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentServiceConfig())
-		}
-
-		testBuilder := buildTestASCBuilderWithFakeObjects(runtimeObjects)
-
-		assert.Equal(t, testCase.exists, testBuilder.Exists())
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestAgentServiceConfigWithImageStorage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		pvc           corev1.PersistentVolumeClaimSpec
-		expectedError string
+		name  string
+		valid bool
+		spec  corev1.PersistentVolumeClaimSpec
 	}{
 		{
-			pvc: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{
-					accessModeReadWriteOnce,
-				},
+			name:  "read write once",
+			valid: true,
+			spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{accessModeReadWriteOnce},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
 						corev1.ResourceStorage: resource.MustParse("30Gi"),
 					},
 				},
 			},
-			expectedError: "",
 		},
 		{
-			pvc: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{
-					"ReadWriteMany",
-				},
+			name:  "read write many",
+			valid: true,
+			spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{"ReadWriteMany"},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
 						corev1.ResourceStorage: resource.MustParse("50Gi"),
 					},
 				},
 			},
-			expectedError: "",
+		},
+		{
+			name:  "invalid builder",
+			valid: false,
+			spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{"ReadWriteMany"},
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateTestAgentServiceConfigBuilder()
-		testBuilder.WithImageStorage(testCase.pvc)
-		assert.Equal(t, testCase.pvc, *testBuilder.Definition.Spec.ImageStorage)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildValidAgentServiceConfigTestBuilder()
+
+			originalImageStorage := *builder.Definition.Spec.ImageStorage
+			if !testCase.valid {
+				builder = buildInvalidAgentServiceConfigTestBuilder()
+			}
+
+			builder.WithImageStorage(testCase.spec)
+
+			if !testCase.valid {
+				require.Error(t, builder.GetError())
+				assert.Equal(t, originalImageStorage, *builder.Definition.Spec.ImageStorage)
+
+				return
+			}
+
+			assert.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.spec, *builder.Definition.Spec.ImageStorage)
+		})
 	}
 }
 
 func TestAgentServiceConfigWithMirrorRegistryRef(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		mirrorRegistryConfig string
-		expectedError        string
+		name          string
+		valid         bool
+		configMapName string
+		expectedError string
 	}{
 		{
-			mirrorRegistryConfig: "mirror-config",
-			expectedError:        "",
+			name:          "valid configmap ref",
+			valid:         true,
+			configMapName: "mirror-config",
 		},
 		{
-			mirrorRegistryConfig: "",
-			expectedError:        "cannot add agentserviceconfig mirrorRegistryRef with empty configmap name",
+			name:          "empty configmap name",
+			valid:         true,
+			configMapName: "",
+			expectedError: "cannot add agentserviceconfig mirrorRegistryRef with empty configmap name",
+		},
+		{
+			name:          "invalid builder",
+			valid:         false,
+			configMapName: "mirror-config",
+			expectedError: "invalid builder",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateTestAgentServiceConfigBuilder()
-		testBuilder.WithMirrorRegistryRef(testCase.mirrorRegistryConfig)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.mirrorRegistryConfig, testBuilder.Definition.Spec.MirrorRegistryRef.Name)
-		}
+			builder := buildValidAgentServiceConfigTestBuilder()
+			if !testCase.valid {
+				builder = buildInvalidAgentServiceConfigTestBuilder()
+			}
+
+			builder.WithMirrorRegistryRef(testCase.configMapName)
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			assert.NoError(t, builder.GetError())
+			require.NotNil(t, builder.Definition.Spec.MirrorRegistryRef)
+			assert.Equal(t, testCase.configMapName, builder.Definition.Spec.MirrorRegistryRef.Name)
+		})
 	}
 }
 
 func TestAgentServiceConfigWithOSImage(t *testing.T) {
+	t.Parallel()
+
+	firstImage := agentInstallV1Beta1.OSImage{
+		OpenshiftVersion: "4.12",
+		Version:          "412.86.202402272018-0",
+		Url:              "https://mirror.openshift.com/rhcos-live-4.12.iso",
+		CPUArchitecture:  "x86_64",
+	}
+	secondImage := agentInstallV1Beta1.OSImage{
+		OpenshiftVersion: "4.13",
+		Version:          "413.92.202307260246-0",
+		Url:              "https://mirror.openshift.com/rhcos-live-4.13.iso",
+		CPUArchitecture:  "x86_64",
+	}
+
 	testCases := []struct {
-		osImages      []agentInstallV1Beta1.OSImage
-		expectedError string
+		name     string
+		valid    bool
+		osImages []agentInstallV1Beta1.OSImage
 	}{
 		{
-			osImages: []agentInstallV1Beta1.OSImage{
-				{
-					OpenshiftVersion: "4.12",
-					Version:          "412.86.202402272018-0",
-					Url:              "https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/4.12/4.12.30/rhcos-live.x86_64.iso",
-					CPUArchitecture:  "x86_64",
-				},
-			},
-			expectedError: "",
+			name:     "single image",
+			valid:    true,
+			osImages: []agentInstallV1Beta1.OSImage{firstImage},
 		},
 		{
-			osImages: []agentInstallV1Beta1.OSImage{
-				{
-					OpenshiftVersion: "4.12",
-					Version:          "412.86.202402272018-0",
-					Url:              "https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/4.12/4.12.30/rhcos-live.x86_64.iso",
-					CPUArchitecture:  "x86_64",
-				},
-				{
-					OpenshiftVersion: "4.13",
-					Version:          "413.92.202307260246-0",
-					Url:              "https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/4.13/4.13.10/rhcos-live.x86_64.iso",
-					CPUArchitecture:  "x86_64",
-				},
-			},
-			expectedError: "",
+			name:     "multiple images",
+			valid:    true,
+			osImages: []agentInstallV1Beta1.OSImage{firstImage, secondImage},
+		},
+		{
+			name:     "invalid builder",
+			valid:    false,
+			osImages: []agentInstallV1Beta1.OSImage{firstImage},
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateTestAgentServiceConfigBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		for _, image := range testCase.osImages {
-			testBuilder.WithOSImage(image)
-		}
+			builder := buildValidAgentServiceConfigTestBuilder()
+			if !testCase.valid {
+				builder = buildInvalidAgentServiceConfigTestBuilder()
+			}
 
-		assert.Equal(t, testCase.osImages, testBuilder.Definition.Spec.OSImages)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			for _, image := range testCase.osImages {
+				builder.WithOSImage(image)
+			}
+
+			if !testCase.valid {
+				require.Error(t, builder.GetError())
+				assert.Empty(t, builder.Definition.Spec.OSImages)
+
+				return
+			}
+
+			assert.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.osImages, builder.Definition.Spec.OSImages)
+		})
 	}
 }
+
 func TestAgentServiceConfigWithUnauthenticatedRegistry(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		resgistries   []string
-		expectedError string
+		name               string
+		valid              bool
+		registries         []string
+		expectedRegistries []string
+		expectedError      string
 	}{
 		{
-			resgistries: []string{
-				"docker.io",
-			},
-			expectedError: "",
+			name:               "single registry",
+			valid:              true,
+			registries:         []string{"docker.io"},
+			expectedRegistries: []string{"docker.io"},
 		},
 		{
-			resgistries: []string{
-				"docker.io",
-				"quay.io",
-			},
-			expectedError: "",
+			name:               "multiple registries",
+			valid:              true,
+			registries:         []string{"docker.io", "quay.io"},
+			expectedRegistries: []string{"docker.io", "quay.io"},
 		},
 		{
-			resgistries: []string{
-				"quay.io",
-				"",
-			},
-			expectedError: "agentserviceconfig cannot have empty unauthenticated registry",
+			name:               "empty registry after valid registry",
+			valid:              true,
+			registries:         []string{"quay.io", ""},
+			expectedRegistries: []string{"quay.io"},
+			expectedError:      "agentserviceconfig cannot have empty unauthenticated registry",
+		},
+		{
+			name:          "invalid builder",
+			valid:         false,
+			registries:    []string{"docker.io"},
+			expectedError: "invalid builder",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateTestAgentServiceConfigBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		for _, registry := range testCase.resgistries {
-			testBuilder.WithUnauthenticatedRegistry(registry)
-		}
+			builder := buildValidAgentServiceConfigTestBuilder()
+			if !testCase.valid {
+				builder = buildInvalidAgentServiceConfigTestBuilder()
+			}
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			for _, registry := range testCase.registries {
+				builder.WithUnauthenticatedRegistry(registry)
+			}
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.resgistries, testBuilder.Definition.Spec.UnauthenticatedRegistries)
-		}
+			if testCase.expectedError != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+			} else {
+				assert.NoError(t, builder.GetError())
+			}
+
+			assert.Equal(t, testCase.expectedRegistries, builder.Definition.Spec.UnauthenticatedRegistries)
+		})
 	}
 }
 
 func TestAgentServiceConfigWithIPXEHTTPRoute(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
+		valid         bool
 		route         string
 		expectedError string
 	}{
 		{
+			name:  "enabled route",
+			valid: true,
+			route: ipxeEnabled,
+		},
+		{
+			name:  "disabled route",
+			valid: true,
+			route: "disabled",
+		},
+		{
+			name:  "invalid route",
+			valid: true,
+			route: "",
+			expectedError: fmt.Sprintf(
+				"agentserviceconfig passed invalid ipxeroute: , valid options: %v", validIPXEOptions),
+		},
+		{
+			name:          "invalid builder",
+			valid:         false,
 			route:         ipxeEnabled,
-			expectedError: "",
-		},
-		{
-			route:         "disabled",
-			expectedError: "",
-		},
-		{
-			route:         "",
-			expectedError: fmt.Sprintf("agentserviceconfig passed invalid ipxeroute: , valid options: %v", validIPXEOptions),
+			expectedError: "invalid builder",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateTestAgentServiceConfigBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithIPXEHTTPRoute(testCase.route)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+			builder := buildValidAgentServiceConfigTestBuilder()
+			if !testCase.valid {
+				builder = buildInvalidAgentServiceConfigTestBuilder()
+			}
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.route, testBuilder.Definition.Spec.IPXEHTTPRoute)
-		}
+			builder.WithIPXEHTTPRoute(testCase.route)
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+				assert.Empty(t, builder.Definition.Spec.IPXEHTTPRoute)
+
+				return
+			}
+
+			assert.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.route, builder.Definition.Spec.IPXEHTTPRoute)
+		})
 	}
 }
+
 func TestAgentServiceConfigWithOptions(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[
+		agentInstallV1Beta1.AgentServiceConfig, AgentServiceConfigBuilder,
+	](
+		agentInstallV1Beta1.AddToScheme,
+		agentServiceConfigGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
+
+	testhelper.NewWithOptionsTestConfig(commonTestConfig).ExecuteTests(t)
+
+	t.Run("agent-specific option", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidAgentServiceConfigTestBuilder()
+		builder.WithOptions(func(builder *AgentServiceConfigBuilder) (*AgentServiceConfigBuilder, error) {
+			builder.Definition.Spec.MustGatherImages = []agentInstallV1Beta1.MustGatherImage{{
+				Name:             "acm-must-gather",
+				OpenshiftVersion: "4.16",
+			}}
+
+			return builder, nil
+		})
+
+		assert.NoError(t, builder.GetError())
+		require.Len(t, builder.Definition.Spec.MustGatherImages, 1)
+		assert.Equal(t, "acm-must-gather", builder.Definition.Spec.MustGatherImages[0].Name)
+		assert.Equal(t, "4.16", builder.Definition.Spec.MustGatherImages[0].OpenshiftVersion)
+	})
+}
+
+func TestAgentServiceConfigDeleteAndWait(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		option        AgentServiceConfigAdditionalOptions
-		validator     func(*AgentServiceConfigBuilder) bool
+		name          string
+		exists        bool
+		valid         bool
 		expectedError string
 	}{
 		{
-			option: func(builder *AgentServiceConfigBuilder) (*AgentServiceConfigBuilder, error) {
-				builder.Definition.Spec.MustGatherImages = []agentInstallV1Beta1.MustGatherImage{{
-					Name:             "acm-must-gather",
-					OpenshiftVersion: "4.16",
-				}}
-
-				return builder, nil
-			},
-			validator: func(acib *AgentServiceConfigBuilder) bool {
-				return acib.Definition.Spec.MustGatherImages[0].Name == "acm-must-gather" &&
-					acib.Definition.Spec.MustGatherImages[0].OpenshiftVersion == "4.16"
-			},
-			expectedError: "",
+			name:   "deleted resource",
+			exists: true,
+			valid:  true,
 		},
 		{
-			option: func(builder *AgentServiceConfigBuilder) (*AgentServiceConfigBuilder, error) {
-				builder.Definition.Annotations = map[string]string{
-					"additional-options-annotation": "true",
-				}
-
-				return builder, nil
-			},
-			validator: func(acib *AgentServiceConfigBuilder) bool {
-				return acib.Definition.Annotations["additional-options-annotation"] == "true"
-			},
-			expectedError: "",
+			name:   "resource already absent",
+			exists: false,
+			valid:  true,
 		},
 		{
-			option: func(builder *AgentServiceConfigBuilder) (*AgentServiceConfigBuilder, error) {
-				return builder, fmt.Errorf("error: got agentserviceconfig with error")
-			},
-			validator: func(acib *AgentServiceConfigBuilder) bool {
-				return acib.errorMsg != ""
-			},
-			expectedError: "error: got agentserviceconfig with error",
+			name:          "invalid builder",
+			exists:        true,
+			valid:         false,
+			expectedError: "invalid builder",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateTestAgentServiceConfigBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithOptions(testCase.option)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-		assert.True(t, testCase.validator(testBuilder))
+			var runtimeObjects []runtime.Object
+			if testCase.exists {
+				runtimeObjects = append(runtimeObjects, generateAgentServiceConfig())
+			}
+
+			builder := NewDefaultAgentServiceConfigBuilder(buildAgentServiceConfigTestClient(runtimeObjects...))
+			if !testCase.valid {
+				builder.SetError(errors.New("invalid builder"))
+			}
+
+			err := builder.DeleteAndWait(time.Second)
+
+			if testCase.expectedError != "" {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, testCase.expectedError)
+
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Nil(t, builder.Object)
+		})
 	}
 }
+
 func TestAgentServiceConfigWaitUntilDeployed(t *testing.T) {
+	t.Parallel()
+
+	healthyCondition := conditionsv1.Condition{
+		Type:   agentInstallV1Beta1.ConditionDeploymentsHealthy,
+		Status: corev1.ConditionTrue,
+	}
+
 	testCases := []struct {
-		status        agentInstallV1Beta1.AgentServiceConfigStatus
+		name          string
 		exists        bool
-		expectedErorr error
+		valid         bool
+		conditions    []conditionsv1.Condition
+		expectedError error
 	}{
 		{
-			status: agentInstallV1Beta1.AgentServiceConfigStatus{
-				Conditions: []conditionsv1.Condition{
-					{
-						Type:   agentInstallV1Beta1.ConditionDeploymentsHealthy,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-			exists:        true,
-			expectedErorr: nil,
+			name:       "deployment healthy",
+			exists:     true,
+			valid:      true,
+			conditions: []conditionsv1.Condition{healthyCondition},
 		},
 		{
-			status: agentInstallV1Beta1.AgentServiceConfigStatus{
-				Conditions: []conditionsv1.Condition{
-					{
-						Type:   agentInstallV1Beta1.ConditionDeploymentsHealthy,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
+			name:          "resource does not exist",
 			exists:        false,
-			expectedErorr: fmt.Errorf("cannot wait for non-existent agentserviceconfig to be deployed"),
+			valid:         true,
+			expectedError: errors.New("cannot wait for non-existent agentserviceconfig to be deployed"),
+		},
+		{
+			name:   "invalid builder",
+			exists: true,
+			valid:  false,
+		},
+		{
+			name:          "timeout waiting for healthy condition",
+			exists:        true,
+			valid:         true,
+			expectedError: context.DeadlineExceeded,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testAgentServiceConfig := generateAgentServiceConfig()
-		testAgentServiceConfig.Status = testCase.status
+			var runtimeObjects []runtime.Object
 
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, testAgentServiceConfig)
-		}
+			if testCase.exists {
+				agentServiceConfig := generateAgentServiceConfig()
+				agentServiceConfig.Status.Conditions = testCase.conditions
+				runtimeObjects = append(runtimeObjects, agentServiceConfig)
+			}
 
-		testBuilder := buildTestASCBuilderWithFakeObjects(runtimeObjects)
-		_, err := testBuilder.WaitUntilDeployed(time.Second * 2)
+			builder := NewDefaultAgentServiceConfigBuilder(buildAgentServiceConfigTestClient(runtimeObjects...))
+			if !testCase.valid {
+				builder.SetError(errors.New("invalid builder"))
+			}
 
-		assert.Equal(t, testCase.expectedErorr, err)
+			_, err := builder.WaitUntilDeployed(time.Second)
+
+			switch testCase.name {
+			case "invalid builder":
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "invalid builder")
+			case "timeout waiting for healthy condition":
+				assert.ErrorIs(t, err, testCase.expectedError)
+			case "resource does not exist":
+				assert.Equal(t, testCase.expectedError, err)
+			default:
+				assert.NoError(t, err)
+			}
+		})
 	}
 }
 
 func TestAgentServiceConfigGetDefaultStorageSpec(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		size          string
-		expectedError error
-	}{
-		{
-			size:          defaultDatabaseStorageSize,
-			expectedError: nil,
-		},
-		{
-			size:          defaultImageStoreStorageSize,
-			expectedError: nil,
-		},
-		{
-			size:          defaultFilesystemStorageSize,
-			expectedError: nil,
-		},
-		{
-			size:          "30GiB",
-			expectedError: fmt.Errorf("the storage size is in wrong format"),
-		},
-		{
-			size:          "",
-			expectedError: fmt.Errorf("the storage size is in wrong format"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		pvc, err := GetDefaultStorageSpec(testCase.size)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, pvc)
-		}
-	}
-}
-
-func TestAgentServiceConfigValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
 		expectedError string
 	}{
-		{
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "error: received nil AgentServiceConfig builder",
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: "can not redefine the undefined AgentServiceConfig",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: "AgentServiceConfig builder cannot have nil apiClient",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
-		},
+		{name: "database default", size: defaultDatabaseStorageSize},
+		{name: "image store default", size: defaultImageStoreStorageSize},
+		{name: "filesystem default", size: defaultFilesystemStorageSize},
+		{name: "invalid unit", size: "30GiB", expectedError: "the storage size is in wrong format"},
+		{name: "empty size", size: "", expectedError: "the storage size is in wrong format"},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildTestASCBuilderWithFakeObjects([]runtime.Object{})
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.builderNil {
-			testBuilder = nil
-		}
+			pvc, err := GetDefaultStorageSpec(testCase.size)
 
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
+			if testCase.expectedError != "" {
+				assert.EqualError(t, err, testCase.expectedError)
+				assert.Empty(t, pvc)
 
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
+				return
+			}
 
-		result, err := testBuilder.validate()
-		if testCase.expectedError != "" {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.False(t, result)
-		} else {
-			assert.Nil(t, err)
-			assert.True(t, result)
-		}
+			assert.NoError(t, err)
+			assert.Equal(t, []corev1.PersistentVolumeAccessMode{accessModeReadWriteOnce}, pvc.AccessModes)
+			assert.Equal(t, resource.MustParse(testCase.size), *pvc.Resources.Requests.Storage())
+		})
 	}
 }
 
+// generateAgentServiceConfig returns a default AgentServiceConfig test object.
 func generateAgentServiceConfig() *agentInstallV1Beta1.AgentServiceConfig {
 	return &agentInstallV1Beta1.AgentServiceConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -777,9 +622,7 @@ func generateAgentServiceConfig() *agentInstallV1Beta1.AgentServiceConfig {
 		},
 		Spec: agentInstallV1Beta1.AgentServiceConfigSpec{
 			DatabaseStorage: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{
-					accessModeReadWriteOnce,
-				},
+				AccessModes: []corev1.PersistentVolumeAccessMode{accessModeReadWriteOnce},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
 						corev1.ResourceStorage: resource.MustParse(defaultDatabaseStorageSize),
@@ -787,9 +630,7 @@ func generateAgentServiceConfig() *agentInstallV1Beta1.AgentServiceConfig {
 				},
 			},
 			FileSystemStorage: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{
-					accessModeReadWriteOnce,
-				},
+				AccessModes: []corev1.PersistentVolumeAccessMode{accessModeReadWriteOnce},
 				Resources: corev1.VolumeResourceRequirements{
 					Requests: corev1.ResourceList{
 						corev1.ResourceStorage: resource.MustParse(defaultFilesystemStorageSize),
@@ -800,24 +641,25 @@ func generateAgentServiceConfig() *agentInstallV1Beta1.AgentServiceConfig {
 	}
 }
 
-func generateTestAgentServiceConfigBuilder() *AgentServiceConfigBuilder {
-	return &AgentServiceConfigBuilder{
-		apiClient:  clients.GetTestClients(clients.TestClientParams{}).Client,
-		Definition: generateAgentServiceConfig(),
-	}
+// buildAgentServiceConfigTestClient returns a test client with the AgentServiceConfig scheme and optional objects.
+func buildAgentServiceConfigTestClient(objects ...runtime.Object) *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: objects,
+		SchemeAttachers: []clients.SchemeAttacher{
+			agentInstallV1Beta1.AddToScheme,
+		},
+	})
 }
 
-func buildTestASCBuilderWithFakeObjects(objects []runtime.Object) *AgentServiceConfigBuilder {
-	fakeClientScheme := runtime.NewScheme()
+// buildValidAgentServiceConfigTestBuilder returns a valid AgentServiceConfig builder for testing.
+func buildValidAgentServiceConfigTestBuilder() *AgentServiceConfigBuilder {
+	return NewDefaultAgentServiceConfigBuilder(buildAgentServiceConfigTestClient())
+}
 
-	err := clients.SetScheme(fakeClientScheme)
-	if err != nil {
-		return nil
-	}
+// buildInvalidAgentServiceConfigTestBuilder returns an error-bearing AgentServiceConfig builder for testing.
+func buildInvalidAgentServiceConfigTestBuilder() *AgentServiceConfigBuilder {
+	builder := buildValidAgentServiceConfigTestBuilder()
+	builder.SetError(errors.New("invalid builder"))
 
-	testBuilder := NewDefaultAgentServiceConfigBuilder(&clients.Settings{
-		Client: fakeRuntimeClient.NewClientBuilder().WithScheme(fakeClientScheme).WithRuntimeObjects(objects...).Build(),
-	})
-
-	return testBuilder
+	return builder
 }
