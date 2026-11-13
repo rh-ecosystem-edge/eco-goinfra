@@ -4,19 +4,21 @@ import (
 	"fmt"
 	"testing"
 
-	"k8s.io/apimachinery/pkg/runtime"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	nfdv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/nfd/v1alpha1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const (
+	nodeFeatureRuleExampleName = "test-node-feature-rule"
+	nodeFeatureRuleNamespace   = "test-namespace"
 )
 
 var (
-	nodeFeatureRuleExampleName = "test-node-feature-rule"
-	nodeFeatureRuleNamespace   = "test-namespace"
-	nodeFeatureRuleAlmExample  = fmt.Sprintf(`[
+	nodeFeatureRuleAlmExample = fmt.Sprintf(`[
 	{
 		"apiVersion": "nfd.openshift.io/v1alpha1",
 		"kind": "NodeFeatureRule",
@@ -26,76 +28,40 @@ var (
 		}
 	}]`, nodeFeatureRuleExampleName, nodeFeatureRuleNamespace)
 
-	nfdRuleTestSchemes = []clients.SchemeAttacher{
-		nfdv1.AddToScheme,
-	}
+	nodeFeatureRuleMismatchedKindAlmExample = `[
+	{
+		"apiVersion": "nfd.openshift.io/v1alpha1",
+		"kind": "Other",
+		"metadata": {
+			"name": "other",
+			"namespace": "test-namespace"
+		}
+	}]`
 )
 
 func TestNewNodeFeatureRuleBuilder(t *testing.T) {
-	testCases := []struct {
-		name              string
-		ruleName          string
-		namespace         string
-		client            bool
-		expectedErrorText string
-	}{
-		{
-			name:              "Valid builder with all parameters",
-			ruleName:          nodeFeatureRuleExampleName,
-			namespace:         nodeFeatureRuleNamespace,
-			client:            true,
-			expectedErrorText: "",
-		},
-		{
-			name:              "Empty name",
-			ruleName:          "",
-			namespace:         nodeFeatureRuleNamespace,
-			client:            true,
-			expectedErrorText: errEmptyName,
-		},
-		{
-			name:              "Empty namespace",
-			ruleName:          nodeFeatureRuleExampleName,
-			namespace:         "",
-			client:            true,
-			expectedErrorText: errEmptyNamespace,
-		},
-		{
-			name:              "No Client Provided",
-			ruleName:          nodeFeatureRuleExampleName,
-			namespace:         nodeFeatureRuleNamespace,
-			client:            false,
-			expectedErrorText: "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			var client *clients.Settings
-			if testCase.client {
-				client = buildTestClientWithNFDRuleScheme()
-			}
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewNodeFeatureRuleBuilder,
+		nfdv1.AddToScheme,
+		nodeFeatureRuleGVK,
+	).ExecuteTests(t)
 
-			builder := NewNodeFeatureRuleBuilder(client, testCase.ruleName, testCase.namespace)
+	t.Run("initializes empty rules list", func(t *testing.T) {
+		t.Parallel()
 
-			if testCase.client {
-				if testCase.expectedErrorText != "" {
-					assert.NotNil(t, builder)
-					assert.Equal(t, testCase.expectedErrorText, builder.errorMsg)
-				} else {
-					assert.NotNil(t, builder)
-					assert.Equal(t, testCase.ruleName, builder.Definition.Name)
-					assert.Equal(t, testCase.namespace, builder.Definition.Namespace)
-					assert.Equal(t, "", builder.errorMsg)
-				}
-			} else {
-				assert.Nil(t, builder)
-			}
-		})
-	}
+		builder := buildValidNFDRuleTestBuilder(buildTestClientWithNFDRuleScheme())
+
+		require.NoError(t, builder.GetError())
+		require.NotNil(t, builder.Definition.Spec.Rules)
+		assert.Empty(t, builder.Definition.Spec.Rules)
+	})
 }
 
-func TestNewnodeFeatureRuleBuilderFromObjectString(t *testing.T) {
+func TestNewNodeFeatureRuleBuilderFromObjectString(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name              string
 		almString         string
@@ -103,34 +69,47 @@ func TestNewnodeFeatureRuleBuilderFromObjectString(t *testing.T) {
 		expectedErrorText string
 	}{
 		{
-			name:              "Valid ALM Example with Client",
-			almString:         nodeFeatureRuleAlmExample,
-			client:            true,
-			expectedErrorText: "",
+			name:      "valid ALM example",
+			almString: nodeFeatureRuleAlmExample,
+			client:    true,
 		},
 		{
-			name:              "Empty ALM Example",
+			name:              "empty ALM example",
 			almString:         "",
 			client:            true,
 			expectedErrorText: "error initializing NodeFeatureRule from alm-examples: almExample is an empty string",
 		},
 		{
-			name:      "Invalid ALM Example",
+			name:      "invalid ALM example",
 			almString: "{invalid}",
 			client:    true,
 			expectedErrorText: "error initializing NodeFeatureRule from alm-examples:" +
 				" invalid character 'i' looking for beginning of object key string",
 		},
 		{
-			name:              "No Client Provided",
+			name:              "empty ALM example list",
+			almString:         "[]",
+			client:            true,
+			expectedErrorText: "error initializing NodeFeatureRule from alm-examples: failed to get alm examples",
+		},
+		{
+			name:              "missing NodeFeatureRule in ALM example",
+			almString:         nodeFeatureRuleMismatchedKindAlmExample,
+			client:            true,
+			expectedErrorText: "error initializing NodeFeatureRule from alm-examples: nodeFeatureRule is missing in alm-examples ",
+		},
+		{
+			name:              "no client",
 			almString:         nodeFeatureRuleAlmExample,
 			client:            false,
-			expectedErrorText: "",
+			expectedErrorText: "apiClient for NodeFeatureRule is nil",
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			var client *clients.Settings
 			if testCase.client {
 				client = buildTestClientWithNFDRuleScheme()
@@ -138,480 +117,341 @@ func TestNewnodeFeatureRuleBuilderFromObjectString(t *testing.T) {
 
 			builder := NewNodeFeatureRuleBuilderFromObjectString(client, testCase.almString)
 
-			errormessage := ""
+			require.NotNil(t, builder)
+			assert.Equal(t, nodeFeatureRuleGVK, builder.GetGVK())
 
-			if builder != nil {
-				errormessage = builder.errorMsg
+			if testCase.expectedErrorText != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedErrorText)
+
+				_, err := builder.Get()
+				assert.ErrorContains(t, err, testCase.expectedErrorText)
+
+				return
 			}
 
-			if testCase.client {
-				assert.Equal(t, testCase.expectedErrorText, errormessage)
-
-				if testCase.expectedErrorText == "" {
-					assert.Equal(t, nodeFeatureRuleExampleName, builder.Definition.Name)
-				}
-			} else {
-				assert.Nil(t, builder)
-			}
+			require.NoError(t, builder.GetError())
+			require.NotNil(t, builder.Definition)
+			assert.Equal(t, nodeFeatureRuleExampleName, builder.Definition.Name)
+			assert.Equal(t, nodeFeatureRuleNamespace, builder.Definition.Namespace)
 		})
 	}
 }
 
+func TestPullNodeFeatureRule(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig(
+		PullFeatureRule, nfdv1.AddToScheme, nodeFeatureRuleGVK).ExecuteTests(t)
+}
+
+func TestNodeFeatureRuleBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[nfdv1.NodeFeatureRule, NodeFeatureRuleBuilder](
+		nfdv1.AddToScheme,
+		nodeFeatureRuleGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
+}
+
 func TestNodeFeatureRuleBuilderWithRule(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
 		rule          nfdv1.Rule
+		validBuilder  bool
 		expectedError string
 	}{
 		{
-			name: "Valid Rule",
+			name: "valid rule",
 			rule: nfdv1.Rule{
 				Name: "test-rule",
 				Labels: map[string]string{
 					"feature.node.kubernetes.io/test": "true",
 				},
 			},
-			expectedError: "",
+			validBuilder: true,
 		},
 		{
-			name: "Empty Rule Name",
-			rule: nfdv1.Rule{
-				Name: "",
-				Labels: map[string]string{
-					"feature.node.kubernetes.io/test": "true",
-				},
-			},
+			name:          "empty rule name",
+			rule:          nfdv1.Rule{},
+			validBuilder:  true,
 			expectedError: ruleNameEmptyError,
+		},
+		{
+			name:         "invalid builder",
+			rule:         nfdv1.Rule{Name: "test-rule"},
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			builder := NewNodeFeatureRuleBuilder(
-				buildTestClientWithNFDRuleScheme(),
-				nodeFeatureRuleExampleName,
-				nodeFeatureRuleNamespace,
-			)
-			assert.NotNil(t, builder)
+			t.Parallel()
+
+			builder := buildValidNFDRuleTestBuilder(buildTestClientWithNFDRuleScheme())
+			if !testCase.validBuilder {
+				builder = buildInvalidNFDRuleTestBuilder(buildTestClientWithNFDRuleScheme())
+			}
 
 			builder = builder.WithRule(testCase.rule)
 
-			if testCase.expectedError != "" {
-				assert.Equal(t, testCase.expectedError, builder.errorMsg)
-			} else {
-				assert.Equal(t, "", builder.errorMsg)
-				assert.Len(t, builder.Definition.Spec.Rules, 1)
-				assert.Equal(t, testCase.rule.Name, builder.Definition.Spec.Rules[0].Name)
+			if !testCase.validBuilder {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+				assert.Empty(t, builder.Definition.Spec.Rules)
+
+				return
 			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+				assert.Empty(t, builder.Definition.Spec.Rules)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, []nfdv1.Rule{testCase.rule}, builder.Definition.Spec.Rules)
 		})
 	}
 }
 
 func TestNodeFeatureRuleBuilderWithRules(t *testing.T) {
+	t.Parallel()
+
+	validRules := []nfdv1.Rule{
+		{
+			Name: "test-rule-1",
+			Labels: map[string]string{
+				"feature.node.kubernetes.io/test1": "true",
+			},
+		},
+		{
+			Name: "test-rule-2",
+			Labels: map[string]string{
+				"feature.node.kubernetes.io/test2": "true",
+			},
+		},
+	}
+
 	testCases := []struct {
 		name          string
 		rules         []nfdv1.Rule
+		validBuilder  bool
 		expectedError string
 	}{
 		{
-			name: "Valid Rules",
-			rules: []nfdv1.Rule{
-				{
-					Name: "test-rule-1",
-					Labels: map[string]string{
-						"feature.node.kubernetes.io/test1": "true",
-					},
-				},
-				{
-					Name: "test-rule-2",
-					Labels: map[string]string{
-						"feature.node.kubernetes.io/test2": "true",
-					},
-				},
-			},
-			expectedError: "",
+			name:         "valid rules",
+			rules:        validRules,
+			validBuilder: true,
 		},
 		{
-			name:          "Empty Rules",
+			name:          "empty rules",
 			rules:         []nfdv1.Rule{},
+			validBuilder:  true,
 			expectedError: "rules list cannot be empty",
 		},
 		{
-			name: "Rule with Empty Name",
-			rules: []nfdv1.Rule{
-				{
-					Name: "",
-					Labels: map[string]string{
-						"feature.node.kubernetes.io/test": "true",
-					},
-				},
-			},
+			name:          "rule with empty name",
+			rules:         []nfdv1.Rule{{Labels: map[string]string{"test": "true"}}},
+			validBuilder:  true,
 			expectedError: ruleNameEmptyError,
+		},
+		{
+			name:         "invalid builder",
+			rules:        validRules,
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			builder := NewNodeFeatureRuleBuilder(
-				buildTestClientWithNFDRuleScheme(),
-				nodeFeatureRuleExampleName,
-				nodeFeatureRuleNamespace,
-			)
-			assert.NotNil(t, builder)
+			t.Parallel()
+
+			builder := buildValidNFDRuleTestBuilder(buildTestClientWithNFDRuleScheme())
+			if !testCase.validBuilder {
+				builder = buildInvalidNFDRuleTestBuilder(buildTestClientWithNFDRuleScheme())
+			}
 
 			builder = builder.WithRules(testCase.rules)
 
-			if testCase.expectedError != "" {
-				assert.Equal(t, testCase.expectedError, builder.errorMsg)
-			} else {
-				assert.Equal(t, "", builder.errorMsg)
-				assert.Len(t, builder.Definition.Spec.Rules, len(testCase.rules))
+			if !testCase.validBuilder {
+				require.Error(t, builder.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+				assert.Empty(t, builder.Definition.Spec.Rules)
+
+				return
 			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+				assert.Empty(t, builder.Definition.Spec.Rules)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.rules, builder.Definition.Spec.Rules)
 		})
 	}
 }
 
+type simplePCIRuleTestCase struct {
+	name         string
+	ruleName     string
+	labels       map[string]string
+	vendorIDs    []string
+	deviceIDs    []string
+	validBuilder bool
+	expectedErr  string
+}
+
 func TestNodeFeatureRuleBuilderWithSimplePCIRule(t *testing.T) {
-	testCases := []struct {
-		name          string
-		ruleName      string
-		labels        map[string]string
-		vendorIDs     []string
-		deviceIDs     []string
-		expectedError string
-	}{
+	t.Parallel()
+
+	testCases := []simplePCIRuleTestCase{
 		{
-			name:     "Valid Neuron-like Rule",
+			name:     "valid Neuron-like rule",
 			ruleName: "neuron-device",
 			labels: map[string]string{
 				"feature.node.kubernetes.io/aws-neuron": "true",
 			},
-			vendorIDs:     []string{"1d0f"},
-			deviceIDs:     []string{"7064", "7065", "7066", "7067"},
-			expectedError: "",
+			vendorIDs:    []string{"1d0f"},
+			deviceIDs:    []string{"7064", "7065", "7066", "7067"},
+			validBuilder: true,
 		},
 		{
-			name:     "Valid Rule without device IDs",
+			name:     "valid rule without device IDs",
 			ruleName: "vendor-only-rule",
 			labels: map[string]string{
 				"feature.node.kubernetes.io/vendor": "true",
 			},
-			vendorIDs:     []string{"1d0f"},
-			deviceIDs:     []string{},
-			expectedError: "",
+			vendorIDs:    []string{"1d0f"},
+			deviceIDs:    []string{},
+			validBuilder: true,
 		},
 		{
-			name:     "Empty Rule Name",
+			name:     "empty rule name",
 			ruleName: "",
 			labels: map[string]string{
 				"feature.node.kubernetes.io/test": "true",
 			},
-			vendorIDs:     []string{"1d0f"},
-			deviceIDs:     []string{"7064"},
-			expectedError: ruleNameEmptyError,
+			vendorIDs:    []string{"1d0f"},
+			deviceIDs:    []string{"7064"},
+			validBuilder: true,
+			expectedErr:  ruleNameEmptyError,
 		},
 		{
-			name:          "Empty Labels",
-			ruleName:      "test-rule",
-			labels:        map[string]string{},
-			vendorIDs:     []string{"1d0f"},
-			deviceIDs:     []string{"7064"},
-			expectedError: "rule 'labels' cannot be empty",
+			name:         "empty labels",
+			ruleName:     "test-rule",
+			labels:       map[string]string{},
+			vendorIDs:    []string{"1d0f"},
+			deviceIDs:    []string{"7064"},
+			validBuilder: true,
+			expectedErr:  "rule 'labels' cannot be empty",
 		},
 		{
-			name:     "Empty Vendor IDs",
+			name:     "empty vendor IDs",
 			ruleName: "test-rule",
 			labels: map[string]string{
 				"feature.node.kubernetes.io/test": "true",
 			},
-			vendorIDs:     []string{},
-			deviceIDs:     []string{"7064"},
-			expectedError: "vendorIDs cannot be empty",
+			vendorIDs:    []string{},
+			deviceIDs:    []string{"7064"},
+			validBuilder: true,
+			expectedErr:  "vendorIDs cannot be empty",
+		},
+		{
+			name:         "invalid builder",
+			ruleName:     "test-rule",
+			labels:       map[string]string{"test": "true"},
+			vendorIDs:    []string{"1d0f"},
+			deviceIDs:    []string{"7064"},
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			builder := NewNodeFeatureRuleBuilder(
-				buildTestClientWithNFDRuleScheme(),
-				nodeFeatureRuleExampleName,
-				nodeFeatureRuleNamespace,
-			)
-			assert.NotNil(t, builder)
-
-			builder = builder.WithSimplePCIRule(
-				testCase.ruleName,
-				testCase.labels,
-				testCase.vendorIDs,
-				testCase.deviceIDs,
-			)
-
-			if testCase.expectedError != "" {
-				assert.Equal(t, testCase.expectedError, builder.errorMsg)
-			} else {
-				assert.Equal(t, "", builder.errorMsg)
-				assert.Len(t, builder.Definition.Spec.Rules, 1)
-				assert.Equal(t, testCase.ruleName, builder.Definition.Spec.Rules[0].Name)
-				assert.Equal(t, testCase.labels, builder.Definition.Spec.Rules[0].Labels)
-			}
+			t.Parallel()
+			runSimplePCIRuleTestCase(t, testCase)
 		})
 	}
 }
 
-func TestNodeFeatureRuleBuilderCreate(t *testing.T) {
-	testCases := []struct {
-		name          string
-		builder       *NodeFeatureRuleBuilder
-		expectedError error
-	}{
-		{
-			name:          "Valid Create",
-			builder:       buildValidNFDRuleTestBuilder(buildTestClientWithDummyNFDRule()),
-			expectedError: nil,
-		},
-		{
-			name:          "Invalid Builder",
-			builder:       buildInvalidNFDRuleTestBuilder(buildTestClientWithDummyNFDRule()),
-			expectedError: fmt.Errorf("can not redefine the undefined nodeFeatureRule"),
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			builder, err := testCase.builder.Create()
-			assert.Equal(t, testCase.expectedError, err)
+func runSimplePCIRuleTestCase(t *testing.T, testCase simplePCIRuleTestCase) {
+	t.Helper()
 
-			if testCase.expectedError == nil {
-				assert.NotNil(t, builder.Object)
-				assert.Equal(t, builder.Definition.Name, builder.Object.Name)
-			}
-		})
-	}
-}
-
-func TestNodeFeatureRuleBuilderDelete(t *testing.T) {
-	testCases := []struct {
-		name          string
-		builder       *NodeFeatureRuleBuilder
-		expectedError error
-	}{
-		{
-			name:          "Delete Existing",
-			builder:       buildValidNFDRuleTestBuilder(buildTestClientWithDummyNFDRule()),
-			expectedError: nil,
-		},
-		{
-			name:          "Delete Non-Existing",
-			builder:       buildValidNFDRuleTestBuilder(buildTestClientWithNFDRuleScheme()),
-			expectedError: nil,
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			builder, err := testCase.builder.Delete()
-			assert.Equal(t, testCase.expectedError, err)
-			assert.Nil(t, builder.Object)
-		})
-	}
-}
-
-func TestNodeFeatureRuleBuilderUpdate(t *testing.T) {
-	testCases := []struct {
-		name          string
-		builder       *NodeFeatureRuleBuilder
-		force         bool
-		expectedError string
-	}{
-		{
-			name:          "Update Existing",
-			builder:       buildValidNFDRuleTestBuilder(buildTestClientWithDummyNFDRule()),
-			force:         false,
-			expectedError: "",
-		},
-		{
-			name:          "Update Non-Existing",
-			builder:       buildValidNFDRuleTestBuilder(buildTestClientWithNFDRuleScheme()),
-			force:         false,
-			expectedError: "cannot update non-existent NodeFeatureRule",
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			builder, err := testCase.builder.Update(testCase.force)
-
-			if testCase.expectedError != "" {
-				assert.NotNil(t, err)
-				assert.Equal(t, testCase.expectedError, err.Error())
-			} else {
-				assert.Nil(t, err)
-				assert.NotNil(t, builder.Object)
-			}
-		})
-	}
-}
-
-func TestNodeFeatureRuleBuilderExists(t *testing.T) {
-	testCases := []struct {
-		name           string
-		builder        *NodeFeatureRuleBuilder
-		expectedStatus bool
-	}{
-		{
-			name:           "Existing Object",
-			builder:        buildValidNFDRuleTestBuilder(buildTestClientWithDummyNFDRule()),
-			expectedStatus: true,
-		},
-		{
-			name:           "Non-Existent Object",
-			builder:        buildValidNFDRuleTestBuilder(buildTestClientWithNFDRuleScheme()),
-			expectedStatus: false,
-		},
+	builder := buildValidNFDRuleTestBuilder(buildTestClientWithNFDRuleScheme())
+	if !testCase.validBuilder {
+		builder = buildInvalidNFDRuleTestBuilder(buildTestClientWithNFDRuleScheme())
 	}
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			exists := testCase.builder.Exists()
-			assert.Equal(t, testCase.expectedStatus, exists)
-		})
-	}
-}
+	builder = builder.WithSimplePCIRule(
+		testCase.ruleName,
+		testCase.labels,
+		testCase.vendorIDs,
+		testCase.deviceIDs,
+	)
 
-func TestNodeFeatureRuleBuilderGet(t *testing.T) {
-	testCases := []struct {
-		name          string
-		builder       *NodeFeatureRuleBuilder
-		expectedError error
-	}{
-		{
-			name:          "Valid Get",
-			builder:       buildValidNFDRuleTestBuilder(buildTestClientWithDummyNFDRule()),
-			expectedError: nil,
-		},
-		{
-			name: "Invalid Get - Missing Object",
-			builder: buildValidNFDRuleTestBuilder(
-				buildTestClientWithNFDRuleScheme(),
-			),
-			expectedError: fmt.Errorf("nodefeaturerules.nfd.openshift.io \"%s\" not found", nodeFeatureRuleExampleName),
-		},
+	if !testCase.validBuilder {
+		require.Error(t, builder.GetError())
+		assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+		assert.Empty(t, builder.Definition.Spec.Rules)
+
+		return
 	}
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			obj, err := testCase.builder.Get()
-			if testCase.expectedError == nil {
-				assert.NotNil(t, obj)
-			} else {
-				assert.Equal(t, testCase.expectedError.Error(), err.Error())
-			}
+	if testCase.expectedErr != "" {
+		assert.EqualError(t, builder.GetError(), testCase.expectedErr)
+		assert.Empty(t, builder.Definition.Spec.Rules)
 
-			if testCase.expectedError == nil {
-				assert.NotNil(t, obj)
-				assert.Equal(t, testCase.builder.Definition.Name, obj.Name)
-			}
-		})
-	}
-}
-
-func TestPullNodeFeatureRule(t *testing.T) {
-	testCases := []struct {
-		name          string
-		ruleName      string
-		namespace     string
-		client        *clients.Settings
-		exists        bool
-		expectedError string
-	}{
-		{
-			name:          "Valid Pull",
-			ruleName:      nodeFeatureRuleExampleName,
-			namespace:     nodeFeatureRuleNamespace,
-			client:        buildTestClientWithDummyNFDRule(),
-			exists:        true,
-			expectedError: "",
-		},
-		{
-			name:          "Empty Name",
-			ruleName:      "",
-			namespace:     nodeFeatureRuleNamespace,
-			client:        buildTestClientWithNFDRuleScheme(),
-			exists:        false,
-			expectedError: errEmptyName,
-		},
-		{
-			name:          "Empty Namespace",
-			ruleName:      nodeFeatureRuleExampleName,
-			namespace:     "",
-			client:        buildTestClientWithNFDRuleScheme(),
-			exists:        false,
-			expectedError: errEmptyNamespace,
-		},
-		{
-			name:      "Non-Existent",
-			ruleName:  nodeFeatureRuleExampleName,
-			namespace: nodeFeatureRuleNamespace,
-			client:    buildTestClientWithNFDRuleScheme(),
-			exists:    false,
-			expectedError: fmt.Sprintf("nodeFeatureRule object %s does not exist in namespace %s",
-				nodeFeatureRuleExampleName, nodeFeatureRuleNamespace),
-		},
-		{
-			name:          "Nil Client",
-			ruleName:      nodeFeatureRuleExampleName,
-			namespace:     nodeFeatureRuleNamespace,
-			client:        nil,
-			exists:        false,
-			expectedError: "the apiClient of the NodeFeatureRule is nil",
-		},
+		return
 	}
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			builder, err := PullFeatureRule(testCase.client, testCase.ruleName, testCase.namespace)
+	require.NoError(t, builder.GetError())
+	require.Len(t, builder.Definition.Spec.Rules, 1)
 
-			if testCase.expectedError != "" {
-				assert.NotNil(t, err)
-				assert.Equal(t, testCase.expectedError, err.Error())
-				assert.Nil(t, builder)
-			} else {
-				assert.Nil(t, err)
-				assert.NotNil(t, builder)
-				assert.Equal(t, testCase.ruleName, builder.Definition.Name)
-			}
-		})
-	}
-}
+	rule := builder.Definition.Spec.Rules[0]
+	assert.Equal(t, testCase.ruleName, rule.Name)
+	assert.Equal(t, testCase.labels, rule.Labels)
+	require.Len(t, rule.MatchAny, 1)
+	require.Len(t, rule.MatchAny[0].MatchFeatures, 1)
+	assert.Equal(t, "pci.device", rule.MatchAny[0].MatchFeatures[0].Feature)
 
-// Helper Functions
+	require.NotNil(t, rule.MatchAny[0].MatchFeatures[0].MatchExpressions)
+	matchExpressions := *rule.MatchAny[0].MatchFeatures[0].MatchExpressions
+	assert.Equal(t, nfdv1.MatchIn, matchExpressions["vendor"].Op)
+	assert.Equal(t, testCase.vendorIDs, []string(matchExpressions["vendor"].Value))
 
-func buildTestClientWithDummyNFDRule() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyNFDRule(nodeFeatureRuleExampleName, nodeFeatureRuleNamespace),
-		},
-		SchemeAttachers: nfdRuleTestSchemes,
-	})
-}
-
-func buildDummyNFDRule(name, namespace string) *nfdv1.NodeFeatureRule {
-	return &nfdv1.NodeFeatureRule{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		Spec: nfdv1.NodeFeatureRuleSpec{},
+	if len(testCase.deviceIDs) == 0 {
+		assert.NotContains(t, matchExpressions, "device")
+	} else {
+		assert.Equal(t, nfdv1.MatchIn, matchExpressions["device"].Op)
+		assert.Equal(t, testCase.deviceIDs, []string(matchExpressions["device"].Value))
 	}
 }
 
 func buildValidNFDRuleTestBuilder(apiClient *clients.Settings) *NodeFeatureRuleBuilder {
-	return NewNodeFeatureRuleBuilderFromObjectString(apiClient, nodeFeatureRuleAlmExample)
+	return NewNodeFeatureRuleBuilder(apiClient, nodeFeatureRuleExampleName, nodeFeatureRuleNamespace)
 }
 
 func buildInvalidNFDRuleTestBuilder(apiClient *clients.Settings) *NodeFeatureRuleBuilder {
-	return NewNodeFeatureRuleBuilderFromObjectString(apiClient, "{invalid}")
+	return NewNodeFeatureRuleBuilder(apiClient, "", nodeFeatureRuleNamespace)
 }
 
 func buildTestClientWithNFDRuleScheme() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		SchemeAttachers: nfdRuleTestSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{nfdv1.AddToScheme},
 	})
 }

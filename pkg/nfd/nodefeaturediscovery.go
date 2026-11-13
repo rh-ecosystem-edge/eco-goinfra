@@ -1,53 +1,71 @@
 package nfd
 
 import (
+	"context"
 	"fmt"
 
 	nfdv1 "github.com/openshift/cluster-nfd-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/klog/v2"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var nodeFeatureDiscoveryGVK = nfdv1.GroupVersion.WithKind("NodeFeatureDiscovery")
 
 // Builder provides a struct for NodeFeatureDiscovery object
 // from the cluster and a NodeFeatureDiscovery definition.
 type Builder struct {
-	// Builder definition. Used to create
-	// Builder object with minimum set of required elements.
-	Definition *nfdv1.NodeFeatureDiscovery
-	// Created Builder object on the cluster.
-	Object *nfdv1.NodeFeatureDiscovery
-	// api client to interact with the cluster.
-	apiClient *clients.Settings
-	// errorMsg is processed before Builder object is created.
-	errorMsg string
+	common.EmbeddableBuilder[nfdv1.NodeFeatureDiscovery, *nfdv1.NodeFeatureDiscovery]
+	common.EmbeddableCreator[
+		nfdv1.NodeFeatureDiscovery, Builder, *nfdv1.NodeFeatureDiscovery, *Builder]
+	common.EmbeddableDeleteReturner[
+		nfdv1.NodeFeatureDiscovery, Builder, *nfdv1.NodeFeatureDiscovery, *Builder]
+	common.EmbeddableForceUpdater[
+		nfdv1.NodeFeatureDiscovery, Builder, *nfdv1.NodeFeatureDiscovery, *Builder]
 }
 
-// NewBuilderFromObjectString creates a Builder object from CSV alm-examples.
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleteReturner.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+}
+
+// GetGVK returns the NodeFeatureDiscovery GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return nodeFeatureDiscoveryGVK
+}
+
+// NewBuilderFromObjectString creates a Builder object from CSV alm-examples. Initialization errors are stored on the
+// builder so callers can still safely use its methods.
 func NewBuilderFromObjectString(apiClient *clients.Settings, almExample string) *Builder {
-	klog.V(100).Infof(
-		"Initializing new Builder structure from almExample string")
+	klog.V(100).Infof("Initializing new Builder structure from almExample string")
+
+	builder := &Builder{}
+	builder.AttachMixins()
+	builder.SetGVK(builder.GetGVK())
+	builder.SetClient(apiClient)
+	builder.SetDefinition(new(nfdv1.NodeFeatureDiscovery))
+
+	resourceKey := common.NewResourceKeyFromBuilder(builder)
 
 	if apiClient == nil {
-		klog.V(100).Info("The apiClient of the Policy is nil")
+		klog.V(100).Info("The apiClient of the NodeFeatureDiscovery is nil")
 
-		return nil
+		builder.SetError(commonerrors.NewAPIClientNil(resourceKey))
+
+		return builder
 	}
 
-	err := apiClient.AttachScheme(nfdv1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add nfd v1 scheme to client schemes")
+	if err := apiClient.AttachScheme(nfdv1.AddToScheme); err != nil {
+		klog.V(100).Infof("Failed to add nfd v1 scheme to client schemes: %v", err)
 
-		return nil
-	}
+		builder.SetError(commonerrors.NewSchemeAttacherFailed(resourceKey, err))
 
-	builder := &Builder{
-		apiClient: apiClient,
+		return builder
 	}
 
 	nodeFeatureDiscovery, err := getNodeFeatureDiscoveryFromAlmExample(almExample)
@@ -55,23 +73,19 @@ func NewBuilderFromObjectString(apiClient *clients.Settings, almExample string) 
 		klog.V(100).Infof(
 			"Error initializing NodeFeatureDiscovery from alm-examples: %s", err.Error())
 
-		builder.errorMsg = fmt.Sprintf("error initializing NodeFeatureDiscovery from alm-examples: %s",
-			err.Error())
+		builder.SetError(fmt.Errorf("error initializing NodeFeatureDiscovery from alm-examples: %w", err))
 
 		return builder
 	}
 
-	builder.Definition = nodeFeatureDiscovery
+	builder.SetDefinition(nodeFeatureDiscovery)
 
-	klog.V(100).Infof(
-		"Initializing Builder definition to NodeFeatureDiscovery object")
+	klog.V(100).Infof("Initializing Builder definition to NodeFeatureDiscovery object")
 
 	if builder.Definition == nil {
 		klog.V(100).Info("The NodeFeatureDiscovery object definition is nil")
 
-		builder.errorMsg = "nodeFeatureDiscovery definition is nil"
-
-		return builder
+		builder.SetError(fmt.Errorf("nodeFeatureDiscovery definition is nil"))
 	}
 
 	return builder
@@ -79,171 +93,8 @@ func NewBuilderFromObjectString(apiClient *clients.Settings, almExample string) 
 
 // Pull loads an existing NodeFeatureDiscovery into Builder struct.
 func Pull(apiClient *clients.Settings, name, namespace string) (*Builder, error) {
-	klog.V(100).Infof("Pulling existing nodeFeatureDiscovery name: %s in namespace: %s", name, namespace)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient of the Policy is nil")
-
-		return nil, fmt.Errorf("the apiClient of the Policy is nil")
-	}
-
-	err := apiClient.AttachScheme(nfdv1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add nfd v1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &Builder{
-		apiClient: apiClient,
-		Definition: &nfdv1.NodeFeatureDiscovery{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("NodeFeatureDiscovery name is empty")
-
-		return nil, fmt.Errorf("nodeFeatureDiscovery 'name' cannot be empty")
-	}
-
-	if namespace == "" {
-		klog.V(100).Info("NodeFeatureDiscovery namespace is empty")
-
-		return nil, fmt.Errorf("nodeFeatureDiscovery 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("nodeFeatureDiscovery object %s does not exist in namespace %s", name, namespace)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Get returns NodeFeatureDiscovery object if found.
-func (builder *Builder) Get() (*nfdv1.NodeFeatureDiscovery, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Collecting NodeFeatureDiscovery object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	nodeFeatureDiscovery := &nfdv1.NodeFeatureDiscovery{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name:      builder.Definition.Name,
-		Namespace: builder.Definition.Namespace,
-	}, nodeFeatureDiscovery)
-	if err != nil {
-		klog.V(100).Infof("NodeFeatureDiscovery object %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, err
-	}
-
-	return nodeFeatureDiscovery, nil
-}
-
-// Exists checks whether the given NodeFeatureDiscovery exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if NodeFeatureDiscovery %s exists in namespace %s", builder.Definition.Name,
-		builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-	if err != nil {
-		klog.V(100).Infof("Failed to collect NodeFeatureDiscovery object due to %s", err.Error())
-	}
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Delete removes a NodeFeatureDiscovery.
-func (builder *Builder) Delete() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Deleting NodeFeatureDiscovery %s in namespace %s", builder.Definition.Name,
-		builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("nodeFeatureDiscovery %s namespace %s cannot be deleted because it does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, fmt.Errorf("cannot delete NodeFeaturediscovery: %w", err)
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Create makes a NodeFeatureDiscovery in the cluster and stores the created object in struct.
-func (builder *Builder) Create() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the NodeFeatureDiscovery %s in namespace %s", builder.Definition.Name,
-		builder.Definition.Namespace)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err == nil {
-			builder.Object = builder.Definition
-		}
-	}
-
-	return builder, err
-}
-
-// Update renovates the existing NodeFeatureDiscovery object with the definition in builder.
-func (builder *Builder) Update(force bool) (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the NodeFeatureDiscovery object named: %s in namespace: %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		if force {
-			klog.V(100).Infof("%v", msg.FailToUpdateNotification("NodeFeatureDiscovery", builder.Definition.Name, builder.Definition.Namespace))
-
-			builder, err := builder.Delete()
-			if err != nil {
-				klog.V(100).Infof("%v", msg.FailToUpdateError("NodeFeatureDiscovery", builder.Definition.Name, builder.Definition.Namespace))
-
-				return nil, err
-			}
-
-			return builder.Create()
-		}
-	}
-
-	return builder, err
+	return common.PullNamespacedBuilder[nfdv1.NodeFeatureDiscovery, Builder](
+		context.TODO(), apiClient, nfdv1.AddToScheme, name, namespace)
 }
 
 // getNodeFeatureDiscoveryFromAlmExample extracts the NodeFeatureDiscovery from the alm-examples block.
@@ -264,30 +115,4 @@ func getNodeFeatureDiscoveryFromAlmExample(almExample string) (*nfdv1.NodeFeatur
 	}
 
 	return &nodeFeatureDiscoveryList.Items[0], nil
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "NodeFeatureDiscovery"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	return true, nil
 }
