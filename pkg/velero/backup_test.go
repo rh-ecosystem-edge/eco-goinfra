@@ -1,475 +1,253 @@
 package velero
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-
+	"github.com/stretchr/testify/require"
 	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 )
 
-var (
-	v1TestSchemes = []clients.SchemeAttacher{
-		velerov1.AddToScheme,
-	}
+const (
+	defaultBackupName      = "backup-test-name"
+	defaultBackupNamespace = "backup-test-namespace"
 )
 
-func TestNewBackupBuilder(t *testing.T) {
-	testcases := []struct {
-		name           string
-		namespace      string
-		targetService  string
-		expectedErrMsg string
-	}{
-		{
-			name:           "backup-test-name-1",
-			namespace:      "backup-test-namespace-1",
-			expectedErrMsg: "",
-		},
-		{
-			name:           "",
-			namespace:      "backup-test-namespace-2",
-			expectedErrMsg: "backup name cannot be an empty string",
-		},
-		{
-			name:           "backup-test-name-3",
-			namespace:      "",
-			expectedErrMsg: errEmptyNamespace,
-		},
-	}
+var v1TestSchemes = []clients.SchemeAttacher{
+	velerov1.AddToScheme,
+}
 
-	for _, test := range testcases {
-		testBuilder := NewBackupBuilder(clients.GetTestClients(clients.TestClientParams{}), test.name, test.namespace)
-		assert.Equal(t, test.expectedErrMsg, testBuilder.errorMsg)
-	}
+func TestNewBackupBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedBuilderTestConfig(NewBackupBuilder, velerov1.AddToScheme, backupGVK).ExecuteTests(t)
 }
 
 func TestPullBackup(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig(PullBackup, velerov1.AddToScheme, backupGVK).ExecuteTests(t)
+}
+
+func TestBackupBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[velerov1.Backup, BackupBuilder](
+		velerov1.AddToScheme,
+		backupGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
+}
+
+func TestWithStorageLocation(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		name                string
-		namespace           string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
+		name          string
+		location      string
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			name:                "backup-test-1",
-			namespace:           "backup-test-namespace-1",
-			expectedError:       false,
-			addToRuntimeObjects: true,
+			name:         "storage location set",
+			location:     "default",
+			validBuilder: true,
 		},
 		{
-			name:                "backup-test-2",
-			namespace:           "backup-test-namespace-2",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "backup object backup-test-2 does not exist in namespace backup-test-namespace-2",
+			name:          "empty storage location",
+			location:      "",
+			validBuilder:  true,
+			expectedError: "backup storage location cannot be an empty string",
 		},
 		{
-			name:                "",
-			namespace:           "backup-test-namespace-3",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "backup name cannot be empty",
-		},
-		{
-			name:                "backup-test-4",
-			namespace:           "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "backup namespace cannot be empty",
+			name:         "invalid builder",
+			location:     "default",
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		var testSettings *clients.Settings
+			testBuilder := buildBackupTestBuilder(testCase.validBuilder)
+			initialError := testBuilder.GetError()
+			result := testBuilder.WithStorageLocation(testCase.location)
 
-		testBackup := buildDummyBackup(testCase.name, testCase.namespace)
+			require.Same(t, testBuilder, result)
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testBackup)
-		}
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.Equal(t, initialError, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(result.GetError()))
+				assert.Empty(t, result.Definition.Labels["velero.io/storage-location"])
 
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: v1TestSchemes,
-		})
-
-		// Test the Pull method
-		builderResult, err := PullBackup(testSettings, testCase.name, testCase.namespace)
-		// Check the error
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			// Check the error message
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
+				return
 			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.name, builderResult.Object.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Object.Namespace)
-		}
-	}
-}
 
-func TestWithStorageLocation(t *testing.T) {
-	testCases := []struct {
-		location         string
-		expectedErrorMsg string
-	}{
-		{
-			location:         "default",
-			expectedErrorMsg: "",
-		},
-		{
-			location:         "",
-			expectedErrorMsg: "backup storage location cannot be an empty string",
-		},
-	}
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Nil(t, result.Definition.Labels)
 
-	for _, test := range testCases {
-		testBuilder := buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
+				return
+			}
 
-		testBuilder.WithStorageLocation(test.location)
-
-		assert.Equal(t, test.expectedErrorMsg, testBuilder.errorMsg)
+			assert.NoError(t, result.GetError())
+			assert.Equal(t, testCase.location, result.Definition.Labels["velero.io/storage-location"])
+		})
 	}
 }
 
 func TestWithIncludedNamespace(t *testing.T) {
-	testCases := []struct {
-		namespaces       []string
-		expectedErrorMsg string
-	}{
-		{
-			namespaces:       []string{"includeme", "includeme2"},
-			expectedErrorMsg: "",
+	t.Parallel()
+
+	testBackupStringSliceModifier(t,
+		func(builder *BackupBuilder, value string) *BackupBuilder {
+			return builder.WithIncludedNamespace(value)
 		},
-		{
-			namespaces:       []string{"includeme", ""},
-			expectedErrorMsg: "backup includedNamespace cannot be an empty string",
+		func(builder *BackupBuilder) []string {
+			return builder.Definition.Spec.IncludedNamespaces
 		},
-	}
-
-	for _, test := range testCases {
-		testBuilder := buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		for _, namespace := range test.namespaces {
-			testBuilder.WithIncludedNamespace(namespace)
-		}
-
-		assert.Equal(t, test.expectedErrorMsg, testBuilder.errorMsg)
-
-		if test.expectedErrorMsg == "" {
-			assert.Len(t, testBuilder.Definition.Spec.IncludedNamespaces, len(test.namespaces))
-		}
-	}
+		"backup includedNamespace cannot be an empty string",
+	)
 }
 
 func TestWithIncludedClusterScopedResource(t *testing.T) {
-	testCases := []struct {
-		clusterScopedResources []string
-		expectedErrorMsg       string
-	}{
-		{
-			clusterScopedResources: []string{"clusterroles", "clusterrolebindings"},
-			expectedErrorMsg:       "",
+	t.Parallel()
+
+	testBackupStringSliceModifier(t,
+		func(builder *BackupBuilder, value string) *BackupBuilder {
+			return builder.WithIncludedClusterScopedResource(value)
 		},
-		{
-			clusterScopedResources: []string{"clusterroles", ""},
-			expectedErrorMsg:       "backup includedClusterScopedResource cannot be an empty string",
+		func(builder *BackupBuilder) []string {
+			return builder.Definition.Spec.IncludedClusterScopedResources
 		},
-	}
-
-	for _, test := range testCases {
-		testBuilder := buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		for _, clusterScopedResources := range test.clusterScopedResources {
-			testBuilder.WithIncludedClusterScopedResource(clusterScopedResources)
-		}
-
-		assert.Equal(t, test.expectedErrorMsg, testBuilder.errorMsg)
-
-		if test.expectedErrorMsg == "" {
-			assert.Len(t, testBuilder.Definition.Spec.IncludedClusterScopedResources, len(test.clusterScopedResources))
-		}
-	}
+		"backup includedClusterScopedResource cannot be an empty string",
+	)
 }
 
 func TestWithIncludedNamespaceScopedResource(t *testing.T) {
-	testCases := []struct {
-		namespaceResources []string
-		expectedErrorMsg   string
-	}{
-		{
-			namespaceResources: []string{"deployments", "services", "secrets"},
-			expectedErrorMsg:   "",
+	t.Parallel()
+
+	testBackupStringSliceModifier(t,
+		func(builder *BackupBuilder, value string) *BackupBuilder {
+			return builder.WithIncludedNamespaceScopedResource(value)
 		},
-		{
-			namespaceResources: []string{"configmaps", ""},
-			expectedErrorMsg:   "backup includedNamespaceScopedResource cannot be an empty string",
+		func(builder *BackupBuilder) []string {
+			return builder.Definition.Spec.IncludedNamespaceScopedResources
 		},
-	}
-
-	for _, test := range testCases {
-		testBuilder := buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		for _, namespace := range test.namespaceResources {
-			testBuilder.WithIncludedNamespaceScopedResource(namespace)
-		}
-
-		assert.Equal(t, test.expectedErrorMsg, testBuilder.errorMsg)
-
-		if test.expectedErrorMsg == "" {
-			assert.Len(t, testBuilder.Definition.Spec.IncludedNamespaceScopedResources, len(test.namespaceResources))
-		}
-	}
+		"backup includedNamespaceScopedResource cannot be an empty string",
+	)
 }
 
-func TestWithExcludedClusterScopedResources(t *testing.T) {
-	testCases := []struct {
-		clusterScopedResources []string
-		expectedErrorMsg       string
-	}{
-		{
-			clusterScopedResources: []string{"clusterroles", "clusterrolebindings"},
-			expectedErrorMsg:       "",
+func TestWithExcludedClusterScopedResource(t *testing.T) {
+	t.Parallel()
+
+	testBackupStringSliceModifier(t,
+		func(builder *BackupBuilder, value string) *BackupBuilder {
+			return builder.WithExcludedClusterScopedResource(value)
 		},
-		{
-			clusterScopedResources: []string{"", "clusterrolebindings"},
-			expectedErrorMsg:       "backup excludedClusterScopedResource cannot be an empty string",
+		func(builder *BackupBuilder) []string {
+			return builder.Definition.Spec.ExcludedClusterScopedResources
 		},
-	}
-
-	for _, test := range testCases {
-		testBuilder := buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		for _, clusterScopedResources := range test.clusterScopedResources {
-			testBuilder.WithExcludedClusterScopedResource(clusterScopedResources)
-		}
-
-		assert.Equal(t, test.expectedErrorMsg, testBuilder.errorMsg)
-
-		if test.expectedErrorMsg == "" {
-			assert.Len(t, testBuilder.Definition.Spec.ExcludedClusterScopedResources, len(test.clusterScopedResources))
-		}
-	}
+		"backup excludedClusterScopedResource cannot be an empty string",
+	)
 }
 
 func TestWithExcludedNamespaceScopedResources(t *testing.T) {
-	testCases := []struct {
-		namespaceResources []string
-		expectedErrorMsg   string
-	}{
-		{
-			namespaceResources: []string{"deployments", "services", "secrets"},
-			expectedErrorMsg:   "",
+	t.Parallel()
+
+	testBackupStringSliceModifier(t,
+		func(builder *BackupBuilder, value string) *BackupBuilder {
+			return builder.WithExcludedNamespaceScopedResources(value)
 		},
-		{
-			namespaceResources: []string{"", "configmaps"},
-			expectedErrorMsg:   "backup excludedNamespaceScopedResource cannot be an empty string",
+		func(builder *BackupBuilder) []string {
+			return builder.Definition.Spec.ExcludedNamespaceScopedResources
 		},
-	}
-
-	for _, test := range testCases {
-		testBuilder := buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		for _, namespaceResources := range test.namespaceResources {
-			testBuilder.WithExcludedNamespaceScopedResources(namespaceResources)
-		}
-
-		assert.Equal(t, test.expectedErrorMsg, testBuilder.errorMsg)
-
-		if test.expectedErrorMsg == "" {
-			assert.Len(t, testBuilder.Definition.Spec.ExcludedNamespaceScopedResources, len(test.namespaceResources))
-		}
-	}
+		"backup excludedNamespaceScopedResource cannot be an empty string",
+	)
 }
 
-func TestBackupGet(t *testing.T) {
+func testBackupStringSliceModifier(
+	t *testing.T,
+	modifier func(*BackupBuilder, string) *BackupBuilder,
+	values func(*BackupBuilder) []string,
+	expectedValidationError string,
+) {
+	t.Helper()
+
 	testCases := []struct {
-		testBuilder   *BackupBuilder
+		name          string
+		value         string
+		validBuilder  bool
 		expectedError string
 	}{
 		{
-			testBuilder:   buildValidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: "",
+			name:         "value appended",
+			value:        "test-value",
+			validBuilder: true,
 		},
 		{
-			testBuilder:   buildInvalidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: errEmptyNamespace,
+			name:          "empty value",
+			value:         "",
+			validBuilder:  true,
+			expectedError: expectedValidationError,
 		},
 		{
-			testBuilder:   buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "backups.velero.io \"backup-test-name\" not found",
+			name:         "invalid builder",
+			value:        "test-value",
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		backup, err := testCase.testBuilder.Get()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.testBuilder.Definition.Name, backup.Name)
-			assert.Equal(t, testCase.testBuilder.Definition.Namespace, backup.Namespace)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
+			testBuilder := buildBackupTestBuilder(testCase.validBuilder)
+			initialError := testBuilder.GetError()
+			result := modifier(testBuilder, testCase.value)
+
+			require.Same(t, testBuilder, result)
+
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.Equal(t, initialError, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(result.GetError()))
+				assert.Empty(t, values(result))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Empty(t, values(result))
+
+				return
+			}
+
+			assert.NoError(t, result.GetError())
+			assert.Equal(t, []string{testCase.value}, values(result))
+		})
 	}
 }
 
-func TestBackupExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *BackupBuilder
-		exists      bool
-	}{
-		{
-			testBuilder: buildValidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			exists:      true,
-		},
-		{
-			testBuilder: buildInvalidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			exists:      false,
-		},
-		{
-			testBuilder: buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
-		},
+func buildBackupTestBuilder(valid bool) *BackupBuilder {
+	apiClient := clients.GetTestClients(clients.TestClientParams{})
+	if valid {
+		return NewBackupBuilder(apiClient, defaultBackupName, defaultBackupNamespace)
 	}
 
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
-}
-
-func TestBackupCreate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *BackupBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: fmt.Errorf(errEmptyNamespace),
-		},
-		{
-			testBuilder:   buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder, err := testCase.testBuilder.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.testBuilder.Definition.Name, testBuilder.Object.Name)
-			assert.Equal(t, testCase.testBuilder.Definition.Namespace, testBuilder.Object.Namespace)
-		}
-	}
-}
-
-func TestBackupUpdate(t *testing.T) {
-	testcases := []struct {
-		testBuilder   *BackupBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: fmt.Errorf(errEmptyNamespace),
-		},
-		{
-			testBuilder:   buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("cannot update non-existent backup"),
-		},
-	}
-
-	for _, testCase := range testcases {
-		assert.Empty(t, testCase.testBuilder.Definition.Spec.IncludedNamespaces)
-
-		testCase.testBuilder.Definition.Spec.IncludedNamespaces = []string{"test-namespace"}
-
-		testBuilder, err := testCase.testBuilder.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, []string{"test-namespace"}, testBuilder.Object.Spec.IncludedNamespaces)
-		}
-	}
-}
-
-func TestBackupDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *BackupBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInvalidBackupTestBuilder(buildTestClientWithDummyBackup()),
-			expectedError: fmt.Errorf(errEmptyNamespace),
-		},
-		{
-			testBuilder:   buildValidBackupTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder, err := testCase.testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testBuilder.Object)
-		}
-	}
-}
-
-// buildDummyBackup returns a dummy Backup object with the given name and namespace.
-func buildDummyBackup(name, nsname string) *velerov1.Backup {
-	return &velerov1.Backup{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nsname,
-		},
-	}
-}
-
-// buildTestClientWithDummyBackup returns a test client with a dummy Backup object using the name backup-test-name and
-// namespace backup-test-namespace.
-func buildTestClientWithDummyBackup() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyBackup("backup-test-name", "backup-test-namespace"),
-		},
-		SchemeAttachers: v1TestSchemes,
-	})
-}
-
-// buildValidBackupTestBuilder returns a valid Builder for testing purposes.
-func buildValidBackupTestBuilder(apiClient *clients.Settings) *BackupBuilder {
-	return NewBackupBuilder(apiClient, "backup-test-name", "backup-test-namespace")
-}
-
-// buildInvalidBackupTestBuilder returns an invalid Builder for testing purposes.
-func buildInvalidBackupTestBuilder(apiClient *clients.Settings) *BackupBuilder {
-	return NewBackupBuilder(apiClient, "backup-test-name", "")
+	return NewBackupBuilder(apiClient, defaultBackupName, "")
 }
