@@ -1,16 +1,14 @@
 package icsp
 
 import (
+	"context"
 	"fmt"
 
 	v1alpha1 "github.com/openshift/api/operator/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
-	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -18,20 +16,36 @@ const (
 	errEmptyMirrors = "imageContentSourcePolicy 'mirrors' cannot be empty"
 )
 
+var icspGVK = v1alpha1.GroupVersion.WithKind("ImageContentSourcePolicy")
+
 // ICSPBuilder provides struct for the ImageContentSourcePolicy object with connection to the cluster.
 type ICSPBuilder struct {
-	// ImageContentSourcePolicy definition. Used to create ImageContentSourcePolicy object.
-	Definition *v1alpha1.ImageContentSourcePolicy
-	// Created ImageContentSourcePolicy object.
-	Object *v1alpha1.ImageContentSourcePolicy
-	// Used in functions that defines or mutates ImageContentSourcePolicy definition.
-	// errorMsg is processed before the ImageContentSourcePolicy object is created.
-	apiClient runtimeclient.Client
-	errorMsg  string
+	common.EmbeddableBuilder[v1alpha1.ImageContentSourcePolicy, *v1alpha1.ImageContentSourcePolicy]
+	common.EmbeddableCreator[
+		v1alpha1.ImageContentSourcePolicy, ICSPBuilder, *v1alpha1.ImageContentSourcePolicy, *ICSPBuilder]
+	common.EmbeddableDeleter[v1alpha1.ImageContentSourcePolicy, *v1alpha1.ImageContentSourcePolicy]
+	common.EmbeddableUpdater[
+		v1alpha1.ImageContentSourcePolicy, ICSPBuilder, *v1alpha1.ImageContentSourcePolicy, *ICSPBuilder]
+	common.EmbeddableWithOptions[
+		v1alpha1.ImageContentSourcePolicy, ICSPBuilder, *v1alpha1.ImageContentSourcePolicy, *ICSPBuilder,
+		AdditionalOptions]
 }
 
 // AdditionalOptions additional options for ImageContentSourcePolicy object.
 type AdditionalOptions func(builder *ICSPBuilder) (*ICSPBuilder, error)
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *ICSPBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableUpdater.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the ImageContentSourcePolicy GVK for this builder.
+func (builder *ICSPBuilder) GetGVK() schema.GroupVersionKind {
+	return icspGVK
+}
 
 // NewICSPBuilder creates a new instance of ICSPBuilder.
 func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []string) *ICSPBuilder {
@@ -40,216 +54,45 @@ func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []
 			"name: %s, source: %s, mirrors: %v",
 		name, source, mirrors)
 
-	if apiClient == nil {
-		klog.V(100).Info("ImageContentSourcePolicy apiClient cannot be nil")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(v1alpha1.Install)
-	if err != nil {
-		klog.V(100).Info("Failed to add operator v1alpha1 scheme to client schemes")
-
-		return nil
-	}
-
-	icspBuilder := &ICSPBuilder{
-		apiClient: apiClient.Client,
-		Definition: &v1alpha1.ImageContentSourcePolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-			Spec: v1alpha1.ImageContentSourcePolicySpec{
-				RepositoryDigestMirrors: []v1alpha1.RepositoryDigestMirrors{
-					{
-						Source:  source,
-						Mirrors: mirrors,
-					},
-				},
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the ImageContentSourcePolicy is empty")
-
-		icspBuilder.errorMsg = "imageContentSourcePolicy 'name' cannot be empty"
-
-		return icspBuilder
+	builder := common.NewClusterScopedBuilder[v1alpha1.ImageContentSourcePolicy, ICSPBuilder](
+		apiClient, v1alpha1.Install, name)
+	if builder.GetError() != nil {
+		return builder
 	}
 
 	if source == "" {
 		klog.V(100).Info("The Source of the ImageContentSourcePolicy is empty")
 
-		icspBuilder.errorMsg = errEmptySource
+		builder.SetError(fmt.Errorf(errEmptySource))
 
-		return icspBuilder
+		return builder
 	}
 
 	if len(mirrors) == 0 {
 		klog.V(100).Info("The mirrors of the ImageContentSourcePolicy are empty")
 
-		icspBuilder.errorMsg = errEmptyMirrors
+		builder.SetError(fmt.Errorf(errEmptyMirrors))
 
-		return icspBuilder
+		return builder
 	}
 
-	return icspBuilder
+	builder.Definition.Spec.RepositoryDigestMirrors = []v1alpha1.RepositoryDigestMirrors{{
+		Source:  source,
+		Mirrors: mirrors,
+	}}
+
+	return builder
 }
 
 // Pull pulls object definition from cluster to ICSPBuilder struct.
 func Pull(apiClient *clients.Settings, name string) (*ICSPBuilder, error) {
-	klog.V(100).Infof("Pulling existing ImageContentSourcePolicy: %s", name)
-
-	if apiClient == nil {
-		klog.V(100).Info("ImageContentSourcePolicy apiClient cannot be nil")
-
-		return nil, fmt.Errorf("imageContentSourcePolicy 'apiClient' cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(v1alpha1.Install)
-	if err != nil {
-		klog.V(100).Info("Failed to add operator v1alpha1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := ICSPBuilder{
-		apiClient: apiClient.Client,
-		Definition: &v1alpha1.ImageContentSourcePolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the ImageContentSourcePolicy is empty")
-
-		return nil, fmt.Errorf("imageContentSourcePolicy 'name' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("imageContentSourcePolicy object %s does not exist", name)
-	}
-
-	builder.Definition = builder.Object
-
-	return &builder, nil
-}
-
-// Get returns the ImageContentSourcePolicy if found.
-func (builder *ICSPBuilder) Get() (*v1alpha1.ImageContentSourcePolicy, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting ImageContentSourcePolicy object %s", builder.Definition.Name)
-
-	icsp := &v1alpha1.ImageContentSourcePolicy{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), runtimeclient.ObjectKey{Name: builder.Definition.Name}, icsp)
-	if err != nil {
-		klog.V(100).Infof("ImageContentSourcePolicy object %s does not exist", builder.Definition.Name)
-
-		return nil, err
-	}
-
-	return icsp, nil
-}
-
-// Exists check if object exists in the cluster.
-func (builder *ICSPBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if ImageContentSourcePolicy %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Create makes a ImageContentSourcePolicy in the cluster and stores the created object in struct.
-func (builder *ICSPBuilder) Create() (*ICSPBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating ImageContentSourcePolicy %s", builder.Definition.Name)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err == nil {
-			builder.Object = builder.Definition
-		}
-	}
-
-	return builder, err
-}
-
-// Delete removes an ImageContentSourcePolicy.
-func (builder *ICSPBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting ImageContentSourcePolicy %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("ImageContentSourcePolicy %s cannot be deleted because it does not exist", builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Object)
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
-// Update renovates the existing ImageContentSourcePolicy object with the definition in ICSPbuilder.
-func (builder *ICSPBuilder) Update() (*ICSPBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof(
-		"Updating the ImageContentSourcePolicy %s with the definition in the ICSPbuilder", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("ImageContentSourcePolicy %s does not exist", builder.Definition.Name)
-
-		return nil, fmt.Errorf("cannot update non-existent ImageContentSourcePolicy")
-	}
-
-	builder.Definition.ResourceVersion = builder.Object.ResourceVersion
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		klog.V(100).Infof("Failed to update ImageContentSourcePolicy %s", builder.Definition.Name)
-
-		return nil, err
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
+	return common.PullClusterScopedBuilder[v1alpha1.ImageContentSourcePolicy, ICSPBuilder](
+		context.TODO(), apiClient, v1alpha1.Install, name)
 }
 
 // WithRepositoryDigestMirror adds new RepositoryDigestMirror.
 func (builder *ICSPBuilder) WithRepositoryDigestMirror(source string, mirrors []string) *ICSPBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -260,7 +103,7 @@ func (builder *ICSPBuilder) WithRepositoryDigestMirror(source string, mirrors []
 	if source == "" {
 		klog.V(100).Info("The source is empty")
 
-		builder.errorMsg = errEmptySource
+		builder.SetError(fmt.Errorf(errEmptySource))
 
 		return builder
 	}
@@ -268,7 +111,7 @@ func (builder *ICSPBuilder) WithRepositoryDigestMirror(source string, mirrors []
 	if len(mirrors) == 0 {
 		klog.V(100).Info("Mirrors is empty")
 
-		builder.errorMsg = errEmptyMirrors
+		builder.SetError(fmt.Errorf(errEmptyMirrors))
 
 		return builder
 	}
@@ -277,60 +120,4 @@ func (builder *ICSPBuilder) WithRepositoryDigestMirror(source string, mirrors []
 		builder.Definition.Spec.RepositoryDigestMirrors, v1alpha1.RepositoryDigestMirrors{Source: source, Mirrors: mirrors})
 
 	return builder
-}
-
-// WithOptions creates ImageContentPolicy with generic mutation options.
-func (builder *ICSPBuilder) WithOptions(options ...AdditionalOptions) *ICSPBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting ImageContentPolicy additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *ICSPBuilder) validate() (bool, error) {
-	resourceCRD := "ImageContentSourcePolicy"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
