@@ -1,63 +1,37 @@
 package ptp
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/stretchr/testify/assert"
+	ptpv1 "github.com/k8snetworkplumbingwg/ptp-operator/api/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/labels"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+func TestListPtpConfigsOptions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects more than one list option", func(t *testing.T) {
+		t.Parallel()
+
+		builders, err := ListPtpConfigs(
+			buildTestClientWithDummyPtpConfig(),
+			runtimeclient.ListOptions{LabelSelector: labels.NewSelector()},
+			runtimeclient.ListOptions{LabelSelector: labels.NewSelector()},
+		)
+		require.EqualError(t, err, "error: more than one ListOptions was passed")
+		require.Nil(t, builders)
+	})
+}
+
 func TestListPtpConfigs(t *testing.T) {
-	testCases := []struct {
-		ptpConfigs    []*PtpConfigBuilder
-		listOptions   []runtimeclient.ListOptions
-		client        bool
-		expectedError error
-	}{
-		{
-			ptpConfigs:    []*PtpConfigBuilder{buildValidPtpConfigBuilder(buildTestClientWithDummyPtpConfig())},
-			listOptions:   nil,
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			ptpConfigs:    []*PtpConfigBuilder{buildValidPtpConfigBuilder(buildTestClientWithDummyPtpConfig())},
-			listOptions:   []runtimeclient.ListOptions{{LabelSelector: labels.NewSelector()}},
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			ptpConfigs: []*PtpConfigBuilder{buildValidPtpConfigBuilder(buildTestClientWithDummyPtpConfig())},
-			listOptions: []runtimeclient.ListOptions{
-				{LabelSelector: labels.NewSelector()},
-				{LabelSelector: labels.NewSelector()},
-			},
-			client:        true,
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-		},
-		{
-			ptpConfigs:    []*PtpConfigBuilder{buildValidPtpConfigBuilder(buildTestClientWithDummyPtpConfig())},
-			listOptions:   nil,
-			client:        false,
-			expectedError: fmt.Errorf("failed to list PtpConfigs, 'apiClient' parameter is nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = buildTestClientWithDummyPtpConfig()
-		}
-
-		builders, err := ListPtpConfigs(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, len(testCase.ptpConfigs), len(builders))
-		}
-	}
+	testhelper.NewListTestConfig(
+		ListPtpConfigs,
+		ptpv1.AddToScheme,
+		ptpConfigGVK,
+	).ExecuteTests(t)
 }
