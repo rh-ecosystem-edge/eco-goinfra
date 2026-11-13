@@ -1,281 +1,180 @@
 package nodesconfig
 
 import (
-	"fmt"
 	"testing"
-
-	"k8s.io/klog/v2"
 
 	configV1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 var (
-	nodesConfigGVK = schema.GroupVersionKind{
-		Group:   APIGroup,
-		Version: APIVersion,
-		Kind:    APIKind,
-	}
+	nodesConfigGVK         = configV1.GroupVersion.WithKind(APIKind)
 	defaultNodesConfigName = "cluster"
-	defaultCGroupMode      = configV1.CgroupModeEmpty
 )
 
-func TestNodeConfigPull(t *testing.T) {
-	generateNodeConfig := func(name string) *configV1.Node {
-		return &configV1.Node{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
+func TestNodesConfigPull(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewClusterScopedPullTestConfig(
+		Pull,
+		configV1.Install,
+		nodesConfigGVK,
+	).ExecuteTests(t)
+}
+
+func TestNodesConfigBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := newNodesConfigCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
+}
+
+func TestNodesConfigGetCGroupMode(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		builder      *Builder
+		expectedMode configV1.CgroupMode
+		assertError  func(error) bool
+	}{
+		{
+			name:         "returns configured cgroup mode",
+			builder:      buildValidNodeConfigBuilder(buildNodeConfigClientWithDummyObject(configV1.CgroupModeV2)),
+			expectedMode: configV1.CgroupModeV2,
+			assertError:  func(err error) bool { return err == nil },
+		},
+		{
+			name:    "missing resource returns error",
+			builder: buildValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "nodesConfig object does not exist"
 			},
-			Spec: configV1.NodeSpec{
-				CgroupMode: defaultCGroupMode,
-			},
-		}
-	}
-
-	testCases := []struct {
-		name                string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "test",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
 		},
 		{
-			name:                "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("nodesConfig 'nodesConfigObjName' cannot be empty"),
-			client:              true,
+			name:        "nil builder returns error",
+			assertError: commonerrors.IsBuilderNil,
 		},
 		{
-			name:                "argocdtest",
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("nodesConfig object argocdtest does not exist"),
-			client:              true,
-		},
-		{
-			name:                "argocdtest",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("nodesConfig Config 'apiClient' cannot be empty"),
-			client:              false,
+			name: "invalid builder returns error",
+			builder: common.NewClusterScopedBuilder[configV1.Node, Builder](
+				clients.GetTestClients(clients.TestClientParams{}), configV1.Install, ""),
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		var testSettings *clients.Settings
+			cgroupMode, err := testCase.builder.GetCGroupMode()
+			require.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
 
-		testNodeConfig := generateNodeConfig(testCase.name)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testNodeConfig)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
-
-		builderResult, err := Pull(testSettings, testCase.name)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError, err)
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testNodeConfig.Name, builderResult.Object.Name)
-		}
+			if err == nil {
+				assert.Equal(t, testCase.expectedMode, cgroupMode)
+			}
+		})
 	}
 }
 
-func TestNodeConfigExist(t *testing.T) {
+func TestNodesConfigWithCGroupMode(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNodesConfig *Builder
-		expectedStatus  bool
+		name           string
+		cgroupMode     configV1.CgroupMode
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			testNodesConfig: buildValidNodeConfigBuilder(buildNodeConfigClientWithDummyObject()),
-			expectedStatus:  true,
+			name:       "sets cgroup mode",
+			cgroupMode: configV1.CgroupModeV2,
 		},
 		{
-			testNodesConfig: buildInValidNodeConfigBuilder(buildNodeConfigClientWithDummyObject()),
-			expectedStatus:  false,
+			name:          "empty cgroup mode sets builder error",
+			cgroupMode:    configV1.CgroupModeEmpty,
+			expectedError: "the cGroupMode value can not be empty",
 		},
 		{
-			testNodesConfig: buildInValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:  false,
+			name:           "invalid builder short circuits",
+			cgroupMode:     configV1.CgroupModeV2,
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		exist := testCase.testNodesConfig.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestNodesConfigGet(t *testing.T) {
-	testCases := []struct {
-		testNodesConfig *Builder
-		expectedError   error
-	}{
-		{
-			testNodesConfig: buildValidNodeConfigBuilder(buildNodeConfigClientWithDummyObject()),
-			expectedError:   nil,
-		},
-		{
-			testNodesConfig: buildInValidNodeConfigBuilder(buildNodeConfigClientWithDummyObject()),
-			expectedError:   fmt.Errorf("the nodesConfig 'name' cannot be empty"),
-		},
-		{
-			testNodesConfig: buildInValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:   fmt.Errorf("the nodesConfig 'name' cannot be empty"),
-		},
-	}
+			testBuilder := buildValidNodeConfigBuilder(clients.GetTestClients(clients.TestClientParams{}))
+			if testCase.invalidBuilder {
+				testBuilder = common.NewClusterScopedBuilder[configV1.Node, Builder](
+					clients.GetTestClients(clients.TestClientParams{}), configV1.Install, "")
+			}
 
-	for _, testCase := range testCases {
-		nodesConfigObj, err := testCase.testNodesConfig.Get()
-		assert.Equal(t, testCase.expectedError, err)
+			result := testBuilder.WithCGroupMode(testCase.cgroupMode)
+			require.Same(t, testBuilder, result)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, nodesConfigObj, testCase.testNodesConfig.Definition)
-		}
-	}
-}
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
 
-func TestNodesConfigUpdate(t *testing.T) {
-	testCases := []struct {
-		testNodesConfig *Builder
-		expectedError   error
-		cGroupMode      configV1.CgroupMode
-	}{
-		{
-			testNodesConfig: buildValidNodeConfigBuilder(buildNodeConfigClientWithDummyObject()),
-			expectedError:   nil,
-			cGroupMode:      configV1.CgroupModeV2,
-		},
-		{
-			testNodesConfig: buildInValidNodeConfigBuilder(buildNodeConfigClientWithDummyObject()),
-			expectedError:   fmt.Errorf("the nodesConfig 'name' cannot be empty"),
-			cGroupMode:      configV1.CgroupModeV2,
-		},
-	}
+				return
+			}
 
-	for _, testCase := range testCases {
-		assert.Equal(t, defaultCGroupMode, testCase.testNodesConfig.Definition.Spec.CgroupMode)
-		assert.Nil(t, nil, testCase.testNodesConfig.Object)
-		testCase.testNodesConfig.WithCGroupMode(testCase.cGroupMode)
-		_, err := testCase.testNodesConfig.Update()
-		assert.Equal(t, testCase.expectedError, err)
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.cGroupMode, testCase.testNodesConfig.Definition.Spec.CgroupMode)
-		}
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.cgroupMode, result.Definition.Spec.CgroupMode)
+		})
 	}
 }
 
 func TestGetNodesConfigGVR(t *testing.T) {
-	assert.Equal(t, GetNodesConfigIoGVR(),
-		schema.GroupVersionResource{
-			Group: APIGroup, Version: APIVersion, Resource: APIKind,
-		})
-}
+	t.Parallel()
 
-func TestNodesConfigCGroupMode(t *testing.T) {
-	testCases := []struct {
-		testCGroupMode    configV1.CgroupMode
-		expectedError     bool
-		expectedErrorText string
-	}{
-		{ // Test Case 1 - empty cgroup mode
-			testCGroupMode:    configV1.CgroupModeEmpty,
-			expectedError:     false,
-			expectedErrorText: "",
-		},
-		{ // Test Case 2 - valid cgroup mode
-			testCGroupMode:    configV1.CgroupModeV2,
-			expectedError:     false,
-			expectedErrorText: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidNodeConfigBuilder(buildNodeConfigClientWithDummyObject())
-
-		result := testBuilder.WithCGroupMode(testCase.testCGroupMode)
-
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-			}
-		} else {
-			// Assert that the cGroup Mode was added to the Builder
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testCGroupMode, result.Definition.Spec.CgroupMode)
-		}
-	}
+	assert.Equal(t, GetNodesConfigIoGVR(), schema.GroupVersionResource{
+		Group: APIGroup, Version: APIVersion, Resource: APIKind,
+	})
 }
 
 func buildValidNodeConfigBuilder(apiClient *clients.Settings) *Builder {
-	return newBuilder(apiClient, defaultNodesConfigName, defaultCGroupMode)
+	return common.NewClusterScopedBuilder[configV1.Node, Builder](
+		apiClient, configV1.Install, defaultNodesConfigName)
 }
 
-func buildInValidNodeConfigBuilder(apiClient *clients.Settings) *Builder {
-	return newBuilder(apiClient, "", defaultCGroupMode)
-}
-
-func buildNodeConfigClientWithDummyObject() *clients.Settings {
+func buildNodeConfigClientWithDummyObject(cgroupMode configV1.CgroupMode) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: buildDummyNodesConfig(),
-		GVK:            []schema.GroupVersionKind{nodesConfigGVK},
-	})
-}
-
-func buildDummyNodesConfig() []runtime.Object {
-	return append([]runtime.Object{}, &configV1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: defaultNodesConfigName,
-		},
-		Spec: configV1.NodeSpec{
-			CgroupMode: defaultCGroupMode,
-		},
-	})
-}
-
-// newBuilder method creates new instance of builder (for the unit test propose only).
-func newBuilder(apiClient *clients.Settings, name string, cgroupMode configV1.CgroupMode) *Builder {
-	klog.V(100).Infof("Initializing new Builder structure with the name: %s", name)
-
-	builder := &Builder{
-		apiClient: apiClient.Client,
-		Definition: &configV1.Node{
+		K8sMockObjects: []runtime.Object{&configV1.Node{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:            name,
-				ResourceVersion: "999",
+				Name: defaultNodesConfigName,
 			},
 			Spec: configV1.NodeSpec{
 				CgroupMode: cgroupMode,
 			},
-		},
-	}
+		}},
+		SchemeAttachers: []clients.SchemeAttacher{configV1.Install},
+	})
+}
 
-	if name == "" {
-		klog.V(100).Info("The name of the nodesConfig is empty")
-
-		builder.errorMsg = "the nodesConfig 'name' cannot be empty"
-
-		return builder
-	}
-
-	return builder
+func newNodesConfigCommonTestConfig() testhelper.CommonTestConfig[
+	configV1.Node, Builder, *configV1.Node, *Builder] {
+	return testhelper.NewCommonTestConfig[configV1.Node, Builder](
+		configV1.Install, nodesConfigGVK, testhelper.ResourceScopeClusterScoped)
 }
