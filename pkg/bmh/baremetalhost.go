@@ -2,22 +2,17 @@ package bmh
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"time"
 
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
-
-	"fmt"
-
 	bmhv1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -25,76 +20,59 @@ const (
 	errInvalidBootMode     = "not acceptable 'bootMode' value"
 )
 
+var bareMetalHostGVK = bmhv1alpha1.GroupVersion.WithKind("BareMetalHost")
+
 // BmhBuilder provides struct for the bmh object containing connection to
 // the cluster and the bmh definitions.
 type BmhBuilder struct {
-	Definition *bmhv1alpha1.BareMetalHost
-	Object     *bmhv1alpha1.BareMetalHost
-	apiClient  goclient.Client
-	errorMsg   string
+	common.EmbeddableBuilder[bmhv1alpha1.BareMetalHost, *bmhv1alpha1.BareMetalHost]
+	common.EmbeddableCreator[bmhv1alpha1.BareMetalHost, BmhBuilder, *bmhv1alpha1.BareMetalHost, *BmhBuilder]
+	common.EmbeddableDeleteReturner[bmhv1alpha1.BareMetalHost, BmhBuilder, *bmhv1alpha1.BareMetalHost, *BmhBuilder]
+	common.EmbeddableWithOptions[
+		bmhv1alpha1.BareMetalHost, BmhBuilder, *bmhv1alpha1.BareMetalHost, *BmhBuilder, AdditionalOptions]
 }
 
 // AdditionalOptions additional options for bmh object.
 type AdditionalOptions func(builder *BmhBuilder) (*BmhBuilder, error)
 
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *BmhBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleteReturner.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the BareMetalHost GVK for this builder.
+func (builder *BmhBuilder) GetGVK() schema.GroupVersionKind {
+	return bareMetalHostGVK
+}
+
 // NewBuilder creates a new instance of BmhBuilder.
 func NewBuilder(
 	apiClient *clients.Settings, name, nsname, bmcAddress, bmcSecretName, bootMacAddress, bootMode string) *BmhBuilder {
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
+	builder := common.NewNamespacedBuilder[bmhv1alpha1.BareMetalHost, BmhBuilder](
+		apiClient, bmhv1alpha1.AddToScheme, name, nsname)
 
-		return nil
+	if builder.GetError() != nil {
+		return builder
 	}
 
-	err := apiClient.AttachScheme(bmhv1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add bmhv1alpha1 scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &BmhBuilder{
-		apiClient: apiClient.Client,
-		Definition: &bmhv1alpha1.BareMetalHost{
-			Spec: bmhv1alpha1.BareMetalHostSpec{
-
-				BMC: bmhv1alpha1.BMCDetails{
-					Address:                        bmcAddress,
-					CredentialsName:                bmcSecretName,
-					DisableCertificateVerification: true,
-				},
-				BootMode:              bmhv1alpha1.BootMode(bootMode),
-				BootMACAddress:        bootMacAddress,
-				Online:                true,
-				ExternallyProvisioned: false,
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
+	builder.Definition.Spec = bmhv1alpha1.BareMetalHostSpec{
+		BMC: bmhv1alpha1.BMCDetails{
+			Address:                        bmcAddress,
+			CredentialsName:                bmcSecretName,
+			DisableCertificateVerification: true,
 		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the baremetalhost is empty")
-
-		builder.errorMsg = "BMH 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the baremetalhost is empty")
-
-		builder.errorMsg = "BMH 'nsname' cannot be empty"
-
-		return builder
+		BootMode:              bmhv1alpha1.BootMode(bootMode),
+		BootMACAddress:        bootMacAddress,
+		Online:                true,
+		ExternallyProvisioned: false,
 	}
 
 	if bmcAddress == "" {
 		klog.V(100).Info("The bootmacaddress of the baremetalhost is empty")
 
-		builder.errorMsg = "BMH 'bmcAddress' cannot be empty"
+		builder.SetError(fmt.Errorf("BMH 'bmcAddress' cannot be empty"))
 
 		return builder
 	}
@@ -102,14 +80,14 @@ func NewBuilder(
 	if bmcSecretName == "" {
 		klog.V(100).Info("The bmcsecret of the baremetalhost is empty")
 
-		builder.errorMsg = "BMH 'bmcSecretName' cannot be empty"
+		builder.SetError(fmt.Errorf("BMH 'bmcSecretName' cannot be empty"))
 
 		return builder
 	}
 
 	bootModeAcceptable := []string{"UEFI", bootModeUEFISecureBoot, "legacy"}
 	if !slices.Contains(bootModeAcceptable, bootMode) {
-		builder.errorMsg = errInvalidBootMode
+		builder.SetError(fmt.Errorf("%s", errInvalidBootMode))
 
 		return builder
 	}
@@ -117,7 +95,7 @@ func NewBuilder(
 	if bootMacAddress == "" {
 		klog.V(100).Info("The bootmacaddress of the baremetalhost is empty")
 
-		builder.errorMsg = "BMH 'bootMacAddress' cannot be empty"
+		builder.SetError(fmt.Errorf("BMH 'bootMacAddress' cannot be empty"))
 
 		return builder
 	}
@@ -127,14 +105,14 @@ func NewBuilder(
 
 // WithRootDeviceDeviceName sets rootDeviceHints DeviceName to specified value.
 func (builder *BmhBuilder) WithRootDeviceDeviceName(deviceName string) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if deviceName == "" {
 		klog.V(100).Info("The baremetalhost rootDeviceHint deviceName is empty")
 
-		builder.errorMsg = "the baremetalhost rootDeviceHint deviceName cannot be empty"
+		builder.SetError(fmt.Errorf("the baremetalhost rootDeviceHint deviceName cannot be empty"))
 
 		return builder
 	}
@@ -150,14 +128,14 @@ func (builder *BmhBuilder) WithRootDeviceDeviceName(deviceName string) *BmhBuild
 
 // WithRootDeviceHTCL sets rootDeviceHints HTCL to specified value.
 func (builder *BmhBuilder) WithRootDeviceHTCL(hctl string) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if hctl == "" {
 		klog.V(100).Info("The baremetalhost rootDeviceHint hctl is empty")
 
-		builder.errorMsg = "the baremetalhost rootDeviceHint hctl cannot be empty"
+		builder.SetError(fmt.Errorf("the baremetalhost rootDeviceHint hctl cannot be empty"))
 
 		return builder
 	}
@@ -173,14 +151,14 @@ func (builder *BmhBuilder) WithRootDeviceHTCL(hctl string) *BmhBuilder {
 
 // WithRootDeviceModel sets rootDeviceHints Model to specified value.
 func (builder *BmhBuilder) WithRootDeviceModel(model string) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if model == "" {
 		klog.V(100).Info("The baremetalhost rootDeviceHint model is empty")
 
-		builder.errorMsg = "the baremetalhost rootDeviceHint model cannot be empty"
+		builder.SetError(fmt.Errorf("the baremetalhost rootDeviceHint model cannot be empty"))
 
 		return builder
 	}
@@ -196,14 +174,14 @@ func (builder *BmhBuilder) WithRootDeviceModel(model string) *BmhBuilder {
 
 // WithRootDeviceVendor sets rootDeviceHints Vendor to specified value.
 func (builder *BmhBuilder) WithRootDeviceVendor(vendor string) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if vendor == "" {
 		klog.V(100).Info("The baremetalhost rootDeviceHint vendor is empty")
 
-		builder.errorMsg = "the baremetalhost rootDeviceHint vendor cannot be empty"
+		builder.SetError(fmt.Errorf("the baremetalhost rootDeviceHint vendor cannot be empty"))
 
 		return builder
 	}
@@ -219,14 +197,14 @@ func (builder *BmhBuilder) WithRootDeviceVendor(vendor string) *BmhBuilder {
 
 // WithRootDeviceSerialNumber sets rootDeviceHints serialNumber to specified value.
 func (builder *BmhBuilder) WithRootDeviceSerialNumber(serialNumber string) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if serialNumber == "" {
 		klog.V(100).Info("The baremetalhost rootDeviceHint serialNumber is empty")
 
-		builder.errorMsg = "the baremetalhost rootDeviceHint serialNumber cannot be empty"
+		builder.SetError(fmt.Errorf("the baremetalhost rootDeviceHint serialNumber cannot be empty"))
 
 		return builder
 	}
@@ -242,14 +220,14 @@ func (builder *BmhBuilder) WithRootDeviceSerialNumber(serialNumber string) *BmhB
 
 // WithRootDeviceMinSizeGigabytes sets rootDeviceHints MinSizeGigabytes to specified value.
 func (builder *BmhBuilder) WithRootDeviceMinSizeGigabytes(size int) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if size < 0 {
 		klog.V(100).Info("The baremetalhost rootDeviceHint size is less than 0")
 
-		builder.errorMsg = "the baremetalhost rootDeviceHint size cannot be less than 0"
+		builder.SetError(fmt.Errorf("the baremetalhost rootDeviceHint size cannot be less than 0"))
 
 		return builder
 	}
@@ -265,14 +243,14 @@ func (builder *BmhBuilder) WithRootDeviceMinSizeGigabytes(size int) *BmhBuilder 
 
 // WithRootDeviceWWN sets rootDeviceHints WWN to specified value.
 func (builder *BmhBuilder) WithRootDeviceWWN(wwn string) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if wwn == "" {
 		klog.V(100).Info("The baremetalhost rootDeviceHint wwn is empty")
 
-		builder.errorMsg = "the baremetalhost rootDeviceHint wwn cannot be empty"
+		builder.SetError(fmt.Errorf("the baremetalhost rootDeviceHint wwn cannot be empty"))
 
 		return builder
 	}
@@ -288,14 +266,14 @@ func (builder *BmhBuilder) WithRootDeviceWWN(wwn string) *BmhBuilder {
 
 // WithRootDeviceWWNWithExtension sets rootDeviceHints WWNWithExtension to specified value.
 func (builder *BmhBuilder) WithRootDeviceWWNWithExtension(wwnWithExtension string) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if wwnWithExtension == "" {
 		klog.V(100).Info("The baremetalhost rootDeviceHint wwnWithExtension is empty")
 
-		builder.errorMsg = "the baremetalhost rootDeviceHint wwnWithExtension cannot be empty"
+		builder.SetError(fmt.Errorf("the baremetalhost rootDeviceHint wwnWithExtension cannot be empty"))
 
 		return builder
 	}
@@ -311,14 +289,14 @@ func (builder *BmhBuilder) WithRootDeviceWWNWithExtension(wwnWithExtension strin
 
 // WithRootDeviceWWNVendorExtension sets rootDeviceHint WWNVendorExtension to specified value.
 func (builder *BmhBuilder) WithRootDeviceWWNVendorExtension(wwnVendorExtension string) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if wwnVendorExtension == "" {
 		klog.V(100).Info("The baremetalhost rootDeviceHint wwnVendorExtension is empty")
 
-		builder.errorMsg = "the baremetalhost rootDeviceHint wwnVendorExtension cannot be empty"
+		builder.SetError(fmt.Errorf("the baremetalhost rootDeviceHint wwnVendorExtension cannot be empty"))
 
 		return builder
 	}
@@ -334,7 +312,7 @@ func (builder *BmhBuilder) WithRootDeviceWWNVendorExtension(wwnVendorExtension s
 
 // WithRootDeviceRotationalDisk sets rootDeviceHint Rotational to specified value.
 func (builder *BmhBuilder) WithRootDeviceRotationalDisk(rotational bool) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -347,167 +325,15 @@ func (builder *BmhBuilder) WithRootDeviceRotationalDisk(rotational bool) *BmhBui
 	return builder
 }
 
-// WithOptions creates bmh with generic mutation options.
-func (builder *BmhBuilder) WithOptions(options ...AdditionalOptions) *BmhBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting bmh additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
 // Pull pulls existing baremetalhost from cluster.
 func Pull(apiClient *clients.Settings, name, nsname string) (*BmhBuilder, error) {
-	klog.V(100).Infof("Pulling existing baremetalhost name %s under namespace %s from cluster", name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("baremetalhost 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(bmhv1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add bmhv1alpha1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &BmhBuilder{
-		apiClient: apiClient.Client,
-		Definition: &bmhv1alpha1.BareMetalHost{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the baremetalhost is empty")
-
-		return nil, fmt.Errorf("baremetalhost 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the baremetalhost is empty")
-
-		return nil, fmt.Errorf("baremetalhost 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("baremetalhost object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Create makes a bmh in the cluster and stores the created object in struct.
-func (builder *BmhBuilder) Create() (*BmhBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the baremetalhost %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err == nil {
-			builder.Object = builder.Definition
-		}
-	}
-
-	return builder, err
-}
-
-// Delete removes bmh from a cluster.
-func (builder *BmhBuilder) Delete() (*BmhBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Deleting the baremetalhost %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("bmh %s namespace: %s cannot be deleted because it does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, fmt.Errorf("can not delete bmh: %w", err)
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Get returns bmh object if found.
-func (builder *BmhBuilder) Get() (*bmhv1alpha1.BareMetalHost, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting baremetalhost %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	bmh := &bmhv1alpha1.BareMetalHost{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name:      builder.Definition.Name,
-		Namespace: builder.Definition.Namespace,
-	}, bmh)
-	if err != nil {
-		return nil, err
-	}
-
-	return bmh, nil
-}
-
-// Exists checks whether the given bmh exists.
-func (builder *BmhBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if baremetalhost %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
+	return common.PullNamespacedBuilder[bmhv1alpha1.BareMetalHost, BmhBuilder](
+		context.TODO(), apiClient, bmhv1alpha1.AddToScheme, name, nsname)
 }
 
 // GetBmhOperationalState returns the current OperationalStatus of the bmh.
 func (builder *BmhBuilder) GetBmhOperationalState() bmhv1alpha1.OperationalStatus {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return ""
 	}
 
@@ -523,7 +349,7 @@ func (builder *BmhBuilder) GetBmhOperationalState() bmhv1alpha1.OperationalStatu
 
 // GetBmhPowerOnStatus checks BareMetalHost PowerOn status.
 func (builder *BmhBuilder) GetBmhPowerOnStatus() bool {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return false
 	}
 
@@ -539,7 +365,7 @@ func (builder *BmhBuilder) GetBmhPowerOnStatus() bool {
 
 // CreateAndWaitUntilProvisioned creates bmh object and waits until bmh is provisioned.
 func (builder *BmhBuilder) CreateAndWaitUntilProvisioned(timeout time.Duration) (*BmhBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -579,7 +405,7 @@ func (builder *BmhBuilder) WaitUntilAvailable(timeout time.Duration) error {
 
 // WaitUntilInStatus waits for timeout duration or until bmh gets to a specific status.
 func (builder *BmhBuilder) WaitUntilInStatus(status bmhv1alpha1.ProvisioningState, timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -602,7 +428,7 @@ func (builder *BmhBuilder) WaitUntilInStatus(status bmhv1alpha1.ProvisioningStat
 
 // DeleteAndWaitUntilDeleted delete bmh object and waits until deleted.
 func (builder *BmhBuilder) DeleteAndWaitUntilDeleted(timeout time.Duration) (*BmhBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -622,7 +448,7 @@ func (builder *BmhBuilder) DeleteAndWaitUntilDeleted(timeout time.Duration) (*Bm
 
 // WaitUntilDeleted waits for timeout duration or until bmh is deleted.
 func (builder *BmhBuilder) WaitUntilDeleted(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -657,7 +483,7 @@ func (builder *BmhBuilder) WaitUntilDeleted(timeout time.Duration) error {
 
 // WaitUntilAnnotationExists waits up to the specified timeout until the annotation exists.
 func (builder *BmhBuilder) WaitUntilAnnotationExists(annotation string, timeout time.Duration) (*BmhBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return nil, err
 	}
 
@@ -698,36 +524,4 @@ func (builder *BmhBuilder) WaitUntilAnnotationExists(annotation string, timeout 
 	}
 
 	return builder, nil
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *BmhBuilder) validate() (bool, error) {
-	resourceCRD := "BareMetalHost"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
