@@ -1,63 +1,32 @@
 package oran
 
 import (
-	"fmt"
 	"testing"
 
+	hardwaremanagementv1alpha1 "github.com/openshift-kni/oran-o2ims/api/hardwaremanagement/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/apimachinery/pkg/labels"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestListAllocatedNodes(t *testing.T) {
-	testCases := []struct {
-		nodes         []*AllocatedNodeBuilder
-		listOptions   []runtimeclient.ListOptions
-		client        bool
-		expectedError error
-	}{
-		{
-			nodes:         []*AllocatedNodeBuilder{buildValidAllocatedNodeTestBuilder(buildTestClientWithDummyAllocatedNode())},
-			listOptions:   nil,
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			nodes:         []*AllocatedNodeBuilder{buildValidAllocatedNodeTestBuilder(buildTestClientWithDummyAllocatedNode())},
-			listOptions:   []runtimeclient.ListOptions{{LabelSelector: labels.NewSelector()}},
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			nodes: []*AllocatedNodeBuilder{buildValidAllocatedNodeTestBuilder(buildTestClientWithDummyAllocatedNode())},
-			listOptions: []runtimeclient.ListOptions{
-				{LabelSelector: labels.NewSelector()},
-				{LabelSelector: labels.NewSelector()},
-			},
-			client:        true,
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-		},
-		{
-			nodes:         []*AllocatedNodeBuilder{buildValidAllocatedNodeTestBuilder(buildTestClientWithDummyAllocatedNode())},
-			listOptions:   nil,
-			client:        false,
-			expectedError: fmt.Errorf("failed to list allocatedNodes, 'apiClient' parameter is nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	testhelper.NewListTestConfig(
+		ListAllocatedNodes,
+		hardwaremanagementv1alpha1.AddToScheme,
+		allocatedNodeGVK,
+	).ExecuteTests(t)
 
-		if testCase.client {
-			testSettings = buildTestClientWithDummyAllocatedNode()
-		}
+	t.Run("multiple list options return error", func(t *testing.T) {
+		t.Parallel()
 
-		builders, err := ListAllocatedNodes(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+		testSettings := clients.GetTestClients(clients.TestClientParams{
+			SchemeAttachers: pluginsTestSchemes,
+		})
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.nodes), len(builders))
-		}
-	}
+		_, err := ListAllocatedNodes(testSettings, runtimeclient.ListOptions{}, runtimeclient.ListOptions{})
+		assert.EqualError(t, err, "error: more than one ListOptions was passed")
+	})
 }
