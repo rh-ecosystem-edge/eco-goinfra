@@ -31,6 +31,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/metal3-io/baremetal-operator/apis v0.14.2
 	github.com/nmstate/kubernetes-nmstate/api v0.0.0-20261103102427-4719031e11cd
+	github.com/oapi-codegen/nullable v1.1.0
 	github.com/oapi-codegen/runtime v1.8.0
 	github.com/onsi/ginkgo/v2 v2.34.0
 	github.com/openshift-kni/cluster-group-upgrades-operator v0.0.0-20261105110240-c1eb317ad72e // release-5.0

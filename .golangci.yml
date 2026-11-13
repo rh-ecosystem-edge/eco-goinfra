@@ -97,6 +97,7 @@ linters:
             - gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types
             - golang.org/x/net/context
             - github.com/rh-ecosystem-edge/eco-goinfra
+            - github.com/oapi-codegen/nullable
         oranapi:
           files:
             - pkg/oran/api
@@ -104,6 +105,7 @@ linters:
             - $gostd
             - github.com/rh-ecosystem-edge/eco-goinfra/pkg/oran/api
             - github.com/oapi-codegen/runtime
+            - github.com/oapi-codegen/nullable
     funlen:
       lines: 90
       statements: 40
