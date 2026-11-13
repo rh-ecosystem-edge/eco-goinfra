@@ -4,16 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,14 +24,27 @@ const (
 
 // ProvisioningRequestBuilder provides a struct to inferface with ProvisioningRequest resources on a specific cluster.
 type ProvisioningRequestBuilder struct {
-	// Definition of the ProvisioningRequest used to create the resource.
-	Definition *provisioningv1alpha1.ProvisioningRequest
-	// Object of the ProvisioningRequest as it is on the cluster.
-	Object *provisioningv1alpha1.ProvisioningRequest
-	// apiClient used to interact with the cluster.
-	apiClient runtimeclient.Client
-	// errorMsg used to store latest error message from functions that do not return errors.
-	errorMsg string
+	common.EmbeddableBuilder[
+		provisioningv1alpha1.ProvisioningRequest, *provisioningv1alpha1.ProvisioningRequest]
+	common.EmbeddableCreator[
+		provisioningv1alpha1.ProvisioningRequest, ProvisioningRequestBuilder,
+		*provisioningv1alpha1.ProvisioningRequest, *ProvisioningRequestBuilder]
+	common.EmbeddableDeleter[provisioningv1alpha1.ProvisioningRequest, *provisioningv1alpha1.ProvisioningRequest]
+	common.EmbeddableUpdater[
+		provisioningv1alpha1.ProvisioningRequest, ProvisioningRequestBuilder,
+		*provisioningv1alpha1.ProvisioningRequest, *ProvisioningRequestBuilder]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *ProvisioningRequestBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableUpdater.SetBase(builder)
+}
+
+// GetGVK returns the ProvisioningRequest GVK for this builder.
+func (builder *ProvisioningRequestBuilder) GetGVK() schema.GroupVersionKind {
+	return provisioningv1alpha1.GroupVersion.WithKind("ProvisioningRequest")
 }
 
 // NewPRBuilder creates a new instance of a ProvisioningRequest builder.
@@ -43,41 +55,17 @@ func NewPRBuilder(
 			"name: %s, templateName: %s, templateVersion: %s",
 		name, templateName, templateVersion)
 
-	// Since we accept an interface, providing a nil *clients.Settings results in an interface with a nil concrete
-	// type, which must be checked using reflection.
-	if apiClient == nil || reflect.ValueOf(apiClient).IsNil() {
-		klog.V(100).Info("The apiClient of the ProvisioningRequest is nil")
-
-		return nil
-	}
-
-	err := provisioningv1alpha1.AddToScheme(apiClient.Scheme())
-	if err != nil {
-		klog.V(100).Infof("Failed to add provisioning v1alpha1 scheme to client schemes: %v", err)
-
-		return nil
-	}
-
-	builder := &ProvisioningRequestBuilder{
-		apiClient: apiClient,
-		Definition: &provisioningv1alpha1.ProvisioningRequest{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-			Spec: provisioningv1alpha1.ProvisioningRequestSpec{
-				// Name is supposed to be human readable, but is required for the O2IMS API. We default
-				// to using the ID and consumers can override it if desired.
-				Name:            name,
-				TemplateName:    templateName,
-				TemplateVersion: templateVersion,
-			},
-		},
+	builder := common.NewClusterScopedBuilder[
+		provisioningv1alpha1.ProvisioningRequest, ProvisioningRequestBuilder](
+		apiClient, provisioningv1alpha1.AddToScheme, name)
+	if builder.GetError() != nil {
+		return builder
 	}
 
 	if err := uuid.Validate(name); err != nil {
 		klog.V(100).Infof("The name of the ProvisioningRequest is not a valid UUID: %v", err)
 
-		builder.errorMsg = "provisioningRequest 'name' must be a valid UUID"
+		builder.SetError(fmt.Errorf("provisioningRequest 'name' must be a valid UUID"))
 
 		return builder
 	}
@@ -85,7 +73,7 @@ func NewPRBuilder(
 	if templateName == "" {
 		klog.V(100).Info("The template name of the ProvisioningRequest is empty")
 
-		builder.errorMsg = errEmptyTemplateName
+		builder.SetError(fmt.Errorf("%s", errEmptyTemplateName))
 
 		return builder
 	}
@@ -93,9 +81,17 @@ func NewPRBuilder(
 	if templateVersion == "" {
 		klog.V(100).Info("The template version of the ProvisioningRequest is empty")
 
-		builder.errorMsg = "provisioningRequest 'templateVersion' cannot be empty"
+		builder.SetError(fmt.Errorf("provisioningRequest 'templateVersion' cannot be empty"))
 
 		return builder
+	}
+
+	builder.Definition.Spec = provisioningv1alpha1.ProvisioningRequestSpec{
+		// Name is supposed to be human readable, but is required for the O2IMS API. We default
+		// to using the ID and consumers can override it if desired.
+		Name:            name,
+		TemplateName:    templateName,
+		TemplateVersion: templateVersion,
 	}
 
 	return builder
@@ -103,7 +99,7 @@ func NewPRBuilder(
 
 // WithTemplateParameter sets key to value in the TemplateParameters field.
 func (builder *ProvisioningRequestBuilder) WithTemplateParameter(key string, value any) *ProvisioningRequestBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -112,7 +108,7 @@ func (builder *ProvisioningRequestBuilder) WithTemplateParameter(key string, val
 	if key == "" {
 		klog.V(100).Info("ProvisioningRequest TemplateParameter key is empty")
 
-		builder.errorMsg = "provisioningRequest TemplateParameter 'key' cannot be empty"
+		builder.SetError(fmt.Errorf("provisioningRequest TemplateParameter 'key' cannot be empty"))
 
 		return builder
 	}
@@ -121,7 +117,7 @@ func (builder *ProvisioningRequestBuilder) WithTemplateParameter(key string, val
 	if err != nil {
 		klog.V(100).Infof("Failed to unmarshal ProvisioningRequest TemplateParameters: %v", err)
 
-		builder.errorMsg = fmt.Sprintf("failed to unmarshal TemplateParameters: %v", err)
+		builder.SetError(fmt.Errorf("failed to unmarshal TemplateParameters: %w", err))
 
 		return builder
 	}
@@ -135,7 +131,7 @@ func (builder *ProvisioningRequestBuilder) WithTemplateParameter(key string, val
 // GetTemplateParameters unmarshals the raw JSON stored in the TemplateParameters in the Definition, returning an empty
 // rather than nil map if TemplateParameters is empty.
 func (builder *ProvisioningRequestBuilder) GetTemplateParameters() (map[string]any, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return nil, err
 	}
 
@@ -159,7 +155,7 @@ func (builder *ProvisioningRequestBuilder) GetTemplateParameters() (map[string]a
 // converted to empty maps before marshaling.
 func (builder *ProvisioningRequestBuilder) WithTemplateParameters(
 	templateParameters map[string]any) *ProvisioningRequestBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -173,7 +169,7 @@ func (builder *ProvisioningRequestBuilder) WithTemplateParameters(
 	if err != nil {
 		klog.V(100).Infof("Failed to marshal TemplateParameters for ProvisioningRequest %s: %v", builder.Definition.Name, err)
 
-		builder.errorMsg = fmt.Sprintf("failed to marshal TemplateParameters: %v", err)
+		builder.SetError(fmt.Errorf("failed to marshal TemplateParameters: %w", err))
 
 		return builder
 	}
@@ -185,168 +181,15 @@ func (builder *ProvisioningRequestBuilder) WithTemplateParameters(
 
 // PullPR pulls an existing ProvisioningRequest into a Builder struct.
 func PullPR(apiClient runtimeclient.Client, name string) (*ProvisioningRequestBuilder, error) {
-	klog.V(100).Infof("Pulling existing ProvisioningRequest %s from cluster", name)
-
-	// Since we accept an interface, providing a nil *clients.Settings results in an interface with a nil concrete
-	// type, which must be checked using reflection.
-	if apiClient == nil || reflect.ValueOf(apiClient).IsNil() {
-		klog.V(100).Info("The apiClient of the ProvisioningRequest is nil")
-
-		return nil, fmt.Errorf("provisioningRequest 'apiClient' cannot be nil")
-	}
-
-	err := provisioningv1alpha1.AddToScheme(apiClient.Scheme())
-	if err != nil {
-		klog.V(100).Infof("Failed to add provisioning v1alpha1 scheme to client schemes: %v", err)
-
-		return nil, err
-	}
-
-	builder := &ProvisioningRequestBuilder{
-		apiClient: apiClient,
-		Definition: &provisioningv1alpha1.ProvisioningRequest{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the ProvisioningRequest is empty")
-
-		return nil, fmt.Errorf("provisioningRequest 'name' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		klog.V(100).Infof("The ProvisioningRequest %s does not exist", name)
-
-		return nil, fmt.Errorf("provisioningRequest object %s does not exist", name)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Get returns the ProvisioningRequest object if found.
-func (builder *ProvisioningRequestBuilder) Get() (*provisioningv1alpha1.ProvisioningRequest, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Getting ProvisioningRequest object %s", builder.Definition.Name)
-
-	provisioningRequest := &provisioningv1alpha1.ProvisioningRequest{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), runtimeclient.ObjectKey{
-		Name: builder.Definition.Name,
-	}, provisioningRequest)
-	if err != nil {
-		return nil, err
-	}
-
-	return provisioningRequest, nil
-}
-
-// Exists checks whether the given ProvisioningRequest exists on the cluster.
-func (builder *ProvisioningRequestBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if ProvisioningRequest %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-	if err != nil {
-		klog.V(100).Infof("ProvisioningRequest %s does not exist: %v", builder.Definition.Name, err)
-	}
-
-	return err == nil
-}
-
-// Create makes a ProvisioningRequest on the cluster if it does not already exist.
-func (builder *ProvisioningRequestBuilder) Create() (*ProvisioningRequestBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Creating ProvisioningRequest %s", builder.Definition.Name)
-
-	if builder.Exists() {
-		return builder, nil
-	}
-
-	err := builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return nil, err
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// Update changes the existing ProvisioningRequest resource on the cluster. Since deleting a ProvisioningRequest is a
-// non-trivial operation and corresponds to deleting a cluster, there is no option to fall back to deleting and
-// recreating the ProvisioningRequest.
-func (builder *ProvisioningRequestBuilder) Update() (*ProvisioningRequestBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Updating ProvisioningRequest %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("ProvisioningRequest %s does not exist", builder.Definition.Name)
-
-		return nil, fmt.Errorf("cannot update non-existent provisioningRequest")
-	}
-
-	builder.Definition.ResourceVersion = builder.Object.ResourceVersion
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return nil, err
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// Delete removes a ProvisioningRequest from the cluster if it exists.
-func (builder *ProvisioningRequestBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting ProvisioningRequest %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("ProvisioningRequest %s does not exist", builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Object)
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
+	return common.PullClusterScopedBuilder[
+		provisioningv1alpha1.ProvisioningRequest, ProvisioningRequestBuilder](
+		context.TODO(), apiClient, provisioningv1alpha1.AddToScheme, name)
 }
 
 // DeleteAndWait deletes the ProvisioningRequest then waits up to timeout until the ProvisioningRequest no longer
 // exists.
 func (builder *ProvisioningRequestBuilder) DeleteAndWait(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -369,7 +212,7 @@ func (builder *ProvisioningRequestBuilder) DeleteAndWait(timeout time.Duration) 
 // expected condition are ignored.
 func (builder *ProvisioningRequestBuilder) WaitForCondition(
 	expected metav1.Condition, timeout time.Duration) (*ProvisioningRequestBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return nil, err
 	}
 
@@ -446,7 +289,7 @@ func (builder *ProvisioningRequestBuilder) WaitUntilFulfilled(
 // ProvisioningRequest is in the provided phase regardless of the update time.
 func (builder *ProvisioningRequestBuilder) WaitForPhaseAfter(
 	phase provisioningv1alpha1.ProvisioningPhase, start time.Time, timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -482,35 +325,4 @@ func (builder *ProvisioningRequestBuilder) WaitForPhaseAfter(
 	}
 
 	return nil
-}
-
-// validate checks that the builder, definition, and apiClient are properly initialized and there is no errorMsg.
-func (builder *ProvisioningRequestBuilder) validate() (bool, error) {
-	resourceCRD := "provisioningRequest"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiClient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
