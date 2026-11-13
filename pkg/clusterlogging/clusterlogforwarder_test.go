@@ -15,7 +15,6 @@ var (
 	apiGroup                            = "observability.openshift.io"
 	apiVersion                          = "v1"
 	kind                                = "ClusterLogForwarder"
-	metaDataNameErrorMgs                = "metadata.name: Required value: name is required"
 	defaultClusterLogForwarderName      = "instance"
 	defaultClusterLogForwarderNamespace = "openshift-logging"
 	defaultOutputs                      = []observabilityv1.OutputSpec(nil)
