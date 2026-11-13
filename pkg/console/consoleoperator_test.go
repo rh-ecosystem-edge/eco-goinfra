@@ -1,302 +1,226 @@
 package console
 
 import (
-	"fmt"
 	"testing"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/klog/v2"
 )
 
 var (
-	consoleOperatorGVK = schema.GroupVersionKind{
-		Group:   "operator.openshift.io",
-		Version: "v1",
-		Kind:    "Console",
-	}
+	consoleOperatorGVK         = operatorv1.GroupVersion.WithKind("Console")
 	defaultConsoleOperatorName = "cluster"
 	defaultPluginsList         = []string{"monitoring-plugin", "nmstate-console-plugin"}
 )
 
-func TestConsoleOperatorPull(t *testing.T) {
-	generateConsoleOperator := func(name string) *operatorv1.Console {
-		return &operatorv1.Console{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
+func TestPullConsoleOperator(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewClusterScopedPullTestConfig(
+		PullConsoleOperator, operatorv1.Install, consoleOperatorGVK).ExecuteTests(t)
+}
+
+func TestConsoleOperatorBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonConfig := newConsoleOperatorCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		With(testhelper.NewUpdateTestConfig(commonConfig)).
+		Run(t)
+}
+
+func TestConsoleOperatorGetPlugins(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		builder     func() *ConsoleOperatorBuilder
+		expected    []string
+		assertError func(error) bool
+	}{
+		{
+			name: "returns plugins from existing console operator",
+			builder: func() *ConsoleOperatorBuilder {
+				return buildValidConsoleOperatorBuilder(buildConsoleOperatorClientWithDummyObject())
 			},
-		}
-	}
-
-	testCases := []struct {
-		name                string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "test",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
+			expected:    defaultPluginsList,
+			assertError: func(err error) bool { return err == nil },
 		},
 		{
-			name:                "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("the consoleOperator 'consoleOperatorName' cannot be empty"),
-			client:              true,
+			name: "invalid builder returns error",
+			builder: func() *ConsoleOperatorBuilder {
+				return buildInvalidConsoleOperatorBuilder(buildConsoleOperatorClientWithDummyObject())
+			},
+			assertError: commonerrors.IsBuilderNameEmpty,
 		},
 		{
-			name:                "consoletest",
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("the consoleOperator object consoletest does not exist"),
-			client:              true,
-		},
-		{
-			name:                "consoletest",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("consoleOperator 'apiClient' cannot be empty"),
-			client:              false,
+			name: "missing console operator returns error",
+			builder: func() *ConsoleOperatorBuilder {
+				return buildValidConsoleOperatorBuilder(newConsoleOperatorTestClient())
+			},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "consoleOperator cluster object does not exist"
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		var testSettings *clients.Settings
+			builder := testCase.builder()
+			plugins, err := builder.GetPlugins()
 
-		testConsoleOperator := generateConsoleOperator(testCase.name)
+			require.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testConsoleOperator)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
-
-		builderResult, err := PullConsoleOperator(testSettings, testCase.name)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError, err)
-		} else {
-			assert.Equal(t, testConsoleOperator.Name, builderResult.Object.Name)
-		}
-	}
-}
-
-func TestConsoleOperatorExist(t *testing.T) {
-	testCases := []struct {
-		testConsoleOperator *ConsoleOperatorBuilder
-		expectedStatus      bool
-	}{
-		{
-			testConsoleOperator: buildValidConsoleOperatorBuilder(buildConsoleOperatorClientWithDummyObject()),
-			expectedStatus:      true,
-		},
-		{
-			testConsoleOperator: buildInValidConsoleOperatorBuilder(buildConsoleOperatorClientWithDummyObject()),
-			expectedStatus:      false,
-		},
-		{
-			testConsoleOperator: buildValidConsoleOperatorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.testConsoleOperator.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
-
-func TestConsoleOperatorGet(t *testing.T) {
-	testCases := []struct {
-		testConsoleOperator *ConsoleOperatorBuilder
-		expectedError       error
-	}{
-		{
-			testConsoleOperator: buildValidConsoleOperatorBuilder(buildConsoleOperatorClientWithDummyObject()),
-			expectedError:       nil,
-		},
-		{
-			testConsoleOperator: buildInValidConsoleOperatorBuilder(buildConsoleOperatorClientWithDummyObject()),
-			expectedError:       fmt.Errorf("the consoleOperator 'name' cannot be empty"),
-		},
-		{
-			testConsoleOperator: buildValidConsoleOperatorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:       fmt.Errorf("consoles.operator.openshift.io \"cluster\" not found"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		consoleOperatorObj, err := testCase.testConsoleOperator.Get()
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, consoleOperatorObj, testCase.testConsoleOperator.Definition)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestConsoleOperatorUpdate(t *testing.T) {
-	testCases := []struct {
-		testConsoleOperator *ConsoleOperatorBuilder
-		expectedError       string
-		plugins             []string
-	}{
-		{
-			testConsoleOperator: buildValidConsoleOperatorBuilder(buildConsoleOperatorClientWithDummyObject()),
-			expectedError:       "",
-			plugins:             []string{"odf-console"},
-		},
-		{
-			testConsoleOperator: buildValidConsoleOperatorBuilder(buildConsoleOperatorClientWithDummyObject()),
-			expectedError:       "",
-			plugins:             defaultPluginsList,
-		},
-		{
-			testConsoleOperator: buildInValidConsoleOperatorBuilder(buildConsoleOperatorClientWithDummyObject()),
-			expectedError:       "the consoleOperator 'name' cannot be empty",
-			plugins:             defaultPluginsList,
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, defaultPluginsList, testCase.testConsoleOperator.Definition.Spec.Plugins)
-		assert.Nil(t, nil, testCase.testConsoleOperator.Object)
-		testCase.testConsoleOperator.WithPlugins(testCase.plugins, true)
-		_, err := testCase.testConsoleOperator.Update()
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.plugins, testCase.testConsoleOperator.Definition.Spec.Plugins)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
+			if err == nil {
+				require.NotNil(t, plugins)
+				assert.Equal(t, testCase.expected, *plugins)
+			} else {
+				assert.Nil(t, plugins)
+			}
+		})
 	}
 }
 
 func TestConsoleOperatorWithPlugins(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testPlugin          []string
-		testRedefine        bool
-		expectedPluginsList []string
-		expectedError       bool
-		expectedErrorText   string
+		name            string
+		plugins         []string
+		redefine        bool
+		expectedPlugins []string
+		assertError     func(error) bool
+		invalidBuilder  bool
 	}{
 		{
-			testPlugin:          []string{"test-new-plugin"},
-			testRedefine:        true,
-			expectedPluginsList: []string{"test-new-plugin"},
-			expectedError:       false,
-			expectedErrorText:   "",
+			name:            "redefines plugins",
+			plugins:         []string{"test-new-plugin"},
+			redefine:        true,
+			expectedPlugins: []string{"test-new-plugin"},
+			assertError:     func(err error) bool { return err == nil },
 		},
 		{
-			testPlugin:          []string{"test-new-plugin"},
-			testRedefine:        false,
-			expectedPluginsList: []string{"monitoring-plugin", "nmstate-console-plugin", "test-new-plugin"},
-			expectedError:       false,
-			expectedErrorText:   "",
+			name:            "appends new plugins",
+			plugins:         []string{"test-new-plugin"},
+			expectedPlugins: []string{"monitoring-plugin", "nmstate-console-plugin", "test-new-plugin"},
+			assertError:     func(err error) bool { return err == nil },
 		},
 		{
-			testPlugin:          defaultPluginsList,
-			testRedefine:        false,
-			expectedPluginsList: []string{"monitoring-plugin", "nmstate-console-plugin"},
-			expectedError:       false,
-			expectedErrorText:   "",
+			name:            "does not duplicate existing plugins",
+			plugins:         defaultPluginsList,
+			expectedPlugins: defaultPluginsList,
+			assertError:     func(err error) bool { return err == nil },
 		},
 		{
-			testPlugin:          []string{},
-			testRedefine:        false,
-			expectedPluginsList: []string{"monitoring-plugin", "nmstate-console-plugin"},
-			expectedError:       false,
-			expectedErrorText:   "",
+			name:            "empty plugins sets builder error",
+			plugins:         []string{},
+			expectedPlugins: defaultPluginsList,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "the newPluginsList can not be empty"
+			},
+		},
+		{
+			name:            "invalid builder short-circuits",
+			plugins:         []string{"test-new-plugin"},
+			expectedPlugins: defaultPluginsList,
+			assertError:     commonerrors.IsBuilderNameEmpty,
+			invalidBuilder:  true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidConsoleOperatorBuilder(buildConsoleOperatorClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithPlugins(testCase.testPlugin, testCase.testRedefine)
+			apiClient := buildConsoleOperatorClientWithDummyObject()
+			builder := buildValidConsoleOperatorBuilder(apiClient)
 
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			if testCase.invalidBuilder {
+				builder = buildInvalidConsoleOperatorBuilder(apiClient)
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.expectedPluginsList, result.Definition.Spec.Plugins)
-		}
+
+			result := builder.WithPlugins(testCase.plugins, testCase.redefine)
+
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+			assert.Equal(t, testCase.expectedPlugins, result.Definition.Spec.Plugins)
+		})
 	}
 }
 
-func buildValidConsoleOperatorBuilder(apiClient *clients.Settings) *ConsoleOperatorBuilder {
-	return newConsoleOperatorBuilder(apiClient, defaultConsoleOperatorName, defaultPluginsList)
+func TestConsoleOperatorUpdatePlugins(t *testing.T) {
+	t.Parallel()
+
+	builder, err := PullConsoleOperator(buildConsoleOperatorClientWithDummyObject(), defaultConsoleOperatorName)
+	require.NoError(t, err)
+
+	expectedPlugins := []string{"odf-console"}
+	builder.WithPlugins(expectedPlugins, true)
+	require.NoError(t, builder.GetError())
+
+	updatedBuilder, err := builder.Update()
+	require.NoError(t, err)
+	require.NotNil(t, updatedBuilder.Object)
+	assert.Equal(t, expectedPlugins, updatedBuilder.Object.Spec.Plugins)
 }
 
-func buildInValidConsoleOperatorBuilder(apiClient *clients.Settings) *ConsoleOperatorBuilder {
-	return newConsoleOperatorBuilder(apiClient, "", defaultPluginsList)
+func newConsoleOperatorCommonTestConfig() testhelper.CommonTestConfig[
+	operatorv1.Console, ConsoleOperatorBuilder, *operatorv1.Console, *ConsoleOperatorBuilder] {
+	return testhelper.NewCommonTestConfig[operatorv1.Console, ConsoleOperatorBuilder](
+		operatorv1.Install,
+		consoleOperatorGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
+}
+
+func buildValidConsoleOperatorBuilder(apiClient *clients.Settings) *ConsoleOperatorBuilder {
+	builder := common.NewClusterScopedBuilder[operatorv1.Console, ConsoleOperatorBuilder](
+		apiClient, operatorv1.Install, defaultConsoleOperatorName)
+	builder.Definition.Spec.Plugins = append([]string(nil), defaultPluginsList...)
+
+	return builder
+}
+
+func buildInvalidConsoleOperatorBuilder(apiClient *clients.Settings) *ConsoleOperatorBuilder {
+	builder := common.NewClusterScopedBuilder[operatorv1.Console, ConsoleOperatorBuilder](
+		apiClient, operatorv1.Install, "")
+	builder.Definition.Spec.Plugins = append([]string(nil), defaultPluginsList...)
+
+	return builder
 }
 
 func buildConsoleOperatorClientWithDummyObject() *clients.Settings {
+	return newConsoleOperatorTestClient(buildDummyConsoleOperator()...)
+}
+
+func newConsoleOperatorTestClient(objects ...runtime.Object) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: buildDummyConsoleOperator(),
-		GVK:            []schema.GroupVersionKind{consoleOperatorGVK},
+		K8sMockObjects:  objects,
+		SchemeAttachers: []clients.SchemeAttacher{operatorv1.Install},
 	})
 }
 
 func buildDummyConsoleOperator() []runtime.Object {
-	return append([]runtime.Object{}, &operatorv1.Console{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: defaultConsoleOperatorName,
-		},
-		Spec: operatorv1.ConsoleSpec{
-			Plugins: defaultPluginsList,
-		},
-	})
-}
-
-// newBuilder method creates new instance of builder (for the unit test propose only).
-func newConsoleOperatorBuilder(apiClient *clients.Settings, name string, pluginsList []string) *ConsoleOperatorBuilder {
-	klog.V(100).Infof("Initializing new ConsoleOperatorBuilder structure with the name: %s", name)
-
-	builder := &ConsoleOperatorBuilder{
-		apiClient: apiClient.Client,
-		Definition: &operatorv1.Console{
+	return []runtime.Object{
+		&operatorv1.Console{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:            name,
-				ResourceVersion: "999",
+				Name: defaultConsoleOperatorName,
 			},
 			Spec: operatorv1.ConsoleSpec{
-				Plugins: pluginsList,
+				Plugins: append([]string(nil), defaultPluginsList...),
 			},
 		},
 	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the consoleOperator is empty")
-
-		builder.errorMsg = "the consoleOperator 'name' cannot be empty"
-
-		return builder
-	}
-
-	if len(pluginsList) == 0 {
-		klog.V(100).Info("The pluginsList of the consoleOperator is empty")
-
-		builder.errorMsg = "the consoleOperator 'pluginsList' cannot be empty"
-
-		return builder
-	}
-
-	return builder
 }
