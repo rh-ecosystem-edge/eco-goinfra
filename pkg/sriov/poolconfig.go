@@ -1,10 +1,12 @@
 package sriov
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
@@ -13,8 +15,10 @@ import (
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	intstrutil "k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/wait"
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -330,6 +334,85 @@ func PullPoolConfig(apiClient *clients.Settings, name, nsname string) (*PoolConf
 	builder.Definition = builder.Object
 
 	return &builder, nil
+}
+
+// WaitUntilStable waits until timeout for a generation-fresh pool Ready=True,
+// with Progressing != True and Degraded != True (absent conditions are not True).
+func (builder *PoolConfigBuilder) WaitUntilStable(timeout time.Duration) error {
+	if valid, err := builder.validate(); !valid {
+		return err
+	}
+
+	klog.V(100).Infof("Waiting up to %s until SriovNetworkPoolConfig %s/%s is stable",
+		timeout, builder.Definition.Namespace, builder.Definition.Name)
+
+	return wait.PollUntilContextTimeout(
+		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+			pool, err := builder.Get()
+			if err != nil {
+				klog.V(100).Infof("Failed to get SriovNetworkPoolConfig %s/%s: %v",
+					builder.Definition.Namespace, builder.Definition.Name, err)
+
+				return false, nil
+			}
+
+			builder.Object = pool
+
+			return isPoolConfigStable(pool), nil
+		})
+}
+
+// WaitForCondition waits until timeout for a generation-fresh condition matching expected.
+// Zero fields are ignored; Message matches by substring.
+func (builder *PoolConfigBuilder) WaitForCondition(expected metav1.Condition, timeout time.Duration) error {
+	if valid, err := builder.validate(); !valid {
+		return err
+	}
+
+	klog.V(100).Infof("Waiting up to %s until SriovNetworkPoolConfig %s/%s has condition %v",
+		timeout, builder.Definition.Namespace, builder.Definition.Name, expected)
+
+	return wait.PollUntilContextTimeout(
+		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+			pool, err := builder.Get()
+			if err != nil {
+				klog.V(100).Infof("Failed to get SriovNetworkPoolConfig %s/%s: %v",
+					builder.Definition.Namespace, builder.Definition.Name, err)
+
+				return false, nil
+			}
+
+			builder.Object = pool
+
+			return conditionMatches(pool.Status.Conditions, pool.GetGeneration(), expected), nil
+		})
+}
+
+// GetCondition returns the named condition from the last fetched object, or nil if missing.
+func (builder *PoolConfigBuilder) GetCondition(conditionType string) *metav1.Condition {
+	if builder == nil || builder.Object == nil {
+		return nil
+	}
+
+	return meta.FindStatusCondition(builder.Object.Status.Conditions, conditionType)
+}
+
+// GetMatchedNodeCount returns status.matchedNodeCount from the last fetched object.
+func (builder *PoolConfigBuilder) GetMatchedNodeCount() *int32 {
+	if builder == nil || builder.Object == nil {
+		return nil
+	}
+
+	return builder.Object.Status.MatchedNodeCount
+}
+
+// GetReadyNodeCount returns status.readyNodeCount from the last fetched object.
+func (builder *PoolConfigBuilder) GetReadyNodeCount() *int32 {
+	if builder == nil || builder.Object == nil {
+		return nil
+	}
+
+	return builder.Object.Status.ReadyNodeCount
 }
 
 // validate will check that the builder and builder definition are properly initialized before
