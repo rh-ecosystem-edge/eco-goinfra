@@ -2,13 +2,16 @@ package lca
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	lcaipcv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ipchange/api/ipconfig/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -20,440 +23,584 @@ var (
 )
 
 func TestIPConfigWithOptions(t *testing.T) {
-	testBuilder := buildTestIPConfigBuilderWithFakeObjects()
+	t.Parallel()
 
-	testBuilder.WithOptions(func(builder *IPConfigBuilder) (*IPConfigBuilder, error) {
-		return builder, nil
-	})
-
-	assert.Equal(t, "", testBuilder.errorMsg)
-
-	testBuilder.WithOptions(func(builder *IPConfigBuilder) (*IPConfigBuilder, error) {
-		return builder, fmt.Errorf("error")
-	})
-
-	assert.Equal(t, "error", testBuilder.errorMsg)
+	testhelper.NewWithOptionsTestConfig(newIPConfigCommonTestConfig()).ExecuteTests(t)
 }
 
 func TestIPConfigPull(t *testing.T) {
-	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-		client              bool
-	}{
+	t.Parallel()
 
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			expectedError:       fmt.Errorf("the apiClient is nil"),
-			addToRuntimeObjects: true,
-			client:              false,
-		},
-		{
-			expectedError:       fmt.Errorf("ipconfig object ipconfig does not exist"),
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIPConfig := generateIPConfig()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIPConfig)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: lcaipcv1TestSchemes,
-			})
-		}
-
-		builderResult, err := PullIPConfig(testSettings)
-
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
-	}
+	testhelper.NewSingletonClusterScopedPullTestConfig(
+		PullIPConfig,
+		lcaipcv1.AddToScheme,
+		ipConfigGVK,
+		ipConfigName,
+	).ExecuteTests(t)
 }
 
 func TestIPConfigDelete(t *testing.T) {
-	testCases := []struct {
-		ipconfig      *IPConfigBuilder
-		expectedError error
-	}{
-		{
-			ipconfig:      buildValidIPConfigBuilder(buildIPConfigTestClientWithDummyObject([]runtime.Object{})),
-			expectedError: nil,
-		},
-		{
-			ipconfig: buildValidIPConfigBuilder(
-				buildIPConfigTestClientWithDummyObject(buildDummyIPConfigRuntime())),
-			expectedError: nil,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testIPConfigBuilder, err := testCase.ipconfig.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testIPConfigBuilder.Object)
-		}
-	}
+	testhelper.NewDeleteReturnerTestConfig(newIPConfigCommonTestConfig()).ExecuteTests(t)
 }
 
 func TestIPConfigUpdate(t *testing.T) {
-	testCases := []struct {
-		ipconfig      *IPConfigBuilder
-		expectedError string
-	}{
-		{
-			ipconfig: buildValidIPConfigBuilderWithStacks(
-				buildIPConfigTestClientWithDummyObject(buildIPConfigRuntimeWithResourceVersion())),
-			expectedError: "",
-		},
-		{
-			ipconfig: buildValidIPConfigBuilderWithStacks(
-				buildIPConfigTestClientWithDummyObject([]runtime.Object{})),
-			expectedError: "cannot update non-existing ipconfig",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testCase.ipconfig.WithIPv4Address("192.168.1.10")
-
-		updatedBuilder, err := testCase.ipconfig.Update()
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.NotNil(t, updatedBuilder.Object)
-			assert.Equal(t, updatedBuilder.Definition.Spec.IPv4.Address, updatedBuilder.Object.Spec.IPv4.Address)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
+	testhelper.NewUpdateTestConfig(newIPConfigCommonTestConfig()).ExecuteTests(t)
 }
 
 func TestIPConfigGet(t *testing.T) {
-	testCases := []struct {
-		ipconfig      *IPConfigBuilder
-		expectedError error
-	}{
-		{
-			ipconfig: buildValidIPConfigBuilder(
-				buildIPConfigTestClientWithDummyObject(buildDummyIPConfigRuntime())),
-			expectedError: nil,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testIPConfig, err := testCase.ipconfig.Get()
-		if err != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testIPConfig.Name, testCase.ipconfig.Definition.Name)
-		}
-	}
+	testhelper.NewGetTestConfig(newIPConfigCommonTestConfig()).ExecuteTests(t)
 }
 
 func TestIPConfigExists(t *testing.T) {
-	testCases := []struct {
-		ipconfig      *IPConfigBuilder
-		expectedExist bool
-	}{
-		{
-			ipconfig:      buildValidIPConfigBuilder(buildIPConfigTestClientWithDummyObject([]runtime.Object{})),
-			expectedExist: false,
-		},
-		{
-			ipconfig:      buildInValidIPConfigBuilder(buildIPConfigTestClientWithDummyObject([]runtime.Object{})),
-			expectedExist: false,
-		},
-		{
-			ipconfig: buildValidIPConfigBuilder(
-				buildIPConfigTestClientWithDummyObject(buildDummyIPConfigRuntime())),
-			expectedExist: true,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exist := testCase.ipconfig.Exists()
-		assert.Equal(t, testCase.expectedExist, exist)
-	}
+	testhelper.NewExistsTestConfig(newIPConfigCommonTestConfig()).ExecuteTests(t)
 }
 
 func TestIPConfigWithIPv4Address(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		ipv4Address string
-		expectedErr string
+		name           string
+		builder        *IPConfigBuilder
+		ipv4Address    string
+		expectedError  string
+		invalidBuilder bool
 	}{
 		{
+			name:        "sets valid IPv4 address",
+			builder:     buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
 			ipv4Address: "192.168.1.10",
-			expectedErr: "",
 		},
 		{
-			ipv4Address: "invalid",
-			expectedErr: "invalid IPv4 address argument invalid",
+			name:          "rejects invalid IPv4 address",
+			builder:       buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
+			ipv4Address:   "invalid",
+			expectedError: "invalid IPv4 address argument invalid",
+		},
+		{
+			name:           "invalid builder short circuits",
+			builder:        buildInvalidIPConfigBuilder(newIPConfigTestClient()),
+			ipv4Address:    "192.168.1.10",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidIPConfigBuilderWithStacks(
-			buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithIPv4Address(testCase.ipv4Address)
-		assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			result := testCase.builder.WithIPv4Address(testCase.ipv4Address)
+			require.Same(t, testCase.builder, result)
 
-		if testCase.expectedErr == "" {
-			assert.Equal(t, testCase.ipv4Address, testBuilder.Definition.Spec.IPv4.Address)
-		}
+			if testCase.invalidBuilder {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.ipv4Address, result.Definition.Spec.IPv4.Address)
+		})
 	}
 }
 
 func TestIPConfigWithIPv6Address(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		ipv6Address string
-		expectedErr string
+		name           string
+		builder        *IPConfigBuilder
+		ipv6Address    string
+		expectedError  string
+		invalidBuilder bool
 	}{
 		{
+			name:        "sets valid IPv6 address",
+			builder:     buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
 			ipv6Address: "2001:db8::1",
-			expectedErr: "",
 		},
 		{
-			ipv6Address: "invalid",
-			expectedErr: "invalid IPv6 argument invalid",
+			name:          "rejects invalid IPv6 address",
+			builder:       buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
+			ipv6Address:   "invalid",
+			expectedError: "invalid IPv6 argument invalid",
+		},
+		{
+			name:           "invalid builder short circuits",
+			builder:        buildInvalidIPConfigBuilder(newIPConfigTestClient()),
+			ipv6Address:    "2001:db8::1",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidIPConfigBuilderWithStacks(
-			buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithIPv6Address(testCase.ipv6Address)
-		assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			result := testCase.builder.WithIPv6Address(testCase.ipv6Address)
+			require.Same(t, testCase.builder, result)
 
-		if testCase.expectedErr == "" {
-			assert.Equal(t, testCase.ipv6Address, testBuilder.Definition.Spec.IPv6.Address)
-		}
+			if testCase.invalidBuilder {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.ipv6Address, result.Definition.Spec.IPv6.Address)
+		})
 	}
 }
 
 func TestIPConfigWithIPv4Gateway(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		ipv4Address string
-		expectedErr string
+		name           string
+		builder        *IPConfigBuilder
+		ipv4Address    string
+		expectedError  string
+		invalidBuilder bool
 	}{
 		{
+			name:        "sets valid IPv4 gateway",
+			builder:     buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
 			ipv4Address: "192.168.1.1",
-			expectedErr: "",
 		},
 		{
-			ipv4Address: "invalid",
-			expectedErr: "invalid IPv4 address argument invalid",
+			name:          "rejects invalid IPv4 gateway",
+			builder:       buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
+			ipv4Address:   "invalid",
+			expectedError: "invalid IPv4 address argument invalid",
+		},
+		{
+			name:           "invalid builder short circuits",
+			builder:        buildInvalidIPConfigBuilder(newIPConfigTestClient()),
+			ipv4Address:    "192.168.1.1",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidIPConfigBuilderWithStacks(
-			buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithIPv4Gateway(testCase.ipv4Address)
-		assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			result := testCase.builder.WithIPv4Gateway(testCase.ipv4Address)
+			require.Same(t, testCase.builder, result)
 
-		if testCase.expectedErr == "" {
-			assert.Equal(t, testCase.ipv4Address, testBuilder.Definition.Spec.IPv4.Gateway)
-		}
+			if testCase.invalidBuilder {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.ipv4Address, result.Definition.Spec.IPv4.Gateway)
+		})
 	}
 }
 
 func TestIPConfigWithIPv6Gateway(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		ipv6Address string
-		expectedErr string
+		name           string
+		builder        *IPConfigBuilder
+		ipv6Address    string
+		expectedError  string
+		invalidBuilder bool
 	}{
 		{
+			name:        "sets valid IPv6 gateway",
+			builder:     buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
 			ipv6Address: "2001:db8::1",
-			expectedErr: "",
 		},
 		{
-			ipv6Address: "invalid",
-			expectedErr: "invalid IPv6 argument invalid",
+			name:          "rejects invalid IPv6 gateway",
+			builder:       buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
+			ipv6Address:   "invalid",
+			expectedError: "invalid IPv6 argument invalid",
+		},
+		{
+			name:           "invalid builder short circuits",
+			builder:        buildInvalidIPConfigBuilder(newIPConfigTestClient()),
+			ipv6Address:    "2001:db8::1",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidIPConfigBuilderWithStacks(
-			buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithIPv6Gateway(testCase.ipv6Address)
-		assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			result := testCase.builder.WithIPv6Gateway(testCase.ipv6Address)
+			require.Same(t, testCase.builder, result)
 
-		if testCase.expectedErr == "" {
-			assert.Equal(t, testCase.ipv6Address, testBuilder.Definition.Spec.IPv6.Gateway)
-		}
+			if testCase.invalidBuilder {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.ipv6Address, result.Definition.Spec.IPv6.Gateway)
+		})
 	}
 }
 
 func TestIPConfigWithIPv4MachineNetwork(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name               string
+		builder            *IPConfigBuilder
 		ipv4MachineNetwork string
-		expectedErr        string
+		expectedError      string
+		invalidBuilder     bool
 	}{
 		{
+			name:               "sets valid IPv4 machine network",
+			builder:            buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
 			ipv4MachineNetwork: "192.168.1.0/24",
-			expectedErr:        "",
 		},
 		{
+			name:               "rejects invalid IPv4 machine network",
+			builder:            buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
 			ipv4MachineNetwork: "invalid",
-			expectedErr:        "invalid CIDR argument invalid",
+			expectedError:      "invalid CIDR argument invalid",
+		},
+		{
+			name:               "invalid builder short circuits",
+			builder:            buildInvalidIPConfigBuilder(newIPConfigTestClient()),
+			ipv4MachineNetwork: "192.168.1.0/24",
+			invalidBuilder:     true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidIPConfigBuilderWithStacks(
-			buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithIPv4MachineNetwork(testCase.ipv4MachineNetwork)
-		assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			result := testCase.builder.WithIPv4MachineNetwork(testCase.ipv4MachineNetwork)
+			require.Same(t, testCase.builder, result)
 
-		if testCase.expectedErr == "" {
-			assert.Equal(t, testCase.ipv4MachineNetwork, testBuilder.Definition.Spec.IPv4.MachineNetwork)
-		}
+			if testCase.invalidBuilder {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.ipv4MachineNetwork, result.Definition.Spec.IPv4.MachineNetwork)
+		})
 	}
 }
 
 func TestIPConfigWithIPv6MachineNetwork(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name               string
+		builder            *IPConfigBuilder
 		ipv6MachineNetwork string
-		expectedErr        string
+		expectedError      string
+		invalidBuilder     bool
 	}{
 		{
+			name:               "sets valid IPv6 machine network",
+			builder:            buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
 			ipv6MachineNetwork: "2001:db8::/64",
-			expectedErr:        "",
 		},
 		{
+			name:               "rejects invalid IPv6 machine network",
+			builder:            buildValidIPConfigBuilderWithStacks(newIPConfigTestClient()),
 			ipv6MachineNetwork: "invalid",
-			expectedErr:        "invalid CIDR argument invalid",
+			expectedError:      "invalid CIDR argument invalid",
+		},
+		{
+			name:               "invalid builder short circuits",
+			builder:            buildInvalidIPConfigBuilder(newIPConfigTestClient()),
+			ipv6MachineNetwork: "2001:db8::/64",
+			invalidBuilder:     true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidIPConfigBuilderWithStacks(
-			buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithIPv6MachineNetwork(testCase.ipv6MachineNetwork)
-		assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			result := testCase.builder.WithIPv6MachineNetwork(testCase.ipv6MachineNetwork)
+			require.Same(t, testCase.builder, result)
 
-		if testCase.expectedErr == "" {
-			assert.Equal(t, testCase.ipv6MachineNetwork, testBuilder.Definition.Spec.IPv6.MachineNetwork)
-		}
+			if testCase.invalidBuilder {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.ipv6MachineNetwork, result.Definition.Spec.IPv6.MachineNetwork)
+		})
 	}
 }
 
 func TestIPConfigWithStage(t *testing.T) {
-	testBuilder := buildValidIPConfigBuilder(buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+	t.Parallel()
 
-	testBuilder.WithStage(string(lcaipcv1.IPStages.Config))
-
-	assert.Equal(t, lcaipcv1.IPStages.Config, testBuilder.Definition.Spec.Stage)
-}
-
-func TestIPConfigWithVlanID(t *testing.T) {
 	testCases := []struct {
-		vlanID int
+		name           string
+		builder        *IPConfigBuilder
+		stage          string
+		invalidBuilder bool
 	}{
 		{
-			vlanID: 0,
+			name:    "sets stage",
+			builder: buildValidIPConfigBuilder(newIPConfigTestClient()),
+			stage:   string(lcaipcv1.IPStages.Config),
 		},
 		{
-			vlanID: 123,
+			name:           "invalid builder short circuits",
+			builder:        buildInvalidIPConfigBuilder(newIPConfigTestClient()),
+			stage:          string(lcaipcv1.IPStages.Config),
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidIPConfigBuilder(buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithVlanID(testCase.vlanID)
+			result := testCase.builder.WithStage(testCase.stage)
+			require.Same(t, testCase.builder, result)
 
-		assert.Equal(t, testCase.vlanID, testBuilder.Definition.Spec.VLANID)
+			if testCase.invalidBuilder {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, lcaipcv1.IPConfigStage(testCase.stage), result.Definition.Spec.Stage)
+		})
+	}
+}
+
+func TestIPConfigWithVlanID(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		builder        *IPConfigBuilder
+		vlanID         int
+		invalidBuilder bool
+	}{
+		{
+			name:    "sets zero VLAN ID",
+			builder: buildValidIPConfigBuilder(newIPConfigTestClient()),
+			vlanID:  0,
+		},
+		{
+			name:    "sets nonzero VLAN ID",
+			builder: buildValidIPConfigBuilder(newIPConfigTestClient()),
+			vlanID:  123,
+		},
+		{
+			name:           "invalid builder short circuits",
+			builder:        buildInvalidIPConfigBuilder(newIPConfigTestClient()),
+			vlanID:         123,
+			invalidBuilder: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := testCase.builder.WithVlanID(testCase.vlanID)
+			require.Same(t, testCase.builder, result)
+
+			if testCase.invalidBuilder {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.vlanID, result.Definition.Spec.VLANID)
+		})
 	}
 }
 
 func TestIPConfigWithAutoRollbackOnFailure(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		seconds int
+		name           string
+		builder        *IPConfigBuilder
+		seconds        int
+		invalidBuilder bool
 	}{
-		{seconds: 10},
-		{seconds: -1},
+		{
+			name:    "sets positive timeout",
+			builder: buildValidIPConfigBuilder(newIPConfigTestClient()),
+			seconds: 10,
+		},
+		{
+			name:    "sets negative timeout",
+			builder: buildValidIPConfigBuilder(newIPConfigTestClient()),
+			seconds: -1,
+		},
+		{
+			name:           "invalid builder short circuits",
+			builder:        buildInvalidIPConfigBuilder(newIPConfigTestClient()),
+			seconds:        10,
+			invalidBuilder: true,
+		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidIPConfigBuilder(buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
-		testBuilder.WithAutoRollbackOnFailure(testCase.seconds)
-		assert.NotNil(t, testBuilder.Definition.Spec.AutoRollbackOnFailure)
-		assert.Equal(t, testCase.seconds, testBuilder.Definition.Spec.AutoRollbackOnFailure.InitMonitorTimeoutSeconds)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := testCase.builder.WithAutoRollbackOnFailure(testCase.seconds)
+			require.Same(t, testCase.builder, result)
+
+			if testCase.invalidBuilder {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.AutoRollbackOnFailure)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.AutoRollbackOnFailure)
+			assert.Equal(t, testCase.seconds, result.Definition.Spec.AutoRollbackOnFailure.InitMonitorTimeoutSeconds)
+		})
 	}
 }
 
 func TestIPConfigWithDNS(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name               string
+		builder            *IPConfigBuilder
 		dnsServers         []string
-		expectedErr        string
+		expectedError      string
 		expectedDNSServers []lcaipcv1.IPAddress
+		invalidBuilder     bool
 	}{
 		{
+			name:               "sets DNS servers",
+			builder:            buildValidIPConfigBuilder(newIPConfigTestClient()),
 			dnsServers:         []string{"8.8.8.8", "1.1.1.1"},
-			expectedErr:        "",
 			expectedDNSServers: []lcaipcv1.IPAddress{"8.8.8.8", "1.1.1.1"},
 		},
 		{
-			dnsServers:  []string{},
-			expectedErr: "dns servers list cannot be empty",
+			name:          "rejects empty DNS server list",
+			builder:       buildValidIPConfigBuilder(newIPConfigTestClient()),
+			dnsServers:    []string{},
+			expectedError: "dns servers list cannot be empty",
 		},
 		{
-			dnsServers:  []string{" "},
-			expectedErr: "dns server cannot be empty",
+			name:          "rejects blank DNS server entry",
+			builder:       buildValidIPConfigBuilder(newIPConfigTestClient()),
+			dnsServers:    []string{" "},
+			expectedError: "dns server cannot be empty",
+		},
+		{
+			name:           "invalid builder short circuits",
+			builder:        buildInvalidIPConfigBuilder(newIPConfigTestClient()),
+			dnsServers:     []string{"8.8.8.8"},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidIPConfigBuilder(buildIPConfigTestClientWithDummyObject([]runtime.Object{}))
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithDNS(testCase.dnsServers)
-		assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
+			result := testCase.builder.WithDNS(testCase.dnsServers)
+			require.Same(t, testCase.builder, result)
 
-		if testCase.expectedErr == "" {
-			assert.Equal(t, testCase.expectedDNSServers, testBuilder.Definition.Spec.DNSServers)
-		}
+			if testCase.invalidBuilder {
+				require.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.expectedDNSServers, result.Definition.Spec.DNSServers)
+		})
 	}
 }
 
 func TestIPConfigWaitUntilComplete(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		expectedError error
 		status        lcaipcv1.IPConfigStatus
 	}{
 		{
+			name:          "times out before config completes",
 			expectedError: context.DeadlineExceeded,
 			status: lcaipcv1.IPConfigStatus{
 				Conditions: []metav1.Condition{{Status: "True1", Type: conditionTypeConfigCompleted, Reason: isComplete}},
 			},
 		},
 		{
-			expectedError: nil,
+			name: "returns when config completes",
 			status: lcaipcv1.IPConfigStatus{
 				Conditions: []metav1.Condition{{Status: isTrue, Type: conditionTypeConfigCompleted, Reason: isComplete}},
 			},
@@ -461,69 +608,85 @@ func TestIPConfigWaitUntilComplete(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testIPConfig := generateIPConfig()
-		testIPConfig.Status = testCase.status
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		var runtimeObjects []runtime.Object
+			testIPConfig := generateIPConfig()
+			testIPConfig.Status = testCase.status
 
-		runtimeObjects = append(runtimeObjects, testIPConfig)
+			testIPConfigBuilder := buildValidIPConfigBuilder(
+				buildIPConfigTestClientWithDummyObject([]runtime.Object{testIPConfig}))
+			_, err := testIPConfigBuilder.WaitUntilComplete(time.Millisecond * 100)
 
-		testIPConfigBuilder := buildValidIPConfigBuilder(
-			buildIPConfigTestClientWithDummyObject(runtimeObjects))
-		_, err := testIPConfigBuilder.WaitUntilComplete(time.Millisecond * 100)
-
-		assert.Equal(t, testCase.expectedError, err)
+			if testCase.expectedError == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, testCase.expectedError)
+			}
+		})
 	}
 }
 
 func TestIPConfigWaitUntilFailed(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		expectedError error
 		status        lcaipcv1.IPConfigStatus
 	}{
 		{
+			name:          "times out before config fails",
 			expectedError: context.DeadlineExceeded,
 			status: lcaipcv1.IPConfigStatus{
-				Conditions: []metav1.Condition{{Status: "False", Type: conditionTypeConfigCompleted, Reason: isComplete}},
+				Conditions: []metav1.Condition{{Status: isFalse, Type: conditionTypeConfigCompleted, Reason: isComplete}},
 			},
 		},
 		{
-			expectedError: nil,
+			name: "returns when config fails",
 			status: lcaipcv1.IPConfigStatus{
-				Conditions: []metav1.Condition{{Status: "False", Type: conditionTypeConfigCompleted, Reason: "Failed"}},
+				Conditions: []metav1.Condition{{Status: isFalse, Type: conditionTypeConfigCompleted, Reason: "Failed"}},
 			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		testIPConfig := generateIPConfig()
-		testIPConfig.Status = testCase.status
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		var runtimeObjects []runtime.Object
+			testIPConfig := generateIPConfig()
+			testIPConfig.Status = testCase.status
 
-		runtimeObjects = append(runtimeObjects, testIPConfig)
+			testIPConfigBuilder := buildValidIPConfigBuilder(
+				buildIPConfigTestClientWithDummyObject([]runtime.Object{testIPConfig}))
+			_, err := testIPConfigBuilder.WaitUntilFailed(time.Millisecond * 100)
 
-		testIPConfigBuilder := buildValidIPConfigBuilder(
-			buildIPConfigTestClientWithDummyObject(runtimeObjects))
-		_, err := testIPConfigBuilder.WaitUntilFailed(time.Millisecond * 100)
-
-		assert.Equal(t, testCase.expectedError, err)
+			if testCase.expectedError == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, testCase.expectedError)
+			}
+		})
 	}
 }
 
 func TestIPConfigWaitUntilIdle(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		expectedError error
 		status        lcaipcv1.IPConfigStatus
 	}{
 		{
+			name:          "times out before idle",
 			expectedError: context.DeadlineExceeded,
 			status: lcaipcv1.IPConfigStatus{
 				Conditions: []metav1.Condition{{Status: "True1", Type: idle, Reason: idle}},
 			},
 		},
 		{
-			expectedError: nil,
+			name: "returns when idle",
 			status: lcaipcv1.IPConfigStatus{
 				Conditions: []metav1.Condition{{Status: isTrue, Type: idle, Reason: idle}},
 			},
@@ -531,63 +694,58 @@ func TestIPConfigWaitUntilIdle(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testIPConfig := generateIPConfig()
-		testIPConfig.Status = testCase.status
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		var runtimeObjects []runtime.Object
+			testIPConfig := generateIPConfig()
+			testIPConfig.Status = testCase.status
 
-		runtimeObjects = append(runtimeObjects, testIPConfig)
+			testIPConfigBuilder := buildValidIPConfigBuilder(
+				buildIPConfigTestClientWithDummyObject([]runtime.Object{testIPConfig}))
+			_, err := testIPConfigBuilder.WaitUntilIdle(time.Millisecond * 100)
 
-		testIPConfigBuilder := buildValidIPConfigBuilder(
-			buildIPConfigTestClientWithDummyObject(runtimeObjects))
-		_, err := testIPConfigBuilder.WaitUntilIdle(time.Millisecond * 100)
-
-		assert.Equal(t, testCase.expectedError, err)
+			if testCase.expectedError == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, testCase.expectedError)
+			}
+		})
 	}
 }
 
-func buildTestIPConfigBuilderWithFakeObjects() *IPConfigBuilder {
-	apiClient := buildIPConfigTestClientWithDummyObject(buildDummyIPConfigRuntime())
-
-	return &IPConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &lcaipcv1.IPConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: ipConfigName,
-			},
-		},
-	}
+// newIPConfigCommonTestConfig returns the shared testhelper configuration for IPConfig builder tests.
+func newIPConfigCommonTestConfig() testhelper.CommonTestConfig[
+	lcaipcv1.IPConfig,
+	IPConfigBuilder,
+	*lcaipcv1.IPConfig,
+	*IPConfigBuilder,
+] {
+	return testhelper.NewCommonTestConfig[lcaipcv1.IPConfig, IPConfigBuilder](
+		lcaipcv1.AddToScheme,
+		ipConfigGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
 }
 
 func generateIPConfig() *lcaipcv1.IPConfig {
 	return &lcaipcv1.IPConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "ipconfig",
+			Name: ipConfigName,
 		},
 		Spec: lcaipcv1.IPConfigSpec{},
 	}
 }
 
 func buildValidIPConfigBuilder(apiClient *clients.Settings) *IPConfigBuilder {
-	return &IPConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &lcaipcv1.IPConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: ipConfigName,
-			},
-		},
-	}
+	return common.NewClusterScopedBuilder[lcaipcv1.IPConfig, IPConfigBuilder](
+		apiClient,
+		lcaipcv1.AddToScheme,
+		ipConfigName,
+	)
 }
 
 func buildValidIPConfigBuilderWithStacks(apiClient *clients.Settings) *IPConfigBuilder {
-	builder := &IPConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &lcaipcv1.IPConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: ipConfigName,
-			},
-		},
-	}
+	builder := buildValidIPConfigBuilder(apiClient)
 
 	builder.Definition.Spec.IPv4 = &lcaipcv1.IPv4Config{}
 	builder.Definition.Spec.IPv6 = &lcaipcv1.IPv6Config{}
@@ -595,38 +753,23 @@ func buildValidIPConfigBuilderWithStacks(apiClient *clients.Settings) *IPConfigB
 	return builder
 }
 
-func buildInValidIPConfigBuilder(apiClient *clients.Settings) *IPConfigBuilder {
-	return &IPConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &lcaipcv1.IPConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "",
-			},
-		}}
+func buildInvalidIPConfigBuilder(apiClient *clients.Settings) *IPConfigBuilder {
+	return common.NewClusterScopedBuilder[lcaipcv1.IPConfig, IPConfigBuilder](
+		apiClient,
+		lcaipcv1.AddToScheme,
+		"",
+	)
+}
+
+func newIPConfigTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: lcaipcv1TestSchemes,
+	})
 }
 
 func buildIPConfigTestClientWithDummyObject(objects []runtime.Object) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  objects,
 		SchemeAttachers: lcaipcv1TestSchemes,
-	})
-}
-
-func buildDummyIPConfigRuntime() []runtime.Object {
-	return append([]runtime.Object{}, &lcaipcv1.IPConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: ipConfigName,
-		},
-		Spec: lcaipcv1.IPConfigSpec{},
-	})
-}
-
-func buildIPConfigRuntimeWithResourceVersion() []runtime.Object {
-	return append([]runtime.Object{}, &lcaipcv1.IPConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            ipConfigName,
-			ResourceVersion: "1",
-		},
-		Spec: lcaipcv1.IPConfigSpec{},
 	})
 }
