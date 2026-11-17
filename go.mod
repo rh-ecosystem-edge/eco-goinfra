@@ -219,13 +219,25 @@ require (
 replace (
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
 	github.com/k8snetworkplumbingwg/ptp-operator => github.com/openshift/ptp-operator v0.0.0-20261023023103-cbe73c6129a9 // release-5.0
-	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20260923181747-4d6a7b26cbe2 // release-5.0
+	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20261110110630-2dc04db94a9d // release-5.1
 	// PTP declares legacy v0.0.1 versions that outrank its compatible timestamped releases.
 	github.com/openshift/api => github.com/openshift/api v0.0.0-20261015124049-70586205d5fa // release-5.0
 	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20261015075541-6446fecb0c88 // release-5.0
+	// sriov-network-operator 5.1 declares k8s 0.37 / controller-runtime 0.25.
+	// Keep eco-goinfra on the 5.0 pins; the wait helpers only need the 5.1 API types.
+	k8s.io/api => k8s.io/api v0.36.5
+	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.36.5
+	k8s.io/apimachinery => k8s.io/apimachinery v0.36.5
+	k8s.io/apiserver => k8s.io/apiserver v0.36.5
+	k8s.io/cli-runtime => k8s.io/cli-runtime v0.36.5
 	k8s.io/client-go => k8s.io/client-go v0.36.5
+	k8s.io/component-base => k8s.io/component-base v0.36.5
 	// The cluster-node-tuning-operator release-5.0 uses version k8s.io/kube-openapi v0.35.1, which does not exist.
 	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20260821135717-be32def86098 // master
+	k8s.io/kubectl => k8s.io/kubectl v0.36.5
+	k8s.io/kubelet => k8s.io/kubelet v0.36.5
+	k8s.io/streaming => k8s.io/streaming v0.36.5
+	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.24.1
 )
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
