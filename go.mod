@@ -33,8 +33,8 @@ require (
 	github.com/nmstate/kubernetes-nmstate/api v0.0.0-20261103102427-4719031e11cd
 	github.com/oapi-codegen/runtime v1.8.0
 	github.com/onsi/ginkgo/v2 v2.34.0
-	github.com/openshift-kni/cluster-group-upgrades-operator v0.0.0-20261105110240-c1eb317ad72e // release-5.0
-	github.com/openshift-kni/lifecycle-agent v0.0.0-20261105164035-5d711fea4f14 // release-5.0
+	github.com/openshift-kni/cluster-group-upgrades-operator v0.0.0-20261116192818-41f47e14d63b // release-5.0
+	github.com/openshift-kni/lifecycle-agent v0.0.0-20261116153159-e6c81fe3272d // release-5.0
 	github.com/openshift-kni/numaresources-operator v0.4.18-0.2024100201.0.20261105105914-b539a7601cd3 // release-5.0
 	github.com/openshift-kni/oran-o2ims v0.0.0-20260830032435-b07f1e92f54d // release-5.0, aligned with k8s v0.36
 	github.com/openshift/api v0.0.1
@@ -58,21 +58,21 @@ require (
 	gopkg.in/k8snetworkplumbingwg/multus-cni.v4 v4.3.1 // aligned with k8s v0.36
 	gopkg.in/yaml.v2 v2.4.0
 	gorm.io/gorm v1.31.2
-	k8s.io/api v0.36.5
-	k8s.io/apiextensions-apiserver v0.36.5
-	k8s.io/apimachinery v0.36.5
+	k8s.io/api v0.37.2
+	k8s.io/apiextensions-apiserver v0.37.2
+	k8s.io/apimachinery v0.37.2
 	k8s.io/client-go v12.0.0+incompatible
 	k8s.io/klog/v2 v2.140.0
-	k8s.io/kubectl v0.36.5
-	k8s.io/kubelet v0.36.5
-	k8s.io/streaming v0.36.5
+	k8s.io/kubectl v0.37.2
+	k8s.io/kubelet v0.37.2
+	k8s.io/streaming v0.37.2
 	k8s.io/utils v0.0.0-20261023123148-ca04ba58ecab
 	maistra.io/api v0.0.0-20240319144440-ffa91c765143
 	open-cluster-management.io/api v1.4.0
 	open-cluster-management.io/governance-policy-propagator v0.20.1
 	open-cluster-management.io/multicloud-operators-subscription v0.16.0
 	sigs.k8s.io/container-object-storage-interface-api v0.1.0
-	sigs.k8s.io/controller-runtime v0.24.1
+	sigs.k8s.io/controller-runtime v0.25.2
 	sigs.k8s.io/yaml v1.6.0
 )
 
@@ -91,12 +91,11 @@ require (
 	github.com/coreos/go-json v0.0.0-20230131223807-18775e0fb4fb // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
-	github.com/coreos/ignition/v2 v2.26.0 // indirect
+	github.com/coreos/ignition/v2 v2.28.0 // indirect
 	github.com/coreos/vcontext v0.0.0-20231102161604-685dc7299dc5 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dprotaso/go-yit v0.0.0-20240618133044-5a0af90af097 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
-	github.com/evanphx/json-patch v5.9.11+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/expr-lang/expr v1.17.8 // indirect
@@ -105,7 +104,7 @@ require (
 	github.com/getkin/kin-openapi v0.147.0 // indirect
 	github.com/ghodss/yaml v1.0.1-0.20220118164431-d8423dcdf344 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
 	github.com/go-openapi/analysis v1.0.1 // indirect
 	github.com/go-openapi/jsonpointer v1.0.2 // indirect
 	github.com/go-openapi/jsonreference v1.0.3 // indirect
@@ -126,7 +125,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
-	github.com/google/pprof v0.0.0-20260903180319-d6c3cb2f37ec // indirect
+	github.com/google/pprof v0.0.0-20260906184651-6331bc6350fe // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/grafana/regexp v0.0.0-20250905093917-f7b3be9d1853 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -193,7 +192,7 @@ require (
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
@@ -204,9 +203,9 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiserver v0.36.5 // indirect
-	k8s.io/cli-runtime v0.36.5 // indirect
-	k8s.io/component-base v0.36.5 // indirect
+	k8s.io/apiserver v0.37.2 // indirect
+	k8s.io/cli-runtime v0.37.2 // indirect
+	k8s.io/component-base v0.37.2 // indirect
 	k8s.io/klog v1.0.0 // indirect
 	k8s.io/kube-openapi v0.35.1 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
@@ -221,11 +220,11 @@ replace (
 	github.com/k8snetworkplumbingwg/ptp-operator => github.com/openshift/ptp-operator v0.0.0-20261023023103-cbe73c6129a9 // release-5.0
 	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20260923181747-4d6a7b26cbe2 // release-5.0
 	// PTP declares legacy v0.0.1 versions that outrank its compatible timestamped releases.
-	github.com/openshift/api => github.com/openshift/api v0.0.0-20261015124049-70586205d5fa // release-5.0
+	github.com/openshift/api => github.com/openshift/api v0.0.0-20261017003925-24b2699a9b32 // release-5.0
 	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20261015075541-6446fecb0c88 // release-5.0
-	k8s.io/client-go => k8s.io/client-go v0.36.5
-	// The cluster-node-tuning-operator release-5.0 uses version k8s.io/kube-openapi v0.35.1, which does not exist.
-	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20260821135717-be32def86098 // master
+	k8s.io/client-go => k8s.io/client-go v0.37.2
+	// The cluster-node-tuning-operator release-5.0 uses version k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad, which does not exist.
+	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // master
 )
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen

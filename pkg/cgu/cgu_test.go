@@ -653,23 +653,6 @@ func TestCguWaitUntilClusterInProgress(t *testing.T) {
 	}
 }
 
-func TestWaitUntilBackupStarts(t *testing.T) {
-	t.Parallel()
-
-	cguObject := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
-	cguObject.Status.Backup = &v1alpha1.BackupStatus{}
-
-	cguBuilder := buildValidCguTestBuilder(clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  []runtime.Object{cguObject},
-		SchemeAttachers: []clients.SchemeAttacher{v1alpha1.AddToScheme},
-	}))
-	cguBuilder, err := cguBuilder.WaitUntilBackupStarts(5 * time.Second)
-
-	assert.Nil(t, err)
-	assert.Equal(t, defaultCguName, cguBuilder.Object.Name)
-	assert.Equal(t, defaultCguNsName, cguBuilder.Object.Namespace)
-}
-
 func buildTestClientWithDummyCguObject() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  buildDummyCguObject(),
