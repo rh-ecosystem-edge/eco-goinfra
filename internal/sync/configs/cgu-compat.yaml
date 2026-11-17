@@ -1,0 +1,12 @@
+---
+- name: cluster-group-upgrades-compat
+  sync: true
+  repo_link: "https://github.com/openshift-kni/cluster-group-upgrades-operator"
+  branch: release-5.0
+  remote_api_directory: pkg/api/clustergroupupgrades
+  local_api_directory: schemes/cgu/clustergroupupgrades
+  replace_imports:
+    - old: '"github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/clustergroupupgrades"'
+      new: '"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/cgu/clustergroupupgrades"'
+  excludes:
+    - "*_test.go"

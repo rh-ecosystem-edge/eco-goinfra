@@ -33,8 +33,8 @@ require (
 	github.com/nmstate/kubernetes-nmstate/api v0.0.0-20261103102427-4719031e11cd
 	github.com/oapi-codegen/runtime v1.8.0
 	github.com/onsi/ginkgo/v2 v2.34.0
-	github.com/openshift-kni/cluster-group-upgrades-operator v0.0.0-20261116192818-41f47e14d63b // release-5.0
-	github.com/openshift-kni/lifecycle-agent v0.0.0-20261116153159-e6c81fe3272d // release-5.0
+	github.com/openshift-kni/cluster-group-upgrades-operator v0.0.0-20261116192818-41f47e14d63b // main
+	github.com/openshift-kni/lifecycle-agent v0.0.0-20261116153159-e6c81fe3272d // main
 	github.com/openshift-kni/numaresources-operator v0.4.18-0.2024100201.0.20261105105914-b539a7601cd3 // release-5.0
 	github.com/openshift-kni/oran-o2ims v0.0.0-20260830032435-b07f1e92f54d // release-5.0, aligned with k8s v0.36
 	github.com/openshift/api v0.0.1

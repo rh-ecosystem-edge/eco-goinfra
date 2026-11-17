@@ -464,8 +464,6 @@ github.com/onsi/ginkgo/v2/reporters
 github.com/onsi/ginkgo/v2/types
 # github.com/openshift-kni/cluster-group-upgrades-operator v0.0.0-20261116192818-41f47e14d63b
 ## explicit; go 1.26.3
-github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/clustergroupupgrades
-github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/clustergroupupgrades/v1alpha1
 github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/imagebasedgroupupgrades
 github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/imagebasedgroupupgrades/v1alpha1
 # github.com/openshift-kni/lifecycle-agent v0.0.0-20261116153159-e6c81fe3272d

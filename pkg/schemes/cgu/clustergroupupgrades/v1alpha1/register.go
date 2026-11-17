@@ -1,7 +1,7 @@
 package v1alpha1
 
 import (
-	"github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/clustergroupupgrades"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/cgu/clustergroupupgrades"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"

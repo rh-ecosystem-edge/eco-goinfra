@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/clustergroupupgrades/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/cgu/clustergroupupgrades/v1alpha1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -322,4 +322,43 @@ func (builder *CguBuilder) WaitUntilClusterComplete(cluster string, timeout time
 // WaitUntilClusterInProgress waits the specified timeout for a cluster in the CGU to start remidation.
 func (builder *CguBuilder) WaitUntilClusterInProgress(cluster string, timeout time.Duration) (*CguBuilder, error) {
 	return builder.WaitUntilClusterInState(cluster, v1alpha1.InProgress, timeout)
+}
+
+// WaitUntilBackupStarts waits the specified timeout for the backup to start.
+func (builder *CguBuilder) WaitUntilBackupStarts(timeout time.Duration) (*CguBuilder, error) {
+	if err := common.Validate(builder); err != nil {
+		return builder, err
+	}
+
+	klog.V(100).Infof(
+		"Waiting for CGU %s in namespace %s to start backup", builder.Definition.Name, builder.Definition.Namespace)
+
+	if !builder.Exists() {
+		klog.V(100).Info("The CGU does not exist on the cluster")
+
+		return builder, errCguObjectNotExists(builder.Definition.Name, builder.Definition.Namespace)
+	}
+
+	var err error
+
+	err = wait.PollUntilContextTimeout(context.TODO(), 3*time.Second, timeout, true, func(context.Context) (bool, error) {
+		builder.Object, err = builder.Get()
+		if err != nil {
+			klog.V(100).Infof(
+				"Failed to get CGU %s in namespace %s due to: %v", builder.Definition.Name, builder.Definition.Namespace, err)
+
+			return false, nil
+		}
+
+		return builder.Object.Status.Backup != nil, nil
+	})
+	if err == nil {
+		return builder, nil
+	}
+
+	klog.V(100).Infof(
+		"Failed to wait for CGU %s in namespace %s to start backup due to: %v",
+		builder.Definition.Name, builder.Definition.Namespace, err)
+
+	return nil, err
 }

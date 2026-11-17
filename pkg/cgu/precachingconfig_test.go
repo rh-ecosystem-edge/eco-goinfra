@@ -1,11 +1,10 @@
-//nolint:staticcheck
 package cgu
 
 import (
 	"testing"
 
-	"github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/clustergroupupgrades/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/cgu/clustergroupupgrades/v1alpha1"
 )
 
 var preCachingConfigGVK = v1alpha1.SchemeGroupVersion.WithKind("PreCachingConfig")

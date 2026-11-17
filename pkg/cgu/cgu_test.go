@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openshift-kni/cluster-group-upgrades-operator/pkg/api/clustergroupupgrades/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/cgu/clustergroupupgrades/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -651,6 +651,23 @@ func TestCguWaitUntilClusterInProgress(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWaitUntilBackupStarts(t *testing.T) {
+	t.Parallel()
+
+	cguObject := buildDummyCgu(defaultCguName, defaultCguNsName, defaultCguMaxConcurrency)
+	cguObject.Status.Backup = &v1alpha1.BackupStatus{}
+
+	cguBuilder := buildValidCguTestBuilder(clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects:  []runtime.Object{cguObject},
+		SchemeAttachers: []clients.SchemeAttacher{v1alpha1.AddToScheme},
+	}))
+	cguBuilder, err := cguBuilder.WaitUntilBackupStarts(5 * time.Second)
+
+	assert.Nil(t, err)
+	assert.Equal(t, defaultCguName, cguBuilder.Object.Name)
+	assert.Equal(t, defaultCguNsName, cguBuilder.Object.Namespace)
 }
 
 func buildTestClientWithDummyCguObject() *clients.Settings {
