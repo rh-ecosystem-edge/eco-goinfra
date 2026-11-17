@@ -223,8 +223,12 @@ replace (
 	github.com/openshift/api => github.com/openshift/api v0.0.0-20261017003925-24b2699a9b32 // release-5.0
 	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20261015075541-6446fecb0c88 // release-5.0
 	k8s.io/client-go => k8s.io/client-go v0.37.2
-	// The cluster-node-tuning-operator release-5.0 uses version k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad, which does not exist.
-	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // master
+	// cluster-node-tuning-operator release-5.0 requires k8s.io/kube-openapi v0.35.1, a tag that was
+	// never published upstream; the operator's own replace directive is not applied transitively, so
+	// repeat it here. The target is the newest version required by anything else in our module graph
+	// (kedacore/keda v2.21.0), which is the k8s v0.37.2 pin plus the OpenAPI "byte" base64 fix.
+	// Delete this once cluster-node-tuning-operator requires a published version.
+	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20260821135717-be32def86098 // master
 )
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen

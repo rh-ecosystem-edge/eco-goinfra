@@ -1,4 +1,16 @@
 ---
+# Frozen release-5.0 copy of the CGU API types, kept only for the
+# ClusterGroupUpgrade Spec.Backup and Status.Backup fields that upstream main
+# removed. eco-gotests still sets Spec.Backup and reads Status.Backup in
+# tests/cnf/ran/talm/tests/talm-backup.go, and pkg/cgu exposes
+# WaitUntilBackupStarts on top of Status.Backup, so pkg/cgu imports this synced
+# copy while pkg/ibgu keeps using the upstream main module. Sync stays enabled
+# so the copy tracks release-5.0, the CGU release those tests run against.
+#
+# make lib-sync overwrites every Go file under this directory, so record
+# rationale here rather than in the synced sources. Delete this entry, the
+# pkg/schemes/cgu package, and the import rewrites in pkg/cgu once the TALM
+# backup tests no longer use Spec.Backup/Status.Backup.
 - name: cluster-group-upgrades-compat
   sync: true
   repo_link: "https://github.com/openshift-kni/cluster-group-upgrades-operator"
