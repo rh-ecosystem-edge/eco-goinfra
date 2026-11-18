@@ -63,5 +63,7 @@ jobs:
         with:
           # Configure action using config file (option 1)
           config: ./.testcoverage.yml
-          git-token: ${{ github.ref_name == 'main' && secrets.GITHUB_TOKEN || '' }}
+          # Only the upstream repo publishes the coverage badge. Forks have no
+          # badges branch and a read-only token, so skip the push there.
+          git-token: ${{ github.repository_owner == 'rh-ecosystem-edge' && github.ref_name == 'main' && secrets.GITHUB_TOKEN || '' }}
           git-branch: badges
