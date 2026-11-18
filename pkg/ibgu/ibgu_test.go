@@ -177,6 +177,42 @@ func TestIbguWithOadpContent(t *testing.T) {
 	}
 }
 
+func TestIbguWithBackupContent(t *testing.T) {
+	testCases := []struct {
+		names         []string
+		expectedError string
+	}{
+		{
+			names:         []string{"acm-klusterlet", "target-logging"},
+			expectedError: "",
+		},
+		{
+			names:         []string{},
+			expectedError: "backup content names cannot be empty",
+		},
+		{
+			names:         []string{""},
+			expectedError: "backup content names cannot contain empty names",
+		},
+		{
+			names:         []string{"acm-klusterlet", ""},
+			expectedError: "backup content names cannot contain empty names",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testBuilder := generateValidIbguBuilder(clients.GetTestClients(clients.TestClientParams{}))
+
+		testBuilder.WithBackupContent(testCase.names)
+		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+
+		if testCase.expectedError == "" {
+			assert.Equal(t, testCase.names[0], testBuilder.Definition.Spec.IBUSpec.BackupContent[0].Name)
+			assert.Equal(t, testCase.names[1], testBuilder.Definition.Spec.IBUSpec.BackupContent[1].Name)
+		}
+	}
+}
+
 func TestIbguWithPlan(t *testing.T) {
 	testCases := []struct {
 		actions        []string
