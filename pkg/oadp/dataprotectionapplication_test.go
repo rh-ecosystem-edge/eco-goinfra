@@ -5,583 +5,211 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	oadpv1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/oadp/api/v1alpha1"
 	velerov1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/oadp/velero/api/v1"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"github.com/stretchr/testify/require"
+	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var testSchemes = []clients.SchemeAttacher{
-	oadpv1alpha1.AddToScheme,
-}
+const testDataProtectionApplication = "test-dataprotectionapplication"
 
-const (
-	testDataProtectionApplication = "test-dataprotectionapplication"
-)
-
-//nolint:funlen
 func TestNewDPABuilder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
+
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *DPABuilder {
+				return NewDPABuilder(apiClient, name, nsname, buildTestApplicationConfig())
+			},
+			oadpv1alpha1.AddToScheme,
+			dataProtectionApplicationGVK,
+		).ExecuteTests(t)
+	})
+
 	testCases := []struct {
 		name          string
-		namespace     string
 		config        oadpv1alpha1.ApplicationConfig
-		client        bool
-		expectedError string
-	}{
-		{
-			name:      testDataProtectionApplication,
-			namespace: testDataProtectionApplication,
-			config: oadpv1alpha1.ApplicationConfig{
-				Velero: &oadpv1alpha1.VeleroConfig{
-					DefaultPlugins: []oadpv1alpha1.DefaultPlugin{
-						oadpv1alpha1.DefaultPluginAWS,
-						oadpv1alpha1.DefaultPluginOpenShift,
-					},
-					ResourceTimeout: "10m",
-				},
-			},
-			client:        true,
-			expectedError: "",
-		},
-		{
-			name:      "",
-			namespace: testDataProtectionApplication,
-			config: oadpv1alpha1.ApplicationConfig{
-				Velero: &oadpv1alpha1.VeleroConfig{
-					DefaultPlugins: []oadpv1alpha1.DefaultPlugin{
-						oadpv1alpha1.DefaultPluginAWS,
-						oadpv1alpha1.DefaultPluginOpenShift,
-					},
-					ResourceTimeout: "10m",
-				},
-			},
-			client:        true,
-			expectedError: "dataprotectionapplication 'name' cannot be empty",
-		},
-		{
-			name:      testDataProtectionApplication,
-			namespace: "",
-			config: oadpv1alpha1.ApplicationConfig{
-				Velero: &oadpv1alpha1.VeleroConfig{
-					DefaultPlugins: []oadpv1alpha1.DefaultPlugin{
-						oadpv1alpha1.DefaultPluginAWS,
-						oadpv1alpha1.DefaultPluginOpenShift,
-					},
-					ResourceTimeout: "10m",
-				},
-			},
-			client:        true,
-			expectedError: "dataprotectionapplication 'namespace' cannot be empty",
-		},
-		{
-			name:          testDataProtectionApplication,
-			namespace:     testDataProtectionApplication,
-			config:        oadpv1alpha1.ApplicationConfig{},
-			client:        true,
-			expectedError: "dataprotectionapplication velero config cannot be empty",
-		},
-		{
-			name:      testDataProtectionApplication,
-			namespace: testDataProtectionApplication,
-			config: oadpv1alpha1.ApplicationConfig{
-				Velero: &oadpv1alpha1.VeleroConfig{
-					DefaultPlugins: []oadpv1alpha1.DefaultPlugin{
-						oadpv1alpha1.DefaultPluginAWS,
-						oadpv1alpha1.DefaultPluginOpenShift,
-					},
-					ResourceTimeout: "10m",
-				},
-			},
-			client:        false,
-			expectedError: "",
-		},
-	}
-
-	for _, testcase := range testCases {
-		var testSettings *clients.Settings
-		if testcase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
-
-		testBuilder := NewDPABuilder(
-			testSettings, testcase.name, testcase.namespace, testcase.config)
-
-		if testcase.client {
-			assert.NotNil(t, testBuilder)
-			assert.Equal(t, testcase.expectedError, testBuilder.errorMsg)
-			assert.Equal(t, testcase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testcase.namespace, testBuilder.Definition.Namespace)
-			assert.Equal(t, testcase.config, *testBuilder.Definition.Spec.Configuration)
-		} else {
-			assert.Nil(t, testBuilder)
-		}
-	}
-}
-
-//nolint:lll
-func TestPullDPA(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		client        bool
-		exists        bool
 		expectedError error
 	}{
 		{
-			name:          testDataProtectionApplication,
-			namespace:     testDataProtectionApplication,
-			client:        true,
-			exists:        true,
+			name:          "valid velero config",
+			config:        buildTestApplicationConfig(),
 			expectedError: nil,
 		},
 		{
-			name:          "",
-			namespace:     testDataProtectionApplication,
-			client:        true,
-			exists:        true,
-			expectedError: fmt.Errorf("dataprotectionapplication 'name' cannot be empty"),
-		},
-		{
-			name:          testDataProtectionApplication,
-			namespace:     "",
-			client:        true,
-			exists:        true,
-			expectedError: fmt.Errorf("dataprotectionapplication 'namespace' cannot be empty"),
-		},
-		{
-			name:          testDataProtectionApplication,
-			namespace:     testDataProtectionApplication,
-			client:        false,
-			exists:        true,
-			expectedError: fmt.Errorf("the apiClient is nil"),
-		},
-		{
-			name:          testDataProtectionApplication,
-			namespace:     testDataProtectionApplication,
-			client:        true,
-			exists:        false,
-			expectedError: fmt.Errorf("dataprotectionapplication object test-dataprotectionapplication does not exist in namespace test-dataprotectionapplication"),
+			name:          "empty velero config",
+			config:        oadpv1alpha1.ApplicationConfig{},
+			expectedError: fmt.Errorf("dataprotectionapplication velero config cannot be empty"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateDataProtectionApplication())
-		}
+			testBuilder := NewDPABuilder(
+				clients.GetTestClients(clients.TestClientParams{}),
+				testDataProtectionApplication,
+				testDataProtectionApplication,
+				testCase.config,
+			)
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(
-				clients.TestClientParams{K8sMockObjects: runtimeObjects, SchemeAttachers: testSchemes})
-		}
+			assert.Equal(t, testCase.expectedError, testBuilder.GetError())
 
-		testBuilder, err := PullDPA(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.Nil(t, testBuilder)
-		} else {
-			assert.Equal(t, testCase.name, testBuilder.Object.Name)
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testBuilder.Object.Namespace)
-			assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-		}
+			if testCase.expectedError == nil {
+				require.NotNil(t, testBuilder.Definition.Spec.Configuration)
+				assert.Equal(t, testCase.config, *testBuilder.Definition.Spec.Configuration)
+			}
+		})
 	}
+}
+
+func TestPullDPA(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig(
+		PullDPA, oadpv1alpha1.AddToScheme, dataProtectionApplicationGVK).ExecuteTests(t)
 }
 
 func TestListDataProtectionApplication(t *testing.T) {
-	testCases := []struct {
-		namespace     string
-		exists        bool
-		client        bool
-		count         int
-		expectedError error
-	}{
-		{
-			namespace:     testDataProtectionApplication,
-			exists:        true,
-			client:        true,
-			count:         1,
-			expectedError: nil,
-		},
-		{
-			namespace:     "",
-			exists:        true,
-			client:        true,
-			count:         1,
-			expectedError: fmt.Errorf("failed to list dataprotectionapplications, 'nsname' parameter is empty"),
-		},
-		{
-			namespace:     testDataProtectionApplication,
-			exists:        false,
-			client:        true,
-			count:         0,
-			expectedError: nil,
-		},
-		{
-			namespace:     testDataProtectionApplication,
-			exists:        true,
-			client:        false,
-			count:         1,
-			expectedError: fmt.Errorf("the apiClient is nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testClient     *clients.Settings
-		)
+	testhelper.NewNamespacedListTestConfig(
+		ListDataProtectionApplication, oadpv1alpha1.AddToScheme, dataProtectionApplicationGVK).ExecuteTests(t)
+}
 
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateDataProtectionApplication())
-		}
+func TestListDataProtectionApplicationWithMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		if testCase.client {
-			testClient = clients.GetTestClients(clients.TestClientParams{K8sMockObjects: runtimeObjects,
-				SchemeAttachers: testSchemes})
-		}
+	_, err := ListDataProtectionApplication(
+		clients.GetTestClients(clients.TestClientParams{}),
+		testDataProtectionApplication,
+		runtimeClient.ListOptions{},
+		runtimeClient.ListOptions{},
+	)
 
-		testBuilders, err := ListDataProtectionApplication(testClient, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
+	assert.EqualError(t, err, "error: more than one ListOptions was passed")
+}
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.count, len(testBuilders))
-		}
-	}
+func TestDPABuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[oadpv1alpha1.DataProtectionApplication, DPABuilder](
+		oadpv1alpha1.AddToScheme,
+		dataProtectionApplicationGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestDPAWithBackupLocation(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name           string
 		backupLocation oadpv1alpha1.BackupLocation
-		expectError    string
+		validBuilder   bool
+		expectedError  error
 	}{
 		{
-			backupLocation: oadpv1alpha1.BackupLocation{
-				Velero: &velerov1.BackupStorageLocationSpec{
-					Provider: "aws",
-					StorageType: velerov1.StorageType{
-						ObjectStorage: &velerov1.ObjectStorageLocation{
-							Bucket: "test-bucket",
-							Prefix: "backup",
-						},
-					},
-					Config: map[string]string{
-						"insecureSkipTLSVerify": "true",
-						"s3Url":                 "http://example.com/",
-					},
-				},
-			},
-			expectError: "",
+			name:           "valid backup location",
+			backupLocation: buildTestBackupLocation(),
+			validBuilder:   true,
+			expectedError:  nil,
 		},
 		{
+			name:           "empty velero config",
 			backupLocation: oadpv1alpha1.BackupLocation{},
-			expectError:    "dataprotectionapplication backuplocation cannot have empty velero config",
+			validBuilder:   true,
+			expectedError: fmt.Errorf(
+				"dataprotectionapplication backuplocation cannot have empty velero config"),
+		},
+		{
+			name:           "invalid builder",
+			backupLocation: buildTestBackupLocation(),
+			validBuilder:   false,
+			expectedError:  nil,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateDPABuilder()
-		testBuilder.WithBackupLocation(testCase.backupLocation)
-		assert.Equal(t, testCase.expectError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectError == "" {
-			assert.Equal(t, testCase.backupLocation, testBuilder.Definition.Spec.BackupLocations[0])
-		}
-	}
-}
+			apiClient := clients.GetTestClients(clients.TestClientParams{})
 
-func TestDPAGet(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError string
-	}{
-		{
-			exists:        true,
-			expectedError: "",
-		},
-		{
-			exists: false,
-			expectedError: fmt.Sprintf("dataprotectionapplications.oadp.openshift.io \"%s\" not found",
-				testDataProtectionApplication),
-		},
-	}
+			var testBuilder *DPABuilder
+			if testCase.validBuilder {
+				testBuilder = buildValidDPATestBuilder(apiClient)
+			} else {
+				testBuilder = buildInvalidDPATestBuilder(apiClient)
+			}
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+			testBuilder = testBuilder.WithBackupLocation(testCase.backupLocation)
 
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateDataProtectionApplication())
-		}
+			if !testCase.validBuilder {
+				require.Error(t, testBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
 
-		testBuilder := buildTestDPABuilderWithFakeObjects(runtimeObjects)
+				return
+			}
 
-		aci, err := testBuilder.Get()
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.NotNil(t, aci)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.Nil(t, aci)
-		}
-	}
-}
+			assert.Equal(t, testCase.expectedError, testBuilder.GetError())
 
-func TestDPAExists(t *testing.T) {
-	testCases := []struct {
-		exists bool
-	}{
-		{
-			exists: true,
-		},
-		{
-			exists: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateDataProtectionApplication())
-		}
-
-		testBuilder := buildTestDPABuilderWithFakeObjects(runtimeObjects)
-
-		assert.Equal(t, testCase.exists, testBuilder.Exists())
-	}
-}
-
-func TestDPACreate(t *testing.T) {
-	testCases := []struct {
-		exists bool
-	}{
-		{
-			exists: true,
-		},
-		{
-			exists: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateDataProtectionApplication())
-		}
-
-		testBuilder := buildTestDPABuilderWithFakeObjects(runtimeObjects)
-
-		result, err := testBuilder.Create()
-		assert.Nil(t, err)
-		assert.NotNil(t, result)
-		assert.Equal(t, testDataProtectionApplication, result.Definition.Name)
-		assert.Equal(t, testDataProtectionApplication, result.Definition.Namespace)
-	}
-}
-
-func TestDPAUpdate(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError error
-	}{
-		{
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			exists:        false,
-			expectedError: fmt.Errorf("failed to update dataprotectionapplication, object does not exist on cluster"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateDataProtectionApplication())
-		}
-
-		testBuilder := buildTestDPABuilderWithFakeObjects(runtimeObjects)
-
-		True := true
-		testBuilder.Definition.Spec.BackupImages = &True
-
-		dpa, err := testBuilder.Update(true)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, &True, dpa.Object.Spec.BackupImages)
-		}
-	}
-}
-
-func TestDPADelete(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError error
-	}{
-		{
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			exists:        false,
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateDataProtectionApplication())
-		}
-
-		testBuilder := buildTestDPABuilderWithFakeObjects(runtimeObjects)
-
-		err := testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testBuilder.Object)
-		}
-	}
-}
-
-func TestDPAValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		expectedError string
-	}{
-		{
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "error: received nil DataProtectionApplication builder",
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: "can not redefine the undefined DataProtectionApplication",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: "DataProtectionApplication builder cannot have nil apiClient",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildTestDPABuilderWithFakeObjects([]runtime.Object{})
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		result, err := testBuilder.validate()
-		if testCase.expectedError != "" {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.False(t, result)
-		} else {
-			assert.Nil(t, err)
-			assert.True(t, result)
-		}
-	}
-}
-
-func buildTestDPABuilderWithFakeObjects(objects []runtime.Object) *DPABuilder {
-	testClient := clients.GetTestClients(
-		clients.TestClientParams{K8sMockObjects: objects, SchemeAttachers: testSchemes})
-
-	testBuilder := NewDPABuilder(
-		testClient, testDataProtectionApplication, testDataProtectionApplication, oadpv1alpha1.ApplicationConfig{
-			Velero: &oadpv1alpha1.VeleroConfig{
-				DefaultPlugins: []oadpv1alpha1.DefaultPlugin{
-					oadpv1alpha1.DefaultPluginAWS,
-					oadpv1alpha1.DefaultPluginOpenShift,
-				},
-				ResourceTimeout: "10m",
-			},
+			if testCase.expectedError == nil {
+				require.Len(t, testBuilder.Definition.Spec.BackupLocations, 1)
+				assert.Equal(t, testCase.backupLocation, testBuilder.Definition.Spec.BackupLocations[0])
+			}
 		})
-
-	return testBuilder
-}
-
-func generateDPABuilder() *DPABuilder {
-	return &DPABuilder{
-		apiClient:  clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes}).Client,
-		Definition: generateDataProtectionApplication(),
 	}
 }
 
-func generateDataProtectionApplication() *oadpv1alpha1.DataProtectionApplication {
-	return &oadpv1alpha1.DataProtectionApplication{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      testDataProtectionApplication,
-			Namespace: testDataProtectionApplication,
+func buildValidDPATestBuilder(apiClient *clients.Settings) *DPABuilder {
+	return NewDPABuilder(apiClient, testDataProtectionApplication, testDataProtectionApplication,
+		buildTestApplicationConfig())
+}
+
+func buildInvalidDPATestBuilder(apiClient *clients.Settings) *DPABuilder {
+	return NewDPABuilder(apiClient, testDataProtectionApplication, "", buildTestApplicationConfig())
+}
+
+func buildTestApplicationConfig() oadpv1alpha1.ApplicationConfig {
+	return oadpv1alpha1.ApplicationConfig{
+		Velero: &oadpv1alpha1.VeleroConfig{
+			DefaultPlugins: []oadpv1alpha1.DefaultPlugin{
+				oadpv1alpha1.DefaultPluginAWS,
+				oadpv1alpha1.DefaultPluginOpenShift,
+			},
+			ResourceTimeout: "10m",
 		},
-		Spec: oadpv1alpha1.DataProtectionApplicationSpec{
-			Configuration: &oadpv1alpha1.ApplicationConfig{
-				Velero: &oadpv1alpha1.VeleroConfig{
-					DefaultPlugins: []oadpv1alpha1.DefaultPlugin{
-						oadpv1alpha1.DefaultPluginAWS,
-						oadpv1alpha1.DefaultPluginOpenShift,
-					},
-					ResourceTimeout: "10m",
+	}
+}
+
+func buildTestBackupLocation() oadpv1alpha1.BackupLocation {
+	return oadpv1alpha1.BackupLocation{
+		Velero: &velerov1.BackupStorageLocationSpec{
+			Provider: "aws",
+			StorageType: velerov1.StorageType{
+				ObjectStorage: &velerov1.ObjectStorageLocation{
+					Bucket: "test-bucket",
+					Prefix: "backup",
 				},
 			},
-			BackupLocations: []oadpv1alpha1.BackupLocation{
-				{
-					Velero: &velerov1.BackupStorageLocationSpec{
-						Provider: "aws",
-						StorageType: velerov1.StorageType{
-							ObjectStorage: &velerov1.ObjectStorageLocation{
-								Bucket: "test-bucket",
-								Prefix: "backup",
-							},
-						},
-						Config: map[string]string{
-							"insecureSkipTLSVerify": "true",
-							"s3Url":                 "http://example.com/",
-						},
-					},
-				},
+			Config: map[string]string{
+				"insecureSkipTLSVerify": "true",
+				"s3Url":                 "http://example.com/",
 			},
 		},
 	}
