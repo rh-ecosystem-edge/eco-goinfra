@@ -8,123 +8,38 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // OperatorBuilder provides a struct for network.operator object from the cluster and a network.operator definition.
 type OperatorBuilder struct {
-	// network.operator definition, used to create the network.operator object.
-	Definition *operatorv1.Network
-	// Created network.operator object.
-	Object *operatorv1.Network
-	// api client to interact with the cluster.
-	apiClient goclient.Client
-	errorMsg  string
+	common.EmbeddableBuilder[operatorv1.Network, *operatorv1.Network]
+	common.EmbeddableUpdater[operatorv1.Network, OperatorBuilder, *operatorv1.Network, *OperatorBuilder]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *OperatorBuilder) AttachMixins() {
+	builder.SetBase(builder)
+}
+
+// GetGVK returns the network.operator GVK for this builder.
+func (builder *OperatorBuilder) GetGVK() schema.GroupVersionKind {
+	return operatorv1.GroupVersion.WithKind("Network")
 }
 
 // PullOperator loads an existing network.operator into OperatorBuilder struct.
 func PullOperator(apiClient *clients.Settings) (*OperatorBuilder, error) {
-	klog.V(100).Infof("Pulling existing network.operator name: %s", clusterNetworkName)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is nil")
-
-		return nil, fmt.Errorf("network.operator 'apiClient' cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(operatorv1.Install)
-	if err != nil {
-		klog.V(100).Info("Failed to add operator v1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &OperatorBuilder{
-		apiClient: apiClient.Client,
-		Definition: &operatorv1.Network{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: clusterNetworkName,
-			},
-		},
-	}
-
-	if !builder.Exists() {
-		klog.V(100).Infof("network.operator object %s does not exist", clusterNetworkName)
-
-		return nil, fmt.Errorf("network.operator object %s does not exist", clusterNetworkName)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Exists checks whether the given network.operator exists.
-func (builder *OperatorBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if network.operator %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Get returns network.operator object.
-func (builder *OperatorBuilder) Get() (*operatorv1.Network, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	clusterNetwork := &operatorv1.Network{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{Name: builder.Definition.Name}, clusterNetwork)
-	if err != nil {
-		klog.V(100).Infof("Failed to get network.operator object %s: %v", builder.Definition.Name, err)
-
-		return nil, err
-	}
-
-	return clusterNetwork, nil
-}
-
-// Update renovates the existing network.operator object with the new definition in builder.
-func (builder *OperatorBuilder) Update() (*OperatorBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the network.operator object %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("network.operator object %s does not exist", builder.Definition.Name)
-
-		return nil, fmt.Errorf("network.operator object %s does not exist", builder.Definition.Name)
-	}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		klog.V(100).Infof("Failed to update network.operator object %s: %v", builder.Definition.Name, err)
-
-		return nil, err
-	}
-
-	return builder, nil
+	return common.PullClusterScopedBuilder[operatorv1.Network, OperatorBuilder](
+		context.TODO(), apiClient, operatorv1.Install, clusterNetworkName)
 }
 
 // SetLocalGWMode switches network.operator OVN mode from/to local mode.
 func (builder *OperatorBuilder) SetLocalGWMode(state bool, timeout time.Duration) (*OperatorBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -161,7 +76,7 @@ func (builder *OperatorBuilder) SetLocalGWMode(state bool, timeout time.Duration
 // and waits for the network operator to stabilize.
 func (builder *OperatorBuilder) SetIPForwarding(
 	mode operatorv1.IPForwardingMode, timeout time.Duration) (*OperatorBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -207,7 +122,7 @@ func (builder *OperatorBuilder) SetIPForwarding(
 // SetMultiNetworkPolicy sets network.operator spec.useMultiNetworkPolicy to state.
 // No-op if unchanged; otherwise Update then wait until Available=True within timeout.
 func (builder *OperatorBuilder) SetMultiNetworkPolicy(state bool, timeout time.Duration) (*OperatorBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -233,7 +148,7 @@ func (builder *OperatorBuilder) SetMultiNetworkPolicy(state bool, timeout time.D
 // SetRouteAdvertisements enables or disables RouteAdvertisements on the OVN-Kubernetes network configuration.
 func (builder *OperatorBuilder) SetRouteAdvertisements(
 	state operatorv1.RouteAdvertisementsEnablement, timeout time.Duration) (*OperatorBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -274,7 +189,7 @@ func (builder *OperatorBuilder) SetRouteAdvertisements(
 // specified condition type with the expected status.
 func (builder *OperatorBuilder) WaitUntilInCondition(
 	condition string, timeout time.Duration, status operatorv1.ConditionStatus) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -309,36 +224,4 @@ func (builder *OperatorBuilder) WaitUntilInCondition(
 	}
 
 	return err
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *OperatorBuilder) validate() (bool, error) {
-	resourceCRD := "network.operator"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
