@@ -1,57 +1,22 @@
 package nad
 
 import (
-	"fmt"
 	"testing"
 
+	nadV1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/stretchr/testify/assert"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestListNad(t *testing.T) {
-	testCases := []struct {
-		nad           []*Builder
-		nsName        string
-		expectedError error
-		client        bool
-	}{
-		{
-			nad: []*Builder{
-				buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        "nadnamespace",
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			nad: []*Builder{
-				buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        "",
-			expectedError: fmt.Errorf("failed to list NADs, 'nsname' parameter is empty"),
-			client:        true,
-		},
-		{
-			nad: []*Builder{
-				buildValidNADNetworkTestBuilder(buildTestClientWithDummyObject())},
-			nsName:        "nadnamespace",
-			expectedError: fmt.Errorf("nadList 'apiClient' cannot be empty"),
-			client:        false,
-		},
-	}
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+func TestList(t *testing.T) {
+	t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyNADNetworkObject(),
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		nadBuilders, err := List(testSettings, testCase.nsName)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, len(nadBuilders), len(testCase.nad))
-		}
-	}
+	testhelper.NewNamespacedListTestConfig(
+		func(apiClient *clients.Settings, nsname string, _ ...runtimeclient.ListOptions) ([]*Builder, error) {
+			return List(apiClient, nsname)
+		},
+		nadV1.AddToScheme,
+		nadGVK,
+	).ExecuteTests(t)
 }
