@@ -14,6 +14,8 @@ const (
 )
 
 func TestNewEgressRuleBuilder(t *testing.T) {
+	t.Parallel()
+
 	builder := NewEgressRuleBuilder()
 
 	assert.NotNil(t, builder)
@@ -21,6 +23,8 @@ func TestNewEgressRuleBuilder(t *testing.T) {
 }
 
 func TestEgressWithPortAndProtocol(t *testing.T) {
+	t.Parallel()
+
 	builder := NewEgressRuleBuilder()
 
 	builder.WithPortAndProtocol(80, "TCP")
@@ -34,6 +38,8 @@ func TestEgressWithPortAndProtocol(t *testing.T) {
 }
 
 func TestEgressWithProtocol(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		protocol      corev1.Protocol
 		expectedError string
@@ -54,6 +60,8 @@ func TestEgressWithProtocol(t *testing.T) {
 }
 
 func TestEgressWithPort(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		port          uint16
 		expectedError string
@@ -74,6 +82,8 @@ func TestEgressWithPort(t *testing.T) {
 }
 
 func TestEgressWithOptions(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		testOptions   []EgressAdditionalOptions
 		expectedError string
@@ -106,6 +116,8 @@ func TestEgressWithOptions(t *testing.T) {
 }
 
 func TestEgressWithPeerPodSelector(t *testing.T) {
+	t.Parallel()
+
 	builder := NewEgressRuleBuilder()
 
 	builder.WithPeerPodSelector(metav1.LabelSelector{
@@ -131,6 +143,8 @@ func TestEgressWithPeerPodSelector(t *testing.T) {
 }
 
 func TestEgressWithPeerNamespaceSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		namespaceSelector metav1.LabelSelector
 		expectedError     string
@@ -158,6 +172,8 @@ func TestEgressWithPeerNamespaceSelector(t *testing.T) {
 }
 
 func TestEgressWithCIDR(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		cidr           string
 		except         string
@@ -198,6 +214,8 @@ func TestEgressWithCIDR(t *testing.T) {
 }
 
 func TestEgressWithPeerPodSelectorAndCIDR(t *testing.T) {
+	t.Parallel()
+
 	builder := NewEgressRuleBuilder()
 
 	builder.WithPeerPodSelectorAndCIDR(metav1.LabelSelector{
@@ -234,6 +252,8 @@ func TestEgressWithPeerPodSelectorAndCIDR(t *testing.T) {
 }
 
 func TestEgressWithPeerPodAndNamespaceSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		podSelector       metav1.LabelSelector
 		namespaceSelector metav1.LabelSelector
@@ -258,6 +278,8 @@ func TestEgressWithPeerPodAndNamespaceSelector(t *testing.T) {
 }
 
 func TestEgressGetEgressRuleCfg(t *testing.T) {
+	t.Parallel()
+
 	builder := NewEgressRuleBuilder()
 
 	cfg, err := builder.GetEgressRuleCfg()
