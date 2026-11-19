@@ -10,27 +10,32 @@ import (
 
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
 
+var machineSetGVK = machinev1beta1.GroupVersion.WithKind("MachineSet")
+
 // SetBuilder provides a struct for MachineSet object from the cluster and a MachineSet definition.
 type SetBuilder struct {
-	// SetBuilder definition. Used to create
-	// MachineSet object with minimum set of required elements.
-	Definition *machinev1beta1.MachineSet
-	// Created SetBuilder object on the cluster.
-	Object *machinev1beta1.MachineSet
-	// api client to interact with the cluster.
-	apiClient *clients.Settings
-	// errorMsg is processed before SetBuilder object is created.
-	errorMsg string
+	common.EmbeddableBuilder[machinev1beta1.MachineSet, *machinev1beta1.MachineSet]
+	common.EmbeddableCreator[machinev1beta1.MachineSet, SetBuilder, *machinev1beta1.MachineSet, *SetBuilder]
+	common.EmbeddableDeleter[machinev1beta1.MachineSet, *machinev1beta1.MachineSet]
 	// string to store the public cloud
 	publicCloud string
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *SetBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+}
+
+// GetGVK returns the MachineSet GVK for this builder.
+func (builder *SetBuilder) GetGVK() schema.GroupVersionKind {
+	return machineSetGVK
 }
 
 const (
@@ -53,24 +58,22 @@ func NewSetBuilderFromCopy(
 		" params: namespace: %s, instanceType: %s, workerLabel: %s, and replicas: %v", nsName, instanceType,
 		workerLabel, replicas)
 
-	builder := &SetBuilder{
-		apiClient: apiClient,
-	}
+	builder := newSetBuilderWithDefinition(apiClient, nil)
 
 	newSetBuilder, err := createNewWorkerMachineSetFromCopy(apiClient, nsName, instanceType, workerLabel, replicas)
 	if err != nil {
 		klog.V(100).Infof("Error initializing MachineSet from copy: %s", err.Error())
 
-		builder.errorMsg = fmt.Sprintf("Error initializing MachineSet from copy: %s", err.Error())
+		builder.SetError(fmt.Errorf("error initializing MachineSet from copy: %s", err.Error()))
 
 		return builder
 	}
 
-	builder.Definition = newSetBuilder.Definition
+	builder.SetDefinition(newSetBuilder.Definition)
 
 	err = builder.getPublicCloudKind()
 	if err != nil {
-		builder.errorMsg = fmt.Sprintf("error getting the public cloud kind: %v", err.Error())
+		builder.SetError(fmt.Errorf("error getting the public cloud kind: %v", err.Error()))
 
 		return builder
 	}
@@ -79,7 +82,7 @@ func NewSetBuilderFromCopy(
 
 	err = builder.ChangeCloudProviderInstanceType(instanceType)
 	if err != nil {
-		builder.errorMsg = fmt.Sprintf("error changing the instanceType: %v", err.Error())
+		builder.SetError(fmt.Errorf("error changing the instanceType: %v", err.Error()))
 
 		return builder
 	}
@@ -87,7 +90,7 @@ func NewSetBuilderFromCopy(
 	if nsName == "" {
 		klog.V(100).Info("The Namespace of the MachineSet is empty")
 
-		builder.errorMsg = "MachineSet 'nsName' cannot be empty"
+		builder.SetError(fmt.Errorf("MachineSet 'nsName' cannot be empty"))
 
 		return builder
 	}
@@ -95,7 +98,7 @@ func NewSetBuilderFromCopy(
 	if instanceType == "" {
 		klog.V(100).Info("The instanceType of the MachineSet is empty")
 
-		builder.errorMsg = "MachineSet 'instanceType' cannot be empty"
+		builder.SetError(fmt.Errorf("MachineSet 'instanceType' cannot be empty"))
 
 		return builder
 	}
@@ -103,7 +106,7 @@ func NewSetBuilderFromCopy(
 	if replicas == 0 {
 		klog.V(100).Info("The replicas of the MachineSet is zero")
 
-		builder.errorMsg = "MachineSet 'replicas' cannot be zero"
+		builder.SetError(fmt.Errorf("MachineSet 'replicas' cannot be zero"))
 
 		return builder
 	}
@@ -111,7 +114,7 @@ func NewSetBuilderFromCopy(
 	if workerLabel == "" {
 		klog.V(100).Info("The workerLabel of the MachineSet is empty")
 
-		builder.errorMsg = "MachineSet 'workerLabel' cannot be empty"
+		builder.SetError(fmt.Errorf("MachineSet 'workerLabel' cannot be empty"))
 
 		return builder
 	}
@@ -119,7 +122,7 @@ func NewSetBuilderFromCopy(
 	if builder.Definition == nil {
 		klog.V(100).Info("The MachineSet object definition is nil")
 
-		builder.errorMsg = "MachineSet 'Object.Definition' is nil"
+		builder.SetError(fmt.Errorf("MachineSet 'Object.Definition' is nil"))
 
 		return builder
 	}
@@ -131,99 +134,8 @@ func NewSetBuilderFromCopy(
 func PullSet(apiClient *clients.Settings, name, namespace string) (*SetBuilder, error) {
 	klog.V(100).Infof("Pulling existing machineSet name %s in namespace %s", name, namespace)
 
-	builder := &SetBuilder{
-		apiClient: apiClient,
-		Definition: &machinev1beta1.MachineSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		},
-	}
-
-	if name == "" {
-		builder.errorMsg = "MachineSet 'name' cannot be empty"
-
-		return nil, fmt.Errorf("machineSet 'name' cannot be empty")
-	}
-
-	if namespace == "" {
-		builder.errorMsg = "MachineSet 'namespace' cannot be empty"
-
-		return nil, fmt.Errorf("machineSet 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("machineSet object %s does not exist in namespace %s", name, namespace)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Exists checks whether the given MachineSet exists.
-func (builder *SetBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if MachineSet %s exists in namespace %s", builder.Definition.Name,
-		builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.MachineSets(builder.Definition.Namespace).Get(logging.DiscardContext(),
-		builder.Definition.Name, metav1.GetOptions{})
-	if err != nil {
-		klog.V(100).Infof("Failed to collect MachineSet object due to %s", err.Error())
-	}
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Create makes a MachineSet in cluster and stores the created object in struct.
-func (builder *SetBuilder) Create() (*SetBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the MachineSet %s", builder.Definition.Name)
-
-	var err error
-	if !builder.Exists() {
-		builder.Object, err = builder.apiClient.MachineSets(builder.Definition.Namespace).Create(
-			logging.DiscardContext(), builder.Definition, metav1.CreateOptions{})
-	}
-
-	return builder, err
-}
-
-// Delete removes a MachineSet object from a cluster.
-func (builder *SetBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting the MachineSet object %s",
-		builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("machineSet %s does not exist", builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.MachineSets(builder.Definition.Namespace).Delete(
-		logging.DiscardContext(), builder.Definition.Name, metav1.DeleteOptions{})
-	if err != nil {
-		return fmt.Errorf("cannot delete MachineSet: %w", err)
-	}
-
-	return err
+	return common.PullNamespacedBuilder[machinev1beta1.MachineSet, SetBuilder](
+		context.TODO(), apiClient, machinev1beta1.AddToScheme, name, namespace)
 }
 
 // WaitForMachineSetReady waits until MachineSet first replica is Ready.
@@ -259,7 +171,7 @@ func WaitForMachineSetReady(
 
 // ChangeCloudProviderInstanceType calls the cloud-specific function to change the ProviderSpec instance type param.
 func (builder *SetBuilder) ChangeCloudProviderInstanceType(instanceType string) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -302,7 +214,7 @@ func (builder *SetBuilder) ChangeCloudProviderInstanceType(instanceType string) 
 
 // AWSChangeProviderInstanceType changes the ProviderSpec InstanceType param for AWS public cloud.
 func (builder *SetBuilder) AWSChangeProviderInstanceType(instanceType string) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -351,7 +263,7 @@ func (builder *SetBuilder) AWSChangeProviderInstanceType(instanceType string) er
 
 // GCPChangeProviderMachineType changes the ProviderSpec MachineType param for GCP public cloud.
 func (builder *SetBuilder) GCPChangeProviderMachineType(machineType string) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -398,7 +310,7 @@ func (builder *SetBuilder) GCPChangeProviderMachineType(machineType string) erro
 
 // AzureChangeProviderVMSize changes the ProviderSpec VMSize param for Azure public cloud.
 func (builder *SetBuilder) AzureChangeProviderVMSize(vmSize string) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -469,13 +381,10 @@ func createNewWorkerMachineSetFromCopy(
 	klog.V(100).Infof("Creating new SetBuilder copy of first existing worker MachineSet: %s",
 		baseSetBuilder.Definition.Name)
 
-	copiedSetBuilder := &SetBuilder{
-		apiClient: apiClient,
-		Definition: &machinev1beta1.MachineSet{
-			ObjectMeta: *baseSetBuilder.Definition.ObjectMeta.DeepCopy(),
-			Spec:       *baseSetBuilder.Definition.Spec.DeepCopy(),
-		},
-	}
+	copiedSetBuilder := newSetBuilderWithDefinition(apiClient, &machinev1beta1.MachineSet{
+		ObjectMeta: *baseSetBuilder.Definition.ObjectMeta.DeepCopy(),
+		Spec:       *baseSetBuilder.Definition.Spec.DeepCopy(),
+	})
 
 	klog.V(100).Infof("Renaming copied SetBuilder to: %s",
 		copiedSetBuilder.Definition.Name)
@@ -504,7 +413,7 @@ func createNewWorkerMachineSetFromCopy(
 
 // getPublicCloudKind determines the public cloud kind and stores it in the builder struct.
 func (builder *SetBuilder) getPublicCloudKind() error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -515,14 +424,14 @@ func (builder *SetBuilder) getPublicCloudKind() error {
 	// Value field is of type *runtime.RawExtension
 	byteArray, err := json.Marshal(builder.Definition.Spec.Template.Spec.ProviderSpec.Value)
 	if err != nil {
-		builder.errorMsg = fmt.Sprintf("error determining public cloud kind: %v", err)
+		builder.SetError(fmt.Errorf("error determining public cloud kind: %w", err))
 
 		return fmt.Errorf("error marshalling the providerSpec Value element into a byte array")
 	}
 
 	err = json.Unmarshal(byteArray, &providerSpecMap)
 	if err != nil {
-		builder.errorMsg = fmt.Sprintf("error determining public cloud kind: %v", err)
+		builder.SetError(fmt.Errorf("error determining public cloud kind: %w", err))
 
 		return fmt.Errorf("error unmarshalling the byte array into a providerSpec map")
 	}
@@ -546,7 +455,7 @@ func (builder *SetBuilder) getPublicCloudKind() error {
 	case "AzureMachineProviderSpec":
 		builder.publicCloud = AzureCloud
 	default:
-		builder.errorMsg = "unsupported cloud platform. Supported public cloud are AWS, GCP, and Azure"
+		builder.SetError(fmt.Errorf("unsupported cloud platform. Supported public cloud are AWS, GCP, and Azure"))
 
 		return fmt.Errorf("unsupported cloud platform. Supported public cloud are AWS, GCP, and Azure")
 	}
@@ -554,34 +463,12 @@ func (builder *SetBuilder) getPublicCloudKind() error {
 	return nil
 }
 
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *SetBuilder) validate() (bool, error) {
-	resourceCRD := "MachineSet"
+func newSetBuilderWithDefinition(apiClient *clients.Settings, definition *machinev1beta1.MachineSet) *SetBuilder {
+	builder := &SetBuilder{}
+	builder.AttachMixins()
+	builder.SetGVK(builder.GetGVK())
+	builder.SetClient(apiClient)
+	builder.SetDefinition(definition)
 
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiClient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
+	return builder
 }
