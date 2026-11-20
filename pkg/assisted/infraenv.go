@@ -396,15 +396,12 @@ func (builder *InfraEnvBuilder) GetAgentByName(name string) (*agentBuilder, erro
 		return nil, fmt.Errorf("cannot get agents from non-existent infraenv")
 	}
 
-	agent := &agentBuilder{
-		apiClient: builder.apiClient,
-		Definition: &agentInstallV1Beta1.Agent{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: builder.Definition.Namespace,
-			},
+	agent := newAgentBuilder(builder.apiClient, &agentInstallV1Beta1.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: builder.Definition.Namespace,
 		},
-	}
+	})
 
 	if !agent.Exists() {
 		return nil, fmt.Errorf("agent object %s does not exist in namespace %s", name, builder.Definition.Namespace)

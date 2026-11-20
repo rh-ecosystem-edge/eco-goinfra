@@ -1,14 +1,13 @@
 package assisted
 
 import (
-	"fmt"
+	"context"
 
 	conditionsv1 "github.com/openshift/custom-resource-status/conditions/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	agentInstallV1Beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -16,29 +15,8 @@ const clusterTemplateTemplateIDLabel = "clustertemplates.clcm.openshift.io/templ
 
 // ListAgents returns all Agent CRs across all namespaces.
 func ListAgents(apiClient *clients.Settings, options ...goclient.ListOption) ([]*agentBuilder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil, fmt.Errorf("the apiClient is nil")
-	}
-
-	agentList := &agentInstallV1Beta1.AgentList{}
-
-	err := apiClient.List(logging.DiscardContext(), agentList, options...)
-	if err != nil {
-		klog.V(100).Infof("Failed to list agents across all namespaces due to %s", err.Error())
-
-		return nil, err
-	}
-
-	agents := make([]*agentBuilder, 0, len(agentList.Items))
-
-	for _, agentObj := range agentList.Items {
-		copiedAgent := agentObj
-		agents = append(agents, newAgentBuilder(apiClient.Client, &copiedAgent))
-	}
-
-	return agents, nil
+	return common.List[agentInstallV1Beta1.Agent, agentInstallV1Beta1.AgentList, agentBuilder](
+		context.TODO(), apiClient, agentInstallV1Beta1.AddToScheme, options...)
 }
 
 // ListORANEligibleAgents returns Agent CRs that are eligible for ORAN collection:
