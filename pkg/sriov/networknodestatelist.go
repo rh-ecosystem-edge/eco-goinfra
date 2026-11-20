@@ -1,40 +1,27 @@
 package sriov
 
 import (
+	"context"
 	"fmt"
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 	"k8s.io/klog/v2"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ListNetworkNodeState returns SriovNetworkNodeStates inventory in the given namespace.
 func ListNetworkNodeState(
-	apiClient *clients.Settings, nsname string, options ...client.ListOptions) ([]*NetworkNodeStateBuilder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("SriovNetworkNodeStates 'apiClient' parameter can not be empty")
-
-		return nil, fmt.Errorf("failed to list SriovNetworkNodeStates, 'apiClient' parameter is empty")
-	}
-
-	err := apiClient.AttachScheme(srIovV1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add srIovV1 scheme to client schemes")
-
-		return nil, err
-	}
-
+	apiClient *clients.Settings, nsname string, options ...runtimeclient.ListOptions) ([]*NetworkNodeStateBuilder, error) {
 	if nsname == "" {
 		klog.V(100).Info("SriovNetworkNodeStates 'nsname' parameter can not be empty")
 
-		return nil, fmt.Errorf("failed to list SriovNetworkNodeStates, 'nsname' parameter is empty")
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey(networkNodeStateGVK.Kind, "", ""), commonerrors.BuilderFieldNamespace)
 	}
-
-	logMessage := fmt.Sprintf("Listing SriovNetworkNodeStates in the namespace %s", nsname)
-	passedOptions := client.ListOptions{}
 
 	if len(options) > 1 {
 		klog.V(100).Info("'options' parameter must be empty or single-valued")
@@ -42,34 +29,9 @@ func ListNetworkNodeState(
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
+	convertedOptions := common.ConvertListOptionsToOptions(options)
+	allOptions := append([]runtimeclient.ListOption{runtimeclient.InNamespace(nsname)}, convertedOptions...)
 
-	klog.V(100).Infof("%v", logMessage)
-
-	networkNodeStateList := new(srIovV1.SriovNetworkNodeStateList)
-
-	err = apiClient.List(logging.DiscardContext(), networkNodeStateList, &passedOptions)
-	if err != nil {
-		klog.V(100).Infof("Failed to list SriovNetworkNodeStates in the namespace %s due to %s", nsname, err.Error())
-
-		return nil, err
-	}
-
-	var networkNodeStateObjects []*NetworkNodeStateBuilder
-
-	for _, networkNodeState := range networkNodeStateList.Items {
-		copiedNetworkNodeState := networkNodeState
-		stateBuilder := &NetworkNodeStateBuilder{
-			apiClient: apiClient.Client,
-			Objects:   &copiedNetworkNodeState,
-			nsName:    nsname,
-			nodeName:  copiedNetworkNodeState.Name}
-
-		networkNodeStateObjects = append(networkNodeStateObjects, stateBuilder)
-	}
-
-	return networkNodeStateObjects, nil
+	return common.List[srIovV1.SriovNetworkNodeState, srIovV1.SriovNetworkNodeStateList, NetworkNodeStateBuilder](
+		context.TODO(), apiClient, srIovV1.AddToScheme, allOptions...)
 }
