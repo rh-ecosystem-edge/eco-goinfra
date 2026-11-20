@@ -1,358 +1,192 @@
 package rbac
 
 import (
-	"fmt"
 	"testing"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	rbacv1 "k8s.io/api/rbac/v1"
 )
 
 func TestNewClusterRoleBuilder(t *testing.T) {
-	testCases := []struct {
-		name              string
-		rule              rbacv1.PolicyRule
-		expectedErrorText string
-		client            bool
-	}{
-		{
-			name: "test",
-			rule: rbacv1.PolicyRule{
-				Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-			client:            true,
-			expectedErrorText: "",
-		},
-		{
-			name: "test",
-			rule: rbacv1.PolicyRule{
-				Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-			client:            false,
-			expectedErrorText: "clusterRole builder cannot have nil apiClient",
-		},
-		{
-			name: "",
-			rule: rbacv1.PolicyRule{
-				Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-			client:            true,
-			expectedErrorText: errEmptyClusterRoleName,
-		},
-		{
-			name: "test",
-			rule: rbacv1.PolicyRule{
-				Resources: []string{"pods"}, APIGroups: []string{"v1"}},
-			client:            true,
-			expectedErrorText: clusterroleRuleMustContainAtLeast,
-		},
-	}
-	for _, testCase := range testCases {
-		var (
-			client *clients.Settings
-		)
+	t.Parallel()
 
-		if testCase.client {
-			client = clients.GetTestClients(clients.TestClientParams{})
-		}
+	t.Run("common cluster-scoped builder behavior", func(t *testing.T) {
+		t.Parallel()
 
-		testClusterRole := NewClusterRoleBuilder(client, testCase.name, testCase.rule)
-		if testCase.client {
-			assert.NotNil(t, testClusterRole)
+		testhelper.NewClusterScopedBuilderTestConfig(
+			func(apiClient *clients.Settings, name string) *ClusterRoleBuilder {
+				return NewClusterRoleBuilder(apiClient, name, validClusterRoleRule())
+			},
+			rbacv1.AddToScheme,
+			clusterRoleGVK,
+		).ExecuteTests(t)
+	})
 
-			if len(testCase.expectedErrorText) > 0 {
-				assert.Equal(t, testCase.expectedErrorText, testClusterRole.errorMsg)
-			}
-		} else {
-			assert.Nil(t, testClusterRole)
-		}
-	}
+	t.Run("applies initial rule", func(t *testing.T) {
+		t.Parallel()
+
+		rule := validClusterRoleRule()
+		builder := NewClusterRoleBuilder(getClusterRoleTestClient(), "clusterrole-test", rule)
+
+		require.NotNil(t, builder)
+		require.NoError(t, builder.GetError())
+		assert.Equal(t, []rbacv1.PolicyRule{rule}, builder.Definition.Rules)
+	})
+
+	t.Run("rejects initial rule without verbs", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewClusterRoleBuilder(getClusterRoleTestClient(), "clusterrole-test", rbacv1.PolicyRule{})
+
+		require.NotNil(t, builder)
+		require.EqualError(t, builder.GetError(), clusterroleRuleMustContainAtLeast)
+		assert.Empty(t, builder.Definition.Rules)
+	})
 }
 
 func TestPullClusterRole(t *testing.T) {
-	generateClusterRole := func(name string) *rbacv1.ClusterRole {
-		return &rbacv1.ClusterRole{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		}
-	}
-	testCases := []struct {
-		name                string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-		client              bool
-	}{
-		{
-			name:                "test",
-			expectedError:       false,
-			expectedErrorText:   "",
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "",
-			expectedError:       true,
-			addToRuntimeObjects: true,
-			expectedErrorText:   errEmptyClusterRoleName,
-			client:              true,
-		},
-		{
-			name:                "test",
-			expectedError:       true,
-			expectedErrorText:   "clusterrole object test does not exist",
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-		{
-			name:                "test",
-			expectedError:       true,
-			expectedErrorText:   "the apiClient cannot be nil",
-			addToRuntimeObjects: true,
-			client:              false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testClusterRole := generateClusterRole(testCase.name)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testClusterRole)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
-
-		builderResult, err := PullClusterRole(testSettings, testCase.name)
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testClusterRole.Name, builderResult.Object.Name)
-			assert.Equal(t, testClusterRole.Namespace, builderResult.Object.Namespace)
-		}
-	}
+	testhelper.NewClusterScopedPullTestConfig(
+		PullClusterRole,
+		rbacv1.AddToScheme,
+		clusterRoleGVK,
+	).ExecuteTests(t)
 }
 
-func TestClusterRoleCreate(t *testing.T) {
-	testCases := []struct {
-		testClusterRole *ClusterRoleBuilder
-		expectedError   error
-	}{
-		{
-			testClusterRole: buildValidClusterRoleBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedError:   nil,
-		},
-		{
-			testClusterRole: buildInvalidClusterRoleTestBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedError:   fmt.Errorf(clusterroleRuleMustContainAtLeast),
-		},
-		{
-			testClusterRole: buildValidClusterRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:   nil,
-		},
-	}
+func TestClusterRoleBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		clusterRoleBuilder, err := testCase.testClusterRole.Create()
-		assert.Equal(t, testCase.expectedError, err)
+	commonTestConfig := newClusterRoleCommonTestConfig()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, clusterRoleBuilder.Definition.Name, clusterRoleBuilder.Object.Name)
-		}
-	}
-}
-
-func TestClusterRoleExist(t *testing.T) {
-	testCases := []struct {
-		testClusterRole *ClusterRoleBuilder
-		expectedStatus  bool
-	}{
-		{
-			testClusterRole: buildValidClusterRoleBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedStatus:  true,
-		},
-		{
-			testClusterRole: buildInvalidClusterRoleTestBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedStatus:  false,
-		},
-		{
-			testClusterRole: buildValidClusterRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:  false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testClusterRole.Exists()
-		assert.Equal(t, testCase.expectedStatus, exists)
-	}
-}
-
-func TestClusterRoleDelete(t *testing.T) {
-	testCases := []struct {
-		testClusterRole *ClusterRoleBuilder
-		expectedError   error
-	}{
-		{
-			testClusterRole: buildValidClusterRoleBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedError:   nil,
-		},
-		{
-			testClusterRole: buildInvalidClusterRoleTestBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedError:   fmt.Errorf(clusterroleRuleMustContainAtLeast),
-		},
-		{
-			testClusterRole: buildValidClusterRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:   nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testClusterRole.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testClusterRole.Object)
-		}
-	}
-}
-
-func TestClusterRoleUpdate(t *testing.T) {
-	testCases := []struct {
-		testClusterRole *ClusterRoleBuilder
-		expectedError   error
-	}{
-		{
-			testClusterRole: buildValidClusterRoleBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedError:   nil,
-		},
-		{
-			testClusterRole: buildValidClusterRoleBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedError:   nil,
-		},
-		{
-			testClusterRole: buildInvalidClusterRoleTestBuilder(buildTestClientWithClusterRoleDummyObject()),
-			expectedError:   fmt.Errorf(clusterroleRuleMustContainAtLeast),
-		},
-		{
-			testClusterRole: buildValidClusterRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:   fmt.Errorf("clusterrole object test does not exist, fail to update"),
-		},
-	}
-	for _, testCase := range testCases {
-		assert.Empty(t, testCase.testClusterRole.Definition.Labels)
-		assert.Nil(t, nil, testCase.testClusterRole.Object)
-		testCase.testClusterRole.Definition.Labels = map[string]string{"test": "test"}
-		testCase.testClusterRole.Definition.ResourceVersion = "999"
-		roleBuilder, err := testCase.testClusterRole.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, map[string]string{"test": "test"}, testCase.testClusterRole.Object.Labels)
-			assert.Equal(t, roleBuilder.Definition, roleBuilder.Object)
-		}
-	}
-}
-
-func TestClusterRoleWithRules(t *testing.T) {
-	testCases := []struct {
-		rule              []rbacv1.PolicyRule
-		expectedError     bool
-		expectedErrorText string
-	}{
-		{
-			rule: []rbacv1.PolicyRule{{Resources: []string{"pods"},
-				APIGroups: []string{"v1"}, Verbs: []string{"get"}}},
-			expectedError:     false,
-			expectedErrorText: "",
-		},
-		{
-			rule: []rbacv1.PolicyRule{
-				{Resources: []string{"pods"},
-					APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-				{Resources: []string{"pods"},
-					APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-			},
-			expectedError:     false,
-			expectedErrorText: "",
-		},
-		{
-			rule: []rbacv1.PolicyRule{{Resources: []string{"pods"},
-				APIGroups: []string{"v1"}}},
-			expectedError:     true,
-			expectedErrorText: clusterroleRuleMustContainAtLeast,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidClusterRoleBuilder(buildTestClientWithClusterRoleDummyObject())
-
-		result := testBuilder.WithRules(testCase.rule)
-
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.rule, result.Definition.Rules[1:])
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestClusterRoleWithOptions(t *testing.T) {
-	testSettings := buildTestClientWithDummyObject()
-	testBuilder := buildValidRoleBuilder(testSettings).WithOptions(
-		func(builder *RoleBuilder) (*RoleBuilder, error) {
-			return builder, nil
-		})
+	t.Parallel()
 
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidRoleBuilder(testSettings).WithOptions(
-		func(builder *RoleBuilder) (*RoleBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
+	testhelper.NewWithOptionsTestConfig(newClusterRoleCommonTestConfig()).ExecuteTests(t)
 }
 
-// buildInvalidClusterRoleTestBuilder returns a valid Builder for testing purposes.
-func buildValidClusterRoleBuilder(apiClient *clients.Settings) *ClusterRoleBuilder {
-	return NewClusterRoleBuilder(
-		apiClient,
-		defaultRoleName,
-		rbacv1.PolicyRule{Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}})
-}
+func TestClusterRoleWithRules(t *testing.T) {
+	t.Parallel()
 
-// buildValidClusterRoleBuilder returns a valid Builder for testing purposes.
-func buildInvalidClusterRoleTestBuilder(apiClient *clients.Settings) *ClusterRoleBuilder {
-	return NewClusterRoleBuilder(apiClient, defaultRoleName, rbacv1.PolicyRule{})
-}
+	additionalRules := []rbacv1.PolicyRule{
+		{Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
+		{Resources: []string{"services"}, APIGroups: []string{"v1"}, Verbs: []string{"list"}},
+	}
 
-func buildTestClientWithClusterRoleDummyObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: buildDummyClusterRoleObject(),
-	})
-}
-
-func buildDummyClusterRoleObject() []runtime.Object {
-	return append([]runtime.Object{}, &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: defaultRoleName,
+	testCases := []struct {
+		name          string
+		builder       func() *ClusterRoleBuilder
+		rules         []rbacv1.PolicyRule
+		expectedRules []rbacv1.PolicyRule
+		assertError   func(error) bool
+	}{
+		{
+			name: "appends valid rules",
+			builder: func() *ClusterRoleBuilder {
+				return buildValidClusterRoleTestBuilder(getClusterRoleTestClient())
+			},
+			rules: additionalRules,
+			expectedRules: append(
+				[]rbacv1.PolicyRule{validClusterRoleRule()},
+				additionalRules...,
+			),
+			assertError: isNilError,
 		},
+		{
+			name: "rejects empty rules",
+			builder: func() *ClusterRoleBuilder {
+				return buildValidClusterRoleTestBuilder(getClusterRoleTestClient())
+			},
+			rules:         []rbacv1.PolicyRule{},
+			expectedRules: []rbacv1.PolicyRule{validClusterRoleRule()},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "cannot accept nil or empty slice as rules"
+			},
+		},
+		{
+			name: "rejects rule without verbs",
+			builder: func() *ClusterRoleBuilder {
+				return buildValidClusterRoleTestBuilder(getClusterRoleTestClient())
+			},
+			rules: []rbacv1.PolicyRule{{
+				Resources: []string{"pods"},
+				APIGroups: []string{"v1"},
+			}},
+			expectedRules: []rbacv1.PolicyRule{validClusterRoleRule()},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == clusterroleRuleMustContainAtLeast
+			},
+		},
+		{
+			name: "invalid builder short circuits",
+			builder: func() *ClusterRoleBuilder {
+				return NewClusterRoleBuilder(getClusterRoleTestClient(), "", validClusterRoleRule())
+			},
+			rules:         additionalRules,
+			expectedRules: nil,
+			assertError:   commonerrors.IsBuilderNameEmpty,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := testCase.builder()
+			require.NotNil(t, builder)
+
+			result := builder.WithRules(testCase.rules)
+			require.Same(t, builder, result)
+			require.Truef(t, testCase.assertError(result.GetError()), "unexpected error: %v", result.GetError())
+			assert.Equal(t, testCase.expectedRules, result.Definition.Rules)
+		})
+	}
+}
+
+func newClusterRoleCommonTestConfig() testhelper.CommonTestConfig[
+	rbacv1.ClusterRole,
+	ClusterRoleBuilder,
+	*rbacv1.ClusterRole,
+	*ClusterRoleBuilder,
+] {
+	return testhelper.NewCommonTestConfig[rbacv1.ClusterRole, ClusterRoleBuilder](
+		rbacv1.AddToScheme,
+		clusterRoleGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
+}
+
+func getClusterRoleTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{rbacv1.AddToScheme},
 	})
+}
+
+func buildValidClusterRoleTestBuilder(apiClient *clients.Settings) *ClusterRoleBuilder {
+	return NewClusterRoleBuilder(apiClient, "clusterrole-test", validClusterRoleRule())
+}
+
+func validClusterRoleRule() rbacv1.PolicyRule {
+	return rbacv1.PolicyRule{
+		Resources: []string{"pods"},
+		APIGroups: []string{"v1"},
+		Verbs:     []string{"get"},
+	}
+}
+
+func isNilError(err error) bool {
+	return err == nil
 }
