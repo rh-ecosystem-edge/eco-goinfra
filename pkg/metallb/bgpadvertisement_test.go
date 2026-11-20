@@ -1,14 +1,15 @@
 package metallb
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/mlbtypes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -17,562 +18,530 @@ var (
 	defaultBGPAdvertisementNsName = "test-namespace"
 )
 
-func TestPullBGPAdvertisement(t *testing.T) {
-	generateBGPAdvertisement := func(name, namespace string) *mlbtypes.BGPAdvertisement {
-		return &mlbtypes.BGPAdvertisement{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: mlbtypes.BGPAdvertisementSpec{},
-		}
-	}
-
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "bgpadvertisement",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("bgpadvertisement 'name' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "bgpadvertisement",
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("bgpadvertisement 'namespace' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "bgpadvertisement",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: false,
-			expectedError: fmt.Errorf(
-				"bgpadvertisement object bgpadvertisement does not exist in namespace test-namespace"),
-			client: true,
-		},
-		{
-			name:                "bgpadvertisement",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("bgpadvertisement 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testBGPAdvertisement := generateBGPAdvertisement(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testBGPAdvertisement)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		builderResult, err := PullBGPAdvertisement(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Object.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Object.Namespace)
-		}
-	}
-}
-
 func TestNewBGPAdvertisementBuilder(t *testing.T) {
-	generateBGPAdvertisement := NewBGPAdvertisementBuilder
+	t.Parallel()
 
-	testCases := []struct {
-		name          string
-		namespace     string
-		expectedError string
-	}{
-		{
-			name:          "bgpadvertisement",
-			namespace:     "test-namespace",
-			expectedError: "",
-		},
-		{
-			name:          "",
-			namespace:     "test-namespace",
-			expectedError: "BGPAdvertisement 'name' cannot be empty",
-		},
-		{
-			name:          "bgpadvertisement",
-			namespace:     "",
-			expectedError: errEmptyBGPAdvertisementNsname,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			SchemeAttachers: testSchemes,
-		})
-		testBGPAdvertisementBuilder := generateBGPAdvertisement(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, testBGPAdvertisementBuilder.errorMsg)
-		assert.NotNil(t, testBGPAdvertisementBuilder.Definition)
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testBGPAdvertisementBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testBGPAdvertisementBuilder.Definition.Namespace)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewBGPAdvertisementBuilder,
+		mlbtypes.AddToScheme,
+		bgpAdvertisementGVK,
+	).ExecuteTests(t)
 }
 
-func TestBGPAdvertisementExist(t *testing.T) {
-	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedStatus       bool
-	}{
-		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedStatus:       true,
-		},
-		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedStatus:       false,
-		},
-	}
+func TestPullBGPAdvertisement(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		assert.Equal(t, testCase.testBGPAdvertisement.Exists(), testCase.expectedStatus)
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullBGPAdvertisement,
+		mlbtypes.AddToScheme,
+		bgpAdvertisementGVK,
+	).ExecuteTests(t)
 }
 
-func TestBGPAdvertisementGet(t *testing.T) {
-	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        error
-	}{
-		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        nil,
-		},
-		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf(errEmptyBGPAdvertisementNsname),
-		},
-	}
+func TestBGPAdvertisementBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		bgpAdvertisement, err := testCase.testBGPAdvertisement.Get()
-		assert.Equal(t, testCase.expectedError, err)
+	commonTestConfig := testhelper.NewCommonTestConfig[mlbtypes.BGPAdvertisement, BGPAdvertisementBuilder](
+		mlbtypes.AddToScheme,
+		bgpAdvertisementGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, bgpAdvertisement.Name, testCase.testBGPAdvertisement.Definition.Name)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
-func TestBGPAdvertisementCreate(t *testing.T) {
-	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        error
-	}{
-		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        nil,
-		},
-		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf(errEmptyBGPAdvertisementNsname),
-		},
-	}
-	for _, testCase := range testCases {
-		bgpAdvertisement, err := testCase.testBGPAdvertisement.Create()
-		assert.Equal(t, testCase.expectedError, err)
+func TestBGPAdvertisementWithOptions(t *testing.T) {
+	t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, bgpAdvertisement.Definition, bgpAdvertisement.Object)
-		}
-	}
-}
-
-func TestBGPAdvertisementDelete(t *testing.T) {
-	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        error
-	}{
-		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        nil,
-		},
-		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf(errEmptyBGPAdvertisementNsname),
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testBGPAdvertisement.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBGPAdvertisement.Object)
-		}
-	}
-}
-
-func TestBGPAdvertisementUpdate(t *testing.T) {
-	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        error
-		ipAddressPool        []string
-	}{
-		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        nil,
-			ipAddressPool:        []string{"1.1.1.1."},
-		},
-		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        fmt.Errorf(errEmptyBGPAdvertisementNsname),
-			ipAddressPool:        []string{"1.1.1.1."},
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Nil(t, testCase.testBGPAdvertisement.Definition.Spec.IPAddressPools)
-		assert.Nil(t, nil, testCase.testBGPAdvertisement.Object)
-		testCase.testBGPAdvertisement.WithIPAddressPools(testCase.ipAddressPool)
-		testCase.testBGPAdvertisement.Definition.ResourceVersion = "999"
-		_, err := testCase.testBGPAdvertisement.Update(false)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.ipAddressPool, testCase.testBGPAdvertisement.Definition.Spec.IPAddressPools)
-		}
-	}
+	testhelper.NewWithOptionsTestConfig(
+		testhelper.NewCommonTestConfig[mlbtypes.BGPAdvertisement, BGPAdvertisementBuilder](
+			mlbtypes.AddToScheme,
+			bgpAdvertisementGVK,
+			testhelper.ResourceScopeNamespaced,
+		)).ExecuteTests(t)
 }
 
 func TestBGPAdvertisementWithAggregationLength4(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        string
-		aggregationLength    int32
+		name              string
+		aggregationLength int32
+		validBuilder      bool
+		expectedError     string
 	}{
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "",
-			aggregationLength:    32,
+			name:              "sets aggregation length",
+			aggregationLength: 32,
+			validBuilder:      true,
 		},
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "AggregationLength 64 is invalid, the value shoud be in range 0...32",
-			aggregationLength:    64,
+			name:              "accepts lower boundary",
+			aggregationLength: 0,
+			validBuilder:      true,
 		},
 		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        errEmptyBGPAdvertisementNsname,
-			aggregationLength:    64,
+			name:              "rejects aggregation length above upper boundary",
+			aggregationLength: 33,
+			validBuilder:      true,
+			expectedError:     "AggregationLength 33 is invalid, the value shoud be in range 0...32",
+		},
+		{
+			name:              "rejects aggregation length below lower boundary",
+			aggregationLength: -1,
+			validBuilder:      true,
+			expectedError:     "AggregationLength -1 is invalid, the value shoud be in range 0...32",
+		},
+		{
+			name:              "invalid builder short-circuits",
+			aggregationLength: 32,
+			validBuilder:      false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		bGPAdvertisement := testCase.testBGPAdvertisement.WithAggregationLength4(testCase.aggregationLength)
-		assert.Equal(t, testCase.expectedError, bGPAdvertisement.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, &testCase.aggregationLength, bGPAdvertisement.Definition.Spec.AggregationLength)
-		}
+			testBuilder := buildBGPAdvertisementTestBuilder(testCase.validBuilder)
+			testBuilder.WithAggregationLength4(testCase.aggregationLength)
+
+			if !testCase.validBuilder {
+				require.Error(t, testBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+				assert.Nil(t, testBuilder.Definition.Spec.AggregationLength)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+				assert.Nil(t, testBuilder.Definition.Spec.AggregationLength)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			require.NotNil(t, testBuilder.Definition.Spec.AggregationLength)
+			assert.Equal(t, testCase.aggregationLength, *testBuilder.Definition.Spec.AggregationLength)
+		})
 	}
 }
 
 func TestBGPAdvertisementWithAggregationLength6(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        string
-		aggregationLength    int32
+		name              string
+		aggregationLength int32
+		validBuilder      bool
+		expectedError     string
 	}{
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "",
-			aggregationLength:    32,
+			name:              "sets aggregation length v6",
+			aggregationLength: 128,
+			validBuilder:      true,
 		},
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "AggregationLength 200 is invalid, the value shoud be in range 0...128",
-			aggregationLength:    200,
+			name:              "accepts lower boundary",
+			aggregationLength: 0,
+			validBuilder:      true,
 		},
 		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        errEmptyBGPAdvertisementNsname,
-			aggregationLength:    64,
+			name:              "rejects aggregation length above upper boundary",
+			aggregationLength: 129,
+			validBuilder:      true,
+			expectedError:     "AggregationLength 129 is invalid, the value shoud be in range 0...128",
+		},
+		{
+			name:              "rejects aggregation length below lower boundary",
+			aggregationLength: -1,
+			validBuilder:      true,
+			expectedError:     "AggregationLength -1 is invalid, the value shoud be in range 0...128",
+		},
+		{
+			name:              "invalid builder short-circuits",
+			aggregationLength: 128,
+			validBuilder:      false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		bGPAdvertisement := testCase.testBGPAdvertisement.WithAggregationLength6(testCase.aggregationLength)
-		assert.Equal(t, testCase.expectedError, bGPAdvertisement.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, &testCase.aggregationLength, bGPAdvertisement.Definition.Spec.AggregationLengthV6)
-		}
+			testBuilder := buildBGPAdvertisementTestBuilder(testCase.validBuilder)
+			testBuilder.WithAggregationLength6(testCase.aggregationLength)
+
+			if !testCase.validBuilder {
+				require.Error(t, testBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+				assert.Nil(t, testBuilder.Definition.Spec.AggregationLengthV6)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+				assert.Nil(t, testBuilder.Definition.Spec.AggregationLengthV6)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			require.NotNil(t, testBuilder.Definition.Spec.AggregationLengthV6)
+			assert.Equal(t, testCase.aggregationLength, *testBuilder.Definition.Spec.AggregationLengthV6)
+		})
 	}
 }
 
 func TestBGPAdvertisementWithLocalPref(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        string
-		localPref            uint32
+		name         string
+		localPref    uint32
+		validBuilder bool
 	}{
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "",
-			localPref:            32,
+			name:         "sets local preference",
+			localPref:    100,
+			validBuilder: true,
 		},
 		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        errEmptyBGPAdvertisementNsname,
-			localPref:            64,
+			name:         "accepts zero local preference",
+			localPref:    0,
+			validBuilder: true,
+		},
+		{
+			name:         "invalid builder short-circuits",
+			localPref:    100,
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		bGPAdvertisement := testCase.testBGPAdvertisement.WithLocalPref(testCase.localPref)
-		assert.Equal(t, testCase.expectedError, bGPAdvertisement.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.localPref, bGPAdvertisement.Definition.Spec.LocalPref)
-		}
+			testBuilder := buildBGPAdvertisementTestBuilder(testCase.validBuilder)
+			testBuilder.WithLocalPref(testCase.localPref)
+
+			if !testCase.validBuilder {
+				require.Error(t, testBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+				assert.Zero(t, testBuilder.Definition.Spec.LocalPref)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			assert.Equal(t, testCase.localPref, testBuilder.Definition.Spec.LocalPref)
+		})
 	}
 }
 
 func TestBGPAdvertisementWithCommunities(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        string
-		community            []string
+		name          string
+		communities   []string
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "",
-			community:            []string{"5252"},
+			name:         "sets communities",
+			communities:  []string{"5252", "65000:1"},
+			validBuilder: true,
 		},
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "error: community setting is empty list, the list should contain at least one element",
-			community:            []string{},
+			name:          "rejects empty communities",
+			communities:   []string{},
+			validBuilder:  true,
+			expectedError: "error: community setting is empty list, the list should contain at least one element",
 		},
 		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        errEmptyBGPAdvertisementNsname,
-			community:            []string{"5252"},
+			name:         "invalid builder short-circuits",
+			communities:  []string{"5252"},
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		bGPAdvertisement := testCase.testBGPAdvertisement.WithCommunities(testCase.community)
-		assert.Equal(t, testCase.expectedError, bGPAdvertisement.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.community, bGPAdvertisement.Definition.Spec.Communities)
-		}
+			testBuilder := buildBGPAdvertisementTestBuilder(testCase.validBuilder)
+			testBuilder.WithCommunities(testCase.communities)
+
+			if !testCase.validBuilder {
+				require.Error(t, testBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+				assert.Nil(t, testBuilder.Definition.Spec.Communities)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+				assert.Nil(t, testBuilder.Definition.Spec.Communities)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			assert.Equal(t, testCase.communities, testBuilder.Definition.Spec.Communities)
+		})
 	}
 }
 
 func TestBGPAdvertisementWithIPAddressPools(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        string
-		addressPool          []string
+		name           string
+		ipAddressPools []string
+		validBuilder   bool
+		expectedError  string
 	}{
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "",
-			addressPool:          []string{"1.1.1.1-1.1.1.2"},
+			name:           "sets IP address pools",
+			ipAddressPools: []string{"address-pool"},
+			validBuilder:   true,
 		},
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        errEmptyIPAddressPools,
-			addressPool:          []string{},
+			name:           "rejects empty IP address pools",
+			ipAddressPools: []string{},
+			validBuilder:   true,
+			expectedError:  errEmptyIPAddressPools,
 		},
 		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        errEmptyBGPAdvertisementNsname,
-			addressPool:          []string{"5252"},
+			name:           "invalid builder short-circuits",
+			ipAddressPools: []string{"address-pool"},
+			validBuilder:   false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		bGPAdvertisement := testCase.testBGPAdvertisement.WithIPAddressPools(testCase.addressPool)
-		assert.Equal(t, testCase.expectedError, bGPAdvertisement.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.addressPool, bGPAdvertisement.Definition.Spec.IPAddressPools)
-		}
+			testBuilder := buildBGPAdvertisementTestBuilder(testCase.validBuilder)
+			testBuilder.WithIPAddressPools(testCase.ipAddressPools)
+
+			if !testCase.validBuilder {
+				require.Error(t, testBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+				assert.Nil(t, testBuilder.Definition.Spec.IPAddressPools)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+				assert.Nil(t, testBuilder.Definition.Spec.IPAddressPools)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			assert.Equal(t, testCase.ipAddressPools, testBuilder.Definition.Spec.IPAddressPools)
+		})
 	}
 }
 
 func TestBGPAdvertisementWithIPAddressPoolsSelectors(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        string
-		poolSelector         []metav1.LabelSelector
+		name          string
+		poolSelector  []metav1.LabelSelector
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "",
-			poolSelector:         []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
+			name:         "sets IP address pool selectors",
+			poolSelector: []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
+			validBuilder: true,
 		},
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
+			name:         "rejects empty IP address pool selectors",
+			poolSelector: []metav1.LabelSelector{},
+			validBuilder: true,
 			expectedError: "error: IPAddressPoolSelectors setting is empty list, the list should contain at " +
 				"least one element",
-			poolSelector: []metav1.LabelSelector{},
 		},
 		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        errEmptyBGPAdvertisementNsname,
-			poolSelector:         []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
+			name:         "invalid builder short-circuits",
+			poolSelector: []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		bGPAdvertisement := testCase.testBGPAdvertisement.WithIPAddressPoolsSelectors(testCase.poolSelector)
-		assert.Equal(t, testCase.expectedError, bGPAdvertisement.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.poolSelector, bGPAdvertisement.Definition.Spec.IPAddressPoolSelectors)
-		}
+			testBuilder := buildBGPAdvertisementTestBuilder(testCase.validBuilder)
+			testBuilder.WithIPAddressPoolsSelectors(testCase.poolSelector)
+
+			if !testCase.validBuilder {
+				require.Error(t, testBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+				assert.Nil(t, testBuilder.Definition.Spec.IPAddressPoolSelectors)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+				assert.Nil(t, testBuilder.Definition.Spec.IPAddressPoolSelectors)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			assert.Equal(t, testCase.poolSelector, testBuilder.Definition.Spec.IPAddressPoolSelectors)
+		})
 	}
 }
 
 func TestBGPAdvertisementWithNodeSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        string
-		nodeSelector         []metav1.LabelSelector
+		name          string
+		nodeSelectors []metav1.LabelSelector
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "",
-			nodeSelector:         []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
+			name:          "sets node selectors",
+			nodeSelectors: []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
+			validBuilder:  true,
 		},
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        errEmptyNodeSelectors,
-			nodeSelector:         []metav1.LabelSelector{},
+			name:          "rejects empty node selectors",
+			nodeSelectors: []metav1.LabelSelector{},
+			validBuilder:  true,
+			expectedError: errEmptyNodeSelectors,
 		},
 		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        errEmptyBGPAdvertisementNsname,
-			nodeSelector:         []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
+			name:          "invalid builder short-circuits",
+			nodeSelectors: []metav1.LabelSelector{{MatchLabels: map[string]string{"test": "test1"}}},
+			validBuilder:  false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		bGPAdvertisement := testCase.testBGPAdvertisement.WithNodeSelector(testCase.nodeSelector)
-		assert.Equal(t, testCase.expectedError, bGPAdvertisement.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.nodeSelector, bGPAdvertisement.Definition.Spec.NodeSelectors)
-		}
+			testBuilder := buildBGPAdvertisementTestBuilder(testCase.validBuilder)
+			testBuilder.WithNodeSelector(testCase.nodeSelectors)
+
+			if !testCase.validBuilder {
+				require.Error(t, testBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+				assert.Nil(t, testBuilder.Definition.Spec.NodeSelectors)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+				assert.Nil(t, testBuilder.Definition.Spec.NodeSelectors)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			assert.Equal(t, testCase.nodeSelectors, testBuilder.Definition.Spec.NodeSelectors)
+		})
 	}
 }
 
 func TestBGPAdvertisementWithPeers(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBGPAdvertisement *BGPAdvertisementBuilder
-		expectedError        string
-		peers                []string
+		name          string
+		peers         []string
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "",
-			peers:                []string{"test", "test1"},
+			name:         "sets peers",
+			peers:        []string{"peer-1", "peer-2"},
+			validBuilder: true,
 		},
 		{
-			testBGPAdvertisement: buildValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        "error: peers setting is empty list, the list should contain at least one element",
-			peers:                []string{},
+			name:          "rejects empty peers",
+			peers:         []string{},
+			validBuilder:  true,
+			expectedError: "error: peers setting is empty list, the list should contain at least one element",
 		},
 		{
-			testBGPAdvertisement: buildInValidBGPAdvertisementBuilder(buildBGPAdvertisementTestClientWithDummyObject()),
-			expectedError:        errEmptyBGPAdvertisementNsname,
-			peers:                []string{"test", "test1"},
+			name:         "invalid builder short-circuits",
+			peers:        []string{"peer-1"},
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		bGPAdvertisement := testCase.testBGPAdvertisement.WithPeers(testCase.peers)
-		assert.Equal(t, testCase.expectedError, bGPAdvertisement.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.peers, bGPAdvertisement.Definition.Spec.Peers)
-		}
+			testBuilder := buildBGPAdvertisementTestBuilder(testCase.validBuilder)
+			testBuilder.WithPeers(testCase.peers)
+
+			if !testCase.validBuilder {
+				require.Error(t, testBuilder.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+				assert.Nil(t, testBuilder.Definition.Spec.Peers)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+				assert.Nil(t, testBuilder.Definition.Spec.Peers)
+
+				return
+			}
+
+			require.NoError(t, testBuilder.GetError())
+			assert.Equal(t, testCase.peers, testBuilder.Definition.Spec.Peers)
+		})
 	}
 }
 
-func TestBGPAdvertisementWithOptions(t *testing.T) {
-	testSettings := buildBGPAdvertisementTestClientWithDummyObject()
-	testBuilder := buildValidBGPAdvertisementBuilder(testSettings).WithOptions(
-		func(builder *BGPAdvertisementBuilder) (*BGPAdvertisementBuilder, error) {
-			return builder, nil
-		})
-
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidBGPAdvertisementBuilder(testSettings).WithOptions(
-		func(builder *BGPAdvertisementBuilder) (*BGPAdvertisementBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
-}
-
 func TestBGPAdvertisementGVR(t *testing.T) {
-	assert.Equal(t, GetBGPAdvertisementGVR(),
-		schema.GroupVersionResource{
-			Group: APIGroup, Version: APIVersion, Resource: "bgpadvertisements",
-		})
+	t.Parallel()
+
+	assert.Equal(t, schema.GroupVersionResource{
+		Group: APIGroup, Version: APIVersion, Resource: "bgpadvertisements",
+	}, GetBGPAdvertisementGVR())
 }
 
-func buildValidBGPAdvertisementBuilder(apiClient *clients.Settings) *BGPAdvertisementBuilder {
-	return NewBGPAdvertisementBuilder(
-		apiClient, defaultBGPAdvertisementName, defaultBGPAdvertisementNsName)
+func buildBGPAdvertisementTestBuilder(valid bool) *BGPAdvertisementBuilder {
+	namespace := defaultBGPAdvertisementNsName
+	if !valid {
+		namespace = ""
+	}
+
+	return NewBGPAdvertisementBuilder(getTestBGPAdvertisementAPIClient(), defaultBGPAdvertisementName, namespace)
 }
 
-func buildInValidBGPAdvertisementBuilder(apiClient *clients.Settings) *BGPAdvertisementBuilder {
-	return NewBGPAdvertisementBuilder(
-		apiClient, defaultBGPAdvertisementName, "")
-}
-
-func buildBGPAdvertisementTestClientWithDummyObject() *clients.Settings {
+func getTestBGPAdvertisementAPIClient() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyBGPAdvertisement(),
-		SchemeAttachers: testSchemes,
-	})
-}
-
-func buildDummyBGPAdvertisement() []runtime.Object {
-	return append([]runtime.Object{}, &mlbtypes.BGPAdvertisement{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultBGPAdvertisementName,
-			Namespace: defaultBGPAdvertisementNsName,
-		},
-		Spec: mlbtypes.BGPAdvertisementSpec{},
+		SchemeAttachers: []clients.SchemeAttacher{mlbtypes.AddToScheme},
 	})
 }
