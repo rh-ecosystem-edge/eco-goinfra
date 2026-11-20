@@ -1,12 +1,16 @@
 package statefulset
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // List returns statefulset inventory in the given namespace.
@@ -14,87 +18,28 @@ func List(apiClient *clients.Settings, nsname string, options ...metav1.ListOpti
 	if nsname == "" {
 		klog.V(100).Info("statefulset 'nsname' parameter can not be empty")
 
-		return nil, fmt.Errorf("failed to list statefulsets, 'nsname' parameter is empty")
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey("StatefulSet", "", ""), commonerrors.BuilderFieldNamespace)
 	}
 
-	passedOptions := metav1.ListOptions{}
-	logMessage := fmt.Sprintf("Listing statefulsets in the namespace %s", nsname)
-
-	if len(options) > 1 {
-		klog.V(100).Info("'options' parameter must be empty or single-valued")
-
-		return nil, fmt.Errorf("error: more than one ListOptions was passed")
-	}
-
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
-
-	klog.V(100).Infof("%v", logMessage)
-
-	statefulsetList, err := apiClient.StatefulSets(nsname).List(logging.DiscardContext(), passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions(options)
 	if err != nil {
-		klog.V(100).Infof("Failed to list statefulsets in the namespace %s due to %s", nsname, err.Error())
-
 		return nil, err
 	}
 
-	var statefulsetObjects []*Builder
+	allOptions := append([]runtimeclient.ListOption{runtimeclient.InNamespace(nsname)}, convertedOptions...)
 
-	for _, runningStatefulSet := range statefulsetList.Items {
-		copiedStatefulSet := runningStatefulSet
-		statefulsetBuilder := &Builder{
-			apiClient:  apiClient,
-			Object:     &copiedStatefulSet,
-			Definition: &copiedStatefulSet,
-		}
-
-		statefulsetObjects = append(statefulsetObjects, statefulsetBuilder)
-	}
-
-	return statefulsetObjects, nil
+	return common.List[appsv1.StatefulSet, appsv1.StatefulSetList, Builder](
+		context.TODO(), apiClient, appsv1.AddToScheme, allOptions...)
 }
 
 // ListInAllNamespaces returns statefulset inventory in all namespaces.
 func ListInAllNamespaces(apiClient *clients.Settings, options ...metav1.ListOptions) ([]*Builder, error) {
-	passedOptions := metav1.ListOptions{}
-	logMessage := "Listing statefulsets in all namespaces"
-
-	if len(options) > 1 {
-		klog.V(100).Info("'options' parameter must be empty or single-valued")
-
-		return nil, fmt.Errorf("error: more than one ListOptions was passed")
-	}
-
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
-
-	klog.V(100).Infof("%v", logMessage)
-
-	statefulsetList, err := apiClient.StatefulSets("").List(logging.DiscardContext(), passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions(options)
 	if err != nil {
-		klog.V(100).Infof("Failed to list statefulsets in all namespaces due to %s", err.Error())
-
 		return nil, err
 	}
 
-	var statefulsetObjects []*Builder
-
-	for _, runningStatefulSet := range statefulsetList.Items {
-		copiedStatefulSet := runningStatefulSet
-		statefulsetBuilder := &Builder{
-			apiClient:  apiClient,
-			Object:     &copiedStatefulSet,
-			Definition: &copiedStatefulSet,
-		}
-
-		statefulsetObjects = append(statefulsetObjects, statefulsetBuilder)
-	}
-
-	klog.V(100).Infof("Found %d statefulsets across all namespaces", len(statefulsetObjects))
-
-	return statefulsetObjects, nil
+	return common.List[appsv1.StatefulSet, appsv1.StatefulSetList, Builder](
+		context.TODO(), apiClient, appsv1.AddToScheme, convertedOptions...)
 }
