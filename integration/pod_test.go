@@ -15,6 +15,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/remotecommand"
 )
 
@@ -94,7 +95,8 @@ func TestPodDelete(t *testing.T) {
 
 		// Check if the pod was deleted
 		podBuilder, err = pod.Pull(client, podName, testNamespace)
-		assert.EqualError(t, err, fmt.Sprintf("pod object %s does not exist in namespace %s", podName, testNamespace))
+		assert.Nil(t, podBuilder)
+		assert.True(t, k8serrors.IsNotFound(err))
 	}()
 
 	// Check if the pod was created

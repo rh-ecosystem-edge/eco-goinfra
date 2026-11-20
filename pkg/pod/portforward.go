@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	"k8s.io/client-go/tools/portforward"
 	transportspdy "k8s.io/client-go/transport/spdy"
 	"k8s.io/klog/v2"
@@ -17,7 +18,7 @@ const defaultPortForwardReadyTimeout = 60 * time.Second
 // PortForward establishes a port-forward to the pod and returns the local address (e.g. "localhost:8443")
 // and a stop function. Callers must invoke the stop function to close the port-forward when done.
 func (builder *Builder) PortForward(localPort, remotePort int) (string, func(), error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return "", nil, err
 	}
 
@@ -29,9 +30,14 @@ func (builder *Builder) PortForward(localPort, remotePort int) (string, func(), 
 	klog.V(100).Infof("Setting up port-forward %d:%d to pod %s in namespace %s",
 		localPort, remotePort, builder.Object.Name, builder.Object.Namespace)
 
-	restConfig := builder.apiClient.Config
+	apiClient, err := builder.getSettingsClient()
+	if err != nil {
+		return "", nil, err
+	}
 
-	req := builder.apiClient.CoreV1Interface.RESTClient().
+	restConfig := apiClient.Config
+
+	req := apiClient.CoreV1Interface.RESTClient().
 		Post().
 		Namespace(builder.Object.Namespace).
 		Resource("pods").

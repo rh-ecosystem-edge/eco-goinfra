@@ -18,6 +18,8 @@ import (
 )
 
 func TestWaitForPodsInNamespacesHealthy(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		namespaces    []string
 		listOptions   []metav1.ListOptions
@@ -88,7 +90,8 @@ func TestWaitForPodsInNamespacesHealthy(t *testing.T) {
 			}
 
 			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: []runtime.Object{testPod},
+				K8sMockObjects:  []runtime.Object{testPod},
+				SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
 			})
 		}
 
