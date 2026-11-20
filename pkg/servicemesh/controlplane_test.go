@@ -1,807 +1,549 @@
 package servicemesh
 
 import (
-	"fmt"
 	"testing"
 
-	istiov2 "maistra.io/api/core/v2"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"github.com/stretchr/testify/require"
+	istiov2 "maistra.io/api/core/v2"
 )
 
 var (
 	defaultControlPlaneName = "basic"
 	dummyIPAddress          = "10.22.22.1"
 	emptyIPAddress          = ""
-	emptyAddonsConfig       = (*istiov2.AddonsConfig)(nil)
 	isTrue                  = true
 	isFalse                 = false
-	istiov2TestSchemes      = []clients.SchemeAttacher{
-		istiov2.AddToScheme,
-	}
 )
 
 func TestPullControlPlane(t *testing.T) {
-	generateControlPlane := func(name, namespace string) *istiov2.ServiceMeshControlPlane {
-		return &istiov2.ServiceMeshControlPlane{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "test",
-			namespace:           "istio-system",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "istio-system",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf(errEmptyControlPlaneName),
-			client:              true,
-		},
-		{
-			name:                "test",
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("serviceMeshControlPlane 'nsname' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "smocptest",
-			namespace:           "istio-system",
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("serviceMeshControlPlane object smocptest does not exist in namespace istio-system"),
-			client:              true,
-		},
-		{
-			name:                "smocptest",
-			namespace:           "istio-system",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("serviceMeshControlPlane 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testControlPlane := generateControlPlane(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testControlPlane)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: istiov2TestSchemes,
-			})
-		}
-
-		builderResult, err := PullControlPlane(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testControlPlane.Name, builderResult.Object.Name)
-			assert.Equal(t, testControlPlane.Namespace, builderResult.Object.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullControlPlane,
+		istiov2.AddToScheme,
+		controlPlaneGVK,
+	).ExecuteTests(t)
 }
 
 func TestNewControlPlaneBuilder(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		expectedError string
-	}{
-		{
-			name:          defaultControlPlaneName,
-			namespace:     defaultServiceMeshNamespace,
-			expectedError: "",
-		},
-		{
-			name:          "",
-			namespace:     defaultServiceMeshNamespace,
-			expectedError: errEmptyControlPlaneName,
-		},
-		{
-			name:          defaultControlPlaneName,
-			namespace:     "",
-			expectedError: "serviceMeshControlPlane 'nsname' cannot be empty",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		testControlPlaneBuilder := NewControlPlaneBuilder(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, testControlPlaneBuilder.errorMsg)
-		assert.NotNil(t, testControlPlaneBuilder.Definition)
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testControlPlaneBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testControlPlaneBuilder.Definition.Namespace)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewControlPlaneBuilder,
+		istiov2.AddToScheme,
+		controlPlaneGVK,
+	).ExecuteTests(t)
 }
 
-func TestControlPlaneExists(t *testing.T) {
-	testCases := []struct {
-		testControlPlane *ControlPlaneBuilder
-		expectedStatus   bool
-	}{
-		{
-			testControlPlane: buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedStatus:   true,
-		},
-		{
-			testControlPlane: buildInValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedStatus:   false,
-		},
-		{
-			testControlPlane: buildValidControlPlaneBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:   false,
-		},
-	}
+func TestControlPlaneBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exist := testCase.testControlPlane.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
+	commonTestConfig := testhelper.NewCommonTestConfig[istiov2.ServiceMeshControlPlane, ControlPlaneBuilder](
+		istiov2.AddToScheme,
+		controlPlaneGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-func TestControlPlaneGet(t *testing.T) {
-	testCases := []struct {
-		testControlPlane *ControlPlaneBuilder
-		expectedError    error
-	}{
-		{
-			testControlPlane: buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    nil,
-		},
-		{
-			testControlPlane: buildInValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    fmt.Errorf(errEmptyControlPlaneName),
-		},
-		{
-			testControlPlane: buildValidControlPlaneBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:    fmt.Errorf("servicemeshcontrolplanes.maistra.io \"basic\" not found"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		controlPlaneObj, err := testCase.testControlPlane.Get()
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.testControlPlane.Definition, controlPlaneObj)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestControlPlaneCreate(t *testing.T) {
-	testCases := []struct {
-		testControlPlane *ControlPlaneBuilder
-		expectedError    string
-	}{
-		{
-			testControlPlane: buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    "",
-		},
-		{
-			testControlPlane: buildInValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    errEmptyControlPlaneName,
-		},
-		{
-			testControlPlane: buildValidControlPlaneBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:    "resourceVersion can not be set for Create requests",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testControlPlaneBuilder, err := testCase.testControlPlane.Create()
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testControlPlaneBuilder.Definition, testControlPlaneBuilder.Object)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
-}
-
-func TestControlPlaneDelete(t *testing.T) {
-	testCases := []struct {
-		testControlPlane *ControlPlaneBuilder
-		expectedError    error
-	}{
-		{
-			testControlPlane: buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    nil,
-		},
-		{
-			testControlPlane: buildInValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    fmt.Errorf(errEmptyControlPlaneName),
-		},
-		{
-			testControlPlane: buildValidControlPlaneBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:    nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testControlPlane.Delete()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testControlPlane.Object)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestControlPlaneUpdate(t *testing.T) {
-	testCases := []struct {
-		testControlPlane *ControlPlaneBuilder
-		expectedError    string
-		addonEnablement  bool
-	}{
-		{
-			testControlPlane: buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    "",
-			addonEnablement:  false,
-		},
-		{
-			testControlPlane: buildInValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject()),
-			expectedError:    errEmptyControlPlaneName,
-			addonEnablement:  false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, emptyAddonsConfig, testCase.testControlPlane.Definition.Spec.Addons)
-		assert.Nil(t, nil, testCase.testControlPlane.Object)
-		testCase.testControlPlane.WithGrafanaAddon(testCase.addonEnablement, &istiov2.GrafanaInstallConfig{}, "")
-		_, err := testCase.testControlPlane.Update(true)
-
-		if testCase.expectedError != "" {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.Equal(t, testCase.addonEnablement,
-				*testCase.testControlPlane.Definition.Spec.Addons.Grafana.Enabled)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestControlPlaneWithAllAddonsDisabled(t *testing.T) {
-	testCases := []struct {
-		testControlPlane  bool
-		expectedError     bool
-		expectedErrorText string
-	}{
-		{
-			testControlPlane:  false,
-			expectedError:     false,
-			expectedErrorText: "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testBuilder := buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject())
+	t.Run("disables all addons", func(t *testing.T) {
+		t.Parallel()
 
-		result := testBuilder.WithAllAddonsDisabled()
+		builder := buildControlPlaneBuilderForTest(true)
+		result := builder.WithAllAddonsDisabled()
 
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testControlPlane, *result.Definition.Spec.Addons.Prometheus.Enabled)
-			assert.Equal(t, testCase.testControlPlane, *result.Definition.Spec.Addons.Grafana.Enabled)
-			assert.Equal(t, testCase.testControlPlane, *result.Definition.Spec.Addons.Kiali.Enabled)
-			assert.Equal(t, testCase.testControlPlane, *result.Definition.Spec.Addons.ThreeScale.Enabled)
-		}
-	}
+		require.NoError(t, result.GetError())
+		require.NotNil(t, result.Definition.Spec.Addons)
+		assert.False(t, *result.Definition.Spec.Addons.Prometheus.Enabled)
+		assert.False(t, *result.Definition.Spec.Addons.Grafana.Enabled)
+		assert.False(t, *result.Definition.Spec.Addons.Kiali.Enabled)
+		assert.False(t, *result.Definition.Spec.Addons.ThreeScale.Enabled)
+	})
+
+	t.Run("invalid builder short-circuits", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildControlPlaneBuilderForTest(false)
+		result := builder.WithAllAddonsDisabled()
+
+		require.Error(t, result.GetError())
+		assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+		assert.Nil(t, result.Definition.Spec.Addons)
+	})
 }
 
+//nolint:funlen // Table-driven test cases keep the addon behavior together.
 func TestControlPlaneWithGrafanaAddon(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testEnablement    bool
-		testInstall       *istiov2.GrafanaInstallConfig
-		testAddress       string
-		expectedError     bool
-		expectedErrorText string
+		name           string
+		enablement     bool
+		install        *istiov2.GrafanaInstallConfig
+		address        string
+		validBuilder   bool
+		expectedErrMsg string
 	}{
 		{
-			testEnablement: true,
-			testInstall: &istiov2.GrafanaInstallConfig{
-				SelfManaged: false,
-			},
-			testAddress:       dummyIPAddress,
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "enabled addon",
+			enablement:   true,
+			install:      &istiov2.GrafanaInstallConfig{SelfManaged: false},
+			address:      dummyIPAddress,
+			validBuilder: true,
 		},
 		{
-			testEnablement: false,
-			testInstall: &istiov2.GrafanaInstallConfig{
-				SelfManaged: false,
-			},
-			testAddress:       dummyIPAddress,
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "disabled addon",
+			install:      &istiov2.GrafanaInstallConfig{SelfManaged: false},
+			address:      dummyIPAddress,
+			validBuilder: true,
 		},
 		{
-			testEnablement:    true,
-			testInstall:       nil,
-			testAddress:       dummyIPAddress,
-			expectedError:     true,
-			expectedErrorText: "the Grafana addon 'grafanaInstallConfig' cannot be empty when Grafana addon is enabled",
+			name:           "enabled addon without install config",
+			enablement:     true,
+			address:        dummyIPAddress,
+			validBuilder:   true,
+			expectedErrMsg: "the Grafana addon 'grafanaInstallConfig' cannot be empty when Grafana addon is enabled",
 		},
 		{
-			testEnablement:    false,
-			testInstall:       nil,
-			testAddress:       dummyIPAddress,
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "disabled addon without install config",
+			address:      dummyIPAddress,
+			validBuilder: true,
 		},
 		{
-			testEnablement: false,
-			testInstall: &istiov2.GrafanaInstallConfig{
-				SelfManaged: false,
-			},
-			testAddress:       emptyIPAddress,
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "disabled addon without address",
+			install:      &istiov2.GrafanaInstallConfig{SelfManaged: false},
+			validBuilder: true,
 		},
 		{
-			testEnablement: true,
-			testInstall: &istiov2.GrafanaInstallConfig{
-				SelfManaged: false,
-			},
-			testAddress:       emptyIPAddress,
-			expectedError:     true,
-			expectedErrorText: "the Grafana addon 'address' cannot be empty when Grafana addon is enabled",
+			name:           "enabled addon without address",
+			enablement:     true,
+			install:        &istiov2.GrafanaInstallConfig{SelfManaged: false},
+			validBuilder:   true,
+			expectedErrMsg: "the Grafana addon 'address' cannot be empty when Grafana addon is enabled",
+		},
+		{
+			name:         "empty address with disabled addon",
+			install:      &istiov2.GrafanaInstallConfig{SelfManaged: false},
+			address:      emptyIPAddress,
+			validBuilder: true,
+		},
+		{
+			name:         "invalid builder",
+			enablement:   true,
+			install:      &istiov2.GrafanaInstallConfig{SelfManaged: false},
+			address:      dummyIPAddress,
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithGrafanaAddon(testCase.testEnablement,
-			testCase.testInstall, testCase.testAddress)
+			result := buildControlPlaneBuilderForTest(testCase.validBuilder).
+				WithGrafanaAddon(testCase.enablement, testCase.install, testCase.address)
 
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.Addons)
+
+				return
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testEnablement, *result.Definition.Spec.Addons.Grafana.Enabled)
 
-			if testCase.testEnablement {
-				assert.Equal(t, testCase.testInstall, result.Definition.Spec.Addons.Grafana.Install)
-				assert.Equal(t, testCase.testAddress, *result.Definition.Spec.Addons.Grafana.Address)
+			if testCase.expectedErrMsg != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedErrMsg)
+				assert.Nil(t, result.Definition.Spec.Addons)
+
+				return
 			}
-		}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.Addons)
+			require.NotNil(t, result.Definition.Spec.Addons.Grafana)
+			assert.Equal(t, testCase.enablement, *result.Definition.Spec.Addons.Grafana.Enabled)
+			assert.Equal(t, testCase.install, result.Definition.Spec.Addons.Grafana.Install)
+			assert.Equal(t, testCase.address, *result.Definition.Spec.Addons.Grafana.Address)
+		})
 	}
 }
 
 func TestControlPlaneWithJaegerAddon(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testName          string
-		testInstall       *istiov2.JaegerInstallConfig
-		expectedError     bool
-		expectedErrorText string
+		name           string
+		addonName      string
+		install        *istiov2.JaegerInstallConfig
+		validBuilder   bool
+		expectedErrMsg string
 	}{
 		{
-			testName: "jaegertest",
-			testInstall: &istiov2.JaegerInstallConfig{
-				Ingress: &istiov2.JaegerIngressConfig{
-					Enablement: istiov2.Enablement{
-						Enabled: &isTrue,
-					},
-				},
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "enabled ingress",
+			addonName:    "jaegertest",
+			install:      &istiov2.JaegerInstallConfig{Ingress: &istiov2.JaegerIngressConfig{Enablement: istiov2.Enablement{Enabled: &isTrue}}},
+			validBuilder: true,
 		},
 		{
-			testName: "jaegertest",
-			testInstall: &istiov2.JaegerInstallConfig{
-				Ingress: &istiov2.JaegerIngressConfig{
-					Enablement: istiov2.Enablement{
-						Enabled: &isFalse,
-					},
-				},
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "disabled ingress",
+			addonName:    "jaegertest",
+			install:      &istiov2.JaegerInstallConfig{Ingress: &istiov2.JaegerIngressConfig{Enablement: istiov2.Enablement{Enabled: &isFalse}}},
+			validBuilder: true,
 		},
 		{
-			testName: "",
-			testInstall: &istiov2.JaegerInstallConfig{
-				Ingress: &istiov2.JaegerIngressConfig{
-					Enablement: istiov2.Enablement{
-						Enabled: &isTrue,
-					},
-				},
-			},
-			expectedError:     true,
-			expectedErrorText: "the Jaeger addon 'name' cannot be empty",
+			name:           "empty addon name",
+			install:        &istiov2.JaegerInstallConfig{Ingress: &istiov2.JaegerIngressConfig{Enablement: istiov2.Enablement{Enabled: &isTrue}}},
+			validBuilder:   true,
+			expectedErrMsg: "the Jaeger addon 'name' cannot be empty",
 		},
 		{
-			testName:          "jaegertest",
-			testInstall:       nil,
-			expectedError:     true,
-			expectedErrorText: "the Jaeger addon 'jaegerInstallConfig' cannot be empty",
+			name:           "empty install config",
+			addonName:      "jaegertest",
+			validBuilder:   true,
+			expectedErrMsg: "the Jaeger addon 'jaegerInstallConfig' cannot be empty",
+		},
+		{
+			name:         "invalid builder",
+			addonName:    "jaegertest",
+			install:      &istiov2.JaegerInstallConfig{},
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithJaegerAddon(testCase.testName, testCase.testInstall)
+			result := buildControlPlaneBuilderForTest(testCase.validBuilder).
+				WithJaegerAddon(testCase.addonName, testCase.install)
 
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.Addons)
+
+				return
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testName, result.Definition.Spec.Addons.Jaeger.Name)
-			assert.Equal(t, testCase.testInstall, result.Definition.Spec.Addons.Jaeger.Install)
-		}
+
+			if testCase.expectedErrMsg != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedErrMsg)
+				assert.Nil(t, result.Definition.Spec.Addons)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.Addons)
+			require.NotNil(t, result.Definition.Spec.Addons.Jaeger)
+			assert.Equal(t, testCase.addonName, result.Definition.Spec.Addons.Jaeger.Name)
+			assert.Equal(t, testCase.install, result.Definition.Spec.Addons.Jaeger.Install)
+		})
 	}
 }
 
-//nolint:funlen
+//nolint:funlen // Table-driven test cases keep the addon behavior together.
 func TestControlPlaneWithKialiAddon(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testEnablement    bool
-		testName          string
-		testInstall       *istiov2.KialiInstallConfig
-		expectedError     bool
-		expectedErrorText string
+		name           string
+		enablement     bool
+		addonName      string
+		install        *istiov2.KialiInstallConfig
+		validBuilder   bool
+		expectedErrMsg string
 	}{
 		{
-			testEnablement: true,
-			testName:       "testkiali",
-			testInstall: &istiov2.KialiInstallConfig{
-				Dashboard: &istiov2.KialiDashboardConfig{
-					ViewOnly:         &isTrue,
-					EnableGrafana:    &isTrue,
-					EnablePrometheus: &isTrue,
-					EnableTracing:    &isTrue,
-				},
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "enabled addon",
+			enablement:   true,
+			addonName:    "testkiali",
+			install:      &istiov2.KialiInstallConfig{Dashboard: &istiov2.KialiDashboardConfig{ViewOnly: &isTrue}},
+			validBuilder: true,
 		},
 		{
-			testEnablement: false,
-			testName:       "testkiali",
-			testInstall: &istiov2.KialiInstallConfig{
-				Dashboard: &istiov2.KialiDashboardConfig{
-					ViewOnly:         &isTrue,
-					EnableGrafana:    &isTrue,
-					EnablePrometheus: &isTrue,
-					EnableTracing:    &isTrue,
-				},
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "disabled addon",
+			addonName:    "testkiali",
+			install:      &istiov2.KialiInstallConfig{Dashboard: &istiov2.KialiDashboardConfig{ViewOnly: &isTrue}},
+			validBuilder: true,
 		},
 		{
-			testEnablement: true,
-			testName:       "testkiali",
-			testInstall: &istiov2.KialiInstallConfig{
-				Dashboard: &istiov2.KialiDashboardConfig{
-					ViewOnly:         &isFalse,
-					EnableGrafana:    &isFalse,
-					EnablePrometheus: &isFalse,
-					EnableTracing:    &isFalse,
-				},
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "enabled with disabled dashboard features",
+			enablement:   true,
+			addonName:    "testkiali",
+			install:      &istiov2.KialiInstallConfig{Dashboard: &istiov2.KialiDashboardConfig{ViewOnly: &isFalse}},
+			validBuilder: true,
 		},
 		{
-			testEnablement:    false,
-			testName:          "testkiali",
-			testInstall:       nil,
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "disabled addon without install config",
+			addonName:    "testkiali",
+			validBuilder: true,
 		},
 		{
-			testEnablement: false,
-			testName:       "",
-			testInstall: &istiov2.KialiInstallConfig{
-				Dashboard: &istiov2.KialiDashboardConfig{
-					ViewOnly:         &isFalse,
-					EnableGrafana:    &isFalse,
-					EnablePrometheus: &isFalse,
-					EnableTracing:    &isFalse,
-				},
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "disabled addon without addon name",
+			install:      &istiov2.KialiInstallConfig{Dashboard: &istiov2.KialiDashboardConfig{ViewOnly: &isFalse}},
+			validBuilder: true,
 		},
 		{
-			testEnablement: true,
-			testName:       "",
-			testInstall: &istiov2.KialiInstallConfig{
-				Dashboard: &istiov2.KialiDashboardConfig{
-					ViewOnly:         &isFalse,
-					EnableGrafana:    &isFalse,
-					EnablePrometheus: &isFalse,
-					EnableTracing:    &isFalse,
-				},
-			},
-			expectedError:     true,
-			expectedErrorText: "the Kiali addon 'name' cannot be empty when Kiali addon is enabled",
+			name:           "enabled addon without addon name",
+			enablement:     true,
+			install:        &istiov2.KialiInstallConfig{Dashboard: &istiov2.KialiDashboardConfig{ViewOnly: &isFalse}},
+			validBuilder:   true,
+			expectedErrMsg: "the Kiali addon 'name' cannot be empty when Kiali addon is enabled",
 		},
 		{
-			testEnablement:    true,
-			testName:          "testkiali",
-			testInstall:       nil,
-			expectedError:     true,
-			expectedErrorText: "the Kiali addon 'kialiInstallConfig' cannot be empty when Kiali addon is enabled",
+			name:           "enabled addon without install config",
+			enablement:     true,
+			addonName:      "testkiali",
+			validBuilder:   true,
+			expectedErrMsg: "the Kiali addon 'kialiInstallConfig' cannot be empty when Kiali addon is enabled",
+		},
+		{
+			name:         "invalid builder",
+			enablement:   true,
+			addonName:    "testkiali",
+			install:      &istiov2.KialiInstallConfig{},
+			validBuilder: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithKialiAddon(testCase.testEnablement,
-			testCase.testName, testCase.testInstall)
+			result := buildControlPlaneBuilderForTest(testCase.validBuilder).
+				WithKialiAddon(testCase.enablement, testCase.addonName, testCase.install)
 
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.Addons)
+
+				return
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testEnablement, *result.Definition.Spec.Addons.Kiali.Enabled)
 
-			if testCase.testEnablement {
-				assert.Equal(t, testCase.testInstall, result.Definition.Spec.Addons.Kiali.Install)
-				assert.Equal(t, testCase.testName, result.Definition.Spec.Addons.Kiali.Name)
+			if testCase.expectedErrMsg != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedErrMsg)
+				assert.Nil(t, result.Definition.Spec.Addons)
+
+				return
 			}
-		}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.Addons)
+			require.NotNil(t, result.Definition.Spec.Addons.Kiali)
+			assert.Equal(t, testCase.enablement, *result.Definition.Spec.Addons.Kiali.Enabled)
+			assert.Equal(t, testCase.addonName, result.Definition.Spec.Addons.Kiali.Name)
+			assert.Equal(t, testCase.install, result.Definition.Spec.Addons.Kiali.Install)
+		})
 	}
 }
 
-//nolint:funlen
+//nolint:funlen // Table-driven test cases keep the addon behavior together.
 func TestControlPlaneWithPrometheusAddon(t *testing.T) {
+	t.Parallel()
+
+	prometheusInstallConfig := &istiov2.PrometheusInstallConfig{
+		SelfManaged:    false,
+		ScrapeInterval: "5",
+		UseTLS:         &isFalse,
+	}
+
 	testCases := []struct {
-		testEnablement            bool
-		testScrape                bool
-		testMetricsExpiryDuration string
-		testAddress               string
-		testInstall               *istiov2.PrometheusInstallConfig
-		expectedError             bool
-		expectedErrorText         string
+		name                  string
+		enablement            bool
+		scrape                bool
+		metricsExpiryDuration string
+		address               string
+		install               *istiov2.PrometheusInstallConfig
+		validBuilder          bool
+		expectedErrMsg        string
 	}{
 		{
-			testEnablement:            true,
-			testScrape:                true,
-			testMetricsExpiryDuration: "100",
-			testAddress:               dummyIPAddress,
-			testInstall: &istiov2.PrometheusInstallConfig{
-				SelfManaged:    false,
-				ScrapeInterval: "5",
-				UseTLS:         &isFalse,
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:                  "enabled addon",
+			enablement:            true,
+			scrape:                true,
+			metricsExpiryDuration: "100",
+			address:               dummyIPAddress,
+			install:               prometheusInstallConfig,
+			validBuilder:          true,
 		},
 		{
-			testEnablement:            false,
-			testScrape:                true,
-			testMetricsExpiryDuration: "100",
-			testAddress:               dummyIPAddress,
-			testInstall: &istiov2.PrometheusInstallConfig{
-				SelfManaged:    false,
-				ScrapeInterval: "5",
-				UseTLS:         &isFalse,
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:                  "disabled addon",
+			scrape:                true,
+			metricsExpiryDuration: "100",
+			address:               dummyIPAddress,
+			install:               prometheusInstallConfig,
+			validBuilder:          true,
 		},
 		{
-			testEnablement:            true,
-			testScrape:                false,
-			testMetricsExpiryDuration: "100",
-			testAddress:               dummyIPAddress,
-			testInstall: &istiov2.PrometheusInstallConfig{
-				SelfManaged:    false,
-				ScrapeInterval: "5",
-				UseTLS:         &isFalse,
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:                  "scrape disabled",
+			enablement:            true,
+			metricsExpiryDuration: "100",
+			address:               dummyIPAddress,
+			install:               prometheusInstallConfig,
+			validBuilder:          true,
 		},
 		{
-			testEnablement:            false,
-			testScrape:                true,
-			testMetricsExpiryDuration: "",
-			testAddress:               dummyIPAddress,
-			testInstall: &istiov2.PrometheusInstallConfig{
-				SelfManaged:    false,
-				ScrapeInterval: "5",
-				UseTLS:         &isFalse,
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:         "disabled addon with empty expiry duration",
+			scrape:       true,
+			address:      dummyIPAddress,
+			install:      prometheusInstallConfig,
+			validBuilder: true,
 		},
 		{
-			testEnablement:            false,
-			testScrape:                true,
-			testMetricsExpiryDuration: "100",
-			testAddress:               emptyIPAddress,
-			testInstall: &istiov2.PrometheusInstallConfig{
-				SelfManaged:    false,
-				ScrapeInterval: "5",
-				UseTLS:         &isFalse,
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:                  "disabled addon with empty address",
+			scrape:                true,
+			metricsExpiryDuration: "100",
+			install:               prometheusInstallConfig,
+			validBuilder:          true,
 		},
 		{
-			testEnablement:            false,
-			testScrape:                true,
-			testMetricsExpiryDuration: "100",
-			testAddress:               dummyIPAddress,
-			testInstall:               nil,
-			expectedError:             false,
-			expectedErrorText:         "",
+			name:                  "disabled addon without install config",
+			scrape:                true,
+			metricsExpiryDuration: "100",
+			address:               dummyIPAddress,
+			validBuilder:          true,
 		},
 		{
-			testEnablement:            true,
-			testScrape:                true,
-			testMetricsExpiryDuration: "",
-			testAddress:               dummyIPAddress,
-			testInstall: &istiov2.PrometheusInstallConfig{
-				SelfManaged:    false,
-				ScrapeInterval: "5",
-				UseTLS:         &isFalse,
-			},
-			expectedError:     true,
-			expectedErrorText: "the Prometheus addon 'metricsExpiryDuration' cannot be empty when Prometheus addon is enabled",
+			name:           "enabled addon without expiry duration",
+			enablement:     true,
+			scrape:         true,
+			address:        dummyIPAddress,
+			install:        prometheusInstallConfig,
+			validBuilder:   true,
+			expectedErrMsg: "the Prometheus addon 'metricsExpiryDuration' cannot be empty when Prometheus addon is enabled",
 		},
 		{
-			testEnablement:            true,
-			testScrape:                true,
-			testMetricsExpiryDuration: "100",
-			testAddress:               emptyIPAddress,
-			testInstall: &istiov2.PrometheusInstallConfig{
-				SelfManaged:    false,
-				ScrapeInterval: "5",
-				UseTLS:         &isFalse,
-			},
-			expectedError:     true,
-			expectedErrorText: "the Prometheus addon 'address' cannot be empty when Prometheus addon is enabled",
+			name:                  "enabled addon without address",
+			enablement:            true,
+			scrape:                true,
+			metricsExpiryDuration: "100",
+			install:               prometheusInstallConfig,
+			validBuilder:          true,
+			expectedErrMsg:        "the Prometheus addon 'address' cannot be empty when Prometheus addon is enabled",
 		},
 		{
-			testEnablement:            true,
-			testScrape:                true,
-			testMetricsExpiryDuration: "100",
-			testAddress:               dummyIPAddress,
-			testInstall:               nil,
-			expectedError:             true,
-			expectedErrorText: "the Prometheus addon 'prometheusInstallConfig' cannot be empty " +
+			name:                  "enabled addon without install config",
+			enablement:            true,
+			scrape:                true,
+			metricsExpiryDuration: "100",
+			address:               dummyIPAddress,
+			validBuilder:          true,
+			expectedErrMsg: "the Prometheus addon 'prometheusInstallConfig' cannot be empty " +
 				"when Prometheus addon is enabled",
 		},
+		{
+			name:                  "invalid builder",
+			enablement:            true,
+			scrape:                true,
+			metricsExpiryDuration: "100",
+			address:               dummyIPAddress,
+			install:               prometheusInstallConfig,
+			validBuilder:          false,
+		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithPrometheusAddon(testCase.testEnablement, testCase.testScrape,
-			testCase.testMetricsExpiryDuration, testCase.testAddress, testCase.testInstall)
+			result := buildControlPlaneBuilderForTest(testCase.validBuilder).WithPrometheusAddon(
+				testCase.enablement,
+				testCase.scrape,
+				testCase.metricsExpiryDuration,
+				testCase.address,
+				testCase.install,
+			)
 
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.Addons)
+
+				return
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testEnablement, *result.Definition.Spec.Addons.Prometheus.Enabled)
 
-			if testCase.testEnablement {
-				assert.Equal(t, testCase.testScrape, *result.Definition.Spec.Addons.Prometheus.Scrape)
-				assert.Equal(t, testCase.testMetricsExpiryDuration,
-					result.Definition.Spec.Addons.Prometheus.MetricsExpiryDuration)
-				assert.Equal(t, testCase.testAddress, *result.Definition.Spec.Addons.Prometheus.Address)
-				assert.Equal(t, testCase.testInstall, result.Definition.Spec.Addons.Prometheus.Install)
+			if testCase.expectedErrMsg != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedErrMsg)
+				assert.Nil(t, result.Definition.Spec.Addons)
+
+				return
 			}
-		}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.Addons)
+			require.NotNil(t, result.Definition.Spec.Addons.Prometheus)
+			assert.Equal(t, testCase.enablement, *result.Definition.Spec.Addons.Prometheus.Enabled)
+			assert.Equal(t, testCase.scrape, *result.Definition.Spec.Addons.Prometheus.Scrape)
+			assert.Equal(t, testCase.metricsExpiryDuration,
+				result.Definition.Spec.Addons.Prometheus.MetricsExpiryDuration)
+			assert.Equal(t, testCase.address, *result.Definition.Spec.Addons.Prometheus.Address)
+			assert.Equal(t, testCase.install, result.Definition.Spec.Addons.Prometheus.Install)
+		})
 	}
 }
 
 func TestControlPlaneWithGatewaysEnablement(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testEnablement    bool
-		expectedError     bool
-		expectedErrorText string
+		name         string
+		enablement   bool
+		validBuilder bool
 	}{
-		{
-			testEnablement:    true,
-			expectedError:     false,
-			expectedErrorText: "",
-		},
-		{
-			testEnablement:    false,
-			expectedError:     false,
-			expectedErrorText: "",
-		},
+		{name: "enabled gateways", enablement: true, validBuilder: true},
+		{name: "disabled gateways", enablement: false, validBuilder: true},
+		{name: "invalid builder", enablement: true, validBuilder: false},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidControlPlaneBuilder(buildControlPlaneClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithGatewaysEnablement(testCase.testEnablement)
+			result := buildControlPlaneBuilderForTest(testCase.validBuilder).
+				WithGatewaysEnablement(testCase.enablement)
 
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			if !testCase.validBuilder {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.Gateways)
+
+				return
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testEnablement, *result.Definition.Spec.Gateways.Enabled)
-		}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.Gateways)
+			assert.Equal(t, testCase.enablement, *result.Definition.Spec.Gateways.Enabled)
+		})
 	}
 }
 
-func buildValidControlPlaneBuilder(apiClient *clients.Settings) *ControlPlaneBuilder {
-	controlPlaneBuilder := NewControlPlaneBuilder(
-		apiClient, defaultControlPlaneName, defaultServiceMeshNamespace)
-	controlPlaneBuilder.Definition.ResourceVersion = "999"
+func buildControlPlaneBuilderForTest(valid bool) *ControlPlaneBuilder {
+	if !valid {
+		return NewControlPlaneBuilder(
+			clients.GetTestClients(clients.TestClientParams{}),
+			"",
+			defaultServiceMeshNamespace,
+		)
+	}
 
-	return controlPlaneBuilder
-}
-
-func buildInValidControlPlaneBuilder(apiClient *clients.Settings) *ControlPlaneBuilder {
-	controlPlaneBuilder := NewControlPlaneBuilder(
-		apiClient, "", defaultServiceMeshNamespace)
-	controlPlaneBuilder.Definition.ResourceVersion = "999"
-
-	return controlPlaneBuilder
-}
-
-func buildControlPlaneClientWithDummyObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyControlplane(),
-		SchemeAttachers: istiov2TestSchemes,
-	})
-}
-
-func buildDummyControlplane() []runtime.Object {
-	return append([]runtime.Object{}, &istiov2.ServiceMeshControlPlane{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultControlPlaneName,
-			Namespace: defaultServiceMeshNamespace,
-		},
-	})
+	return NewControlPlaneBuilder(
+		clients.GetTestClients(clients.TestClientParams{}),
+		defaultControlPlaneName,
+		defaultServiceMeshNamespace,
+	)
 }
