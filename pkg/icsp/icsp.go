@@ -2,7 +2,7 @@ package icsp
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	v1alpha1 "github.com/openshift/api/operator/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
@@ -11,9 +11,9 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const (
-	errEmptySource  = "imageContentSourcePolicy 'source' cannot be empty"
-	errEmptyMirrors = "imageContentSourcePolicy 'mirrors' cannot be empty"
+var (
+	errEmptySource  = errors.New("imageContentSourcePolicy 'source' cannot be empty")
+	errEmptyMirrors = errors.New("imageContentSourcePolicy 'mirrors' cannot be empty")
 )
 
 var icspGVK = v1alpha1.GroupVersion.WithKind("ImageContentSourcePolicy")
@@ -63,7 +63,7 @@ func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []
 	if source == "" {
 		klog.V(100).Info("The Source of the ImageContentSourcePolicy is empty")
 
-		builder.SetError(fmt.Errorf(errEmptySource))
+		builder.SetError(errEmptySource)
 
 		return builder
 	}
@@ -71,7 +71,7 @@ func NewICSPBuilder(apiClient *clients.Settings, name, source string, mirrors []
 	if len(mirrors) == 0 {
 		klog.V(100).Info("The mirrors of the ImageContentSourcePolicy are empty")
 
-		builder.SetError(fmt.Errorf(errEmptyMirrors))
+		builder.SetError(errEmptyMirrors)
 
 		return builder
 	}
@@ -103,7 +103,7 @@ func (builder *ICSPBuilder) WithRepositoryDigestMirror(source string, mirrors []
 	if source == "" {
 		klog.V(100).Info("The source is empty")
 
-		builder.SetError(fmt.Errorf(errEmptySource))
+		builder.SetError(errEmptySource)
 
 		return builder
 	}
@@ -111,7 +111,7 @@ func (builder *ICSPBuilder) WithRepositoryDigestMirror(source string, mirrors []
 	if len(mirrors) == 0 {
 		klog.V(100).Info("Mirrors is empty")
 
-		builder.SetError(fmt.Errorf(errEmptyMirrors))
+		builder.SetError(errEmptyMirrors)
 
 		return builder
 	}

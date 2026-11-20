@@ -36,7 +36,7 @@ func TestNewICSPBuilder(t *testing.T) {
 		name          string
 		source        string
 		mirrors       []string
-		expectedError string
+		expectedError error
 	}{
 		{
 			name:    "valid source and mirrors",
@@ -64,8 +64,8 @@ func TestNewICSPBuilder(t *testing.T) {
 			testBuilder := NewICSPBuilder(
 				getTestICSPAPIClient(), defaultICSPName, testCase.source, testCase.mirrors)
 
-			if testCase.expectedError != "" {
-				assert.EqualError(t, testBuilder.GetError(), testCase.expectedError)
+			if testCase.expectedError != nil {
+				require.ErrorIs(t, testBuilder.GetError(), testCase.expectedError)
 
 				return
 			}
@@ -107,7 +107,7 @@ func TestICSPWithRepositoryDigestMirror(t *testing.T) {
 		valid         bool
 		source        string
 		mirrors       []string
-		expectedError string
+		expectedError error
 	}{
 		{
 			name:    "adds repository digest mirror",
@@ -148,19 +148,18 @@ func TestICSPWithRepositoryDigestMirror(t *testing.T) {
 				testBuilder = buildInvalidICSPBuilder(getTestICSPAPIClient())
 			}
 
-			initialError := testBuilder.GetError()
 			result := testBuilder.WithRepositoryDigestMirror(testCase.source, testCase.mirrors)
 			require.Same(t, testBuilder, result)
 
 			if !testCase.valid {
-				assert.Equal(t, initialError, result.GetError())
+				require.ErrorIs(t, result.GetError(), errEmptyMirrors)
 				assert.Empty(t, result.Definition.Spec.RepositoryDigestMirrors)
 
 				return
 			}
 
-			if testCase.expectedError != "" {
-				assert.EqualError(t, result.GetError(), testCase.expectedError)
+			if testCase.expectedError != nil {
+				require.ErrorIs(t, result.GetError(), testCase.expectedError)
 				assert.Len(t, result.Definition.Spec.RepositoryDigestMirrors, 1)
 
 				return
