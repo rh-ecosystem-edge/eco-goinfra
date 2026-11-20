@@ -1,80 +1,48 @@
 package ptp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
 
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
-
 	ptpv1 "github.com/k8snetworkplumbingwg/ptp-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 )
 
-const (
-	errEmptyNsname = "ptpConfig 'nsname' cannot be empty"
-)
+var ptpConfigGVK = ptpv1.GroupVersion.WithKind("PtpConfig")
 
 // PtpConfigBuilder provides a struct for the PtpConfig resource containing a connection to the cluster and the
 // PtpConfig definition.
 type PtpConfigBuilder struct {
-	// Definition of the PtpConfig used to create the object.
-	Definition *ptpv1.PtpConfig
-	// Object of the PtpConfig as it is on the cluster.
-	Object    *ptpv1.PtpConfig
-	apiClient goclient.Client
-	errorMsg  string
+	common.EmbeddableBuilder[ptpv1.PtpConfig, *ptpv1.PtpConfig]
+	common.EmbeddableCreator[ptpv1.PtpConfig, PtpConfigBuilder, *ptpv1.PtpConfig, *PtpConfigBuilder]
+	common.EmbeddableDeleter[ptpv1.PtpConfig, *ptpv1.PtpConfig]
+	common.EmbeddableUpdater[ptpv1.PtpConfig, PtpConfigBuilder, *ptpv1.PtpConfig, *PtpConfigBuilder]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *PtpConfigBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableUpdater.SetBase(builder)
+}
+
+// GetGVK returns the PtpConfig GVK for this builder.
+func (builder *PtpConfigBuilder) GetGVK() schema.GroupVersionKind {
+	return ptpConfigGVK
 }
 
 // NewPtpConfigBuilder creates a new instance of a PtpConfig builder.
 func NewPtpConfigBuilder(apiClient *clients.Settings, name, nsname string) *PtpConfigBuilder {
 	klog.V(100).Infof("Initializing new PtpConfig structure with the following params: name: %s, nsname: %s", name, nsname)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient of the PtpConfig is nil")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(ptpv1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add ptp v1 scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &PtpConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &ptpv1.PtpConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the PtpConfig is empty")
-
-		builder.errorMsg = "ptpConfig 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the PtpConfig is empty")
-
-		builder.errorMsg = errEmptyNsname
-
-		return builder
-	}
-
-	return builder
+	return common.NewNamespacedBuilder[ptpv1.PtpConfig, PtpConfigBuilder](
+		apiClient, ptpv1.AddToScheme, name, nsname)
 }
 
 // intelPluginTypes is the list of Intel plugin types to check for in order.
@@ -84,7 +52,7 @@ var intelPluginTypes = []PluginType{PluginTypeE810, PluginTypeE825, PluginTypeE8
 // attempting to unmarshal the raw JSON. The plugin's Type field is set based on which plugin key was found. If the
 // profile is not found or no Intel plugin exists, it returns an error.
 func (builder *PtpConfigBuilder) GetIntelPlugin(profileName string) (*IntelPlugin, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return nil, err
 	}
 
@@ -142,7 +110,7 @@ func (builder *PtpConfigBuilder) GetIntelPlugin(profileName string) (*IntelPlugi
 // struct into JSON. The plugin's Type field determines which key (e810, e825, or e830) is used in the Plugins map. If
 // the plugin's Type is not set, an error is returned.
 func (builder *PtpConfigBuilder) WithIntelPlugin(profileName string, plugin *IntelPlugin) *PtpConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -152,7 +120,7 @@ func (builder *PtpConfigBuilder) WithIntelPlugin(profileName string, plugin *Int
 	if profileName == "" {
 		klog.V(100).Info("The profileName is empty")
 
-		builder.errorMsg = "cannot set Intel plugin: profileName cannot be empty"
+		builder.SetError(fmt.Errorf("cannot set Intel plugin: profileName cannot be empty"))
 
 		return builder
 	}
@@ -160,7 +128,7 @@ func (builder *PtpConfigBuilder) WithIntelPlugin(profileName string, plugin *Int
 	if plugin == nil {
 		klog.V(100).Info("Intel plugin is nil")
 
-		builder.errorMsg = "cannot set Intel plugin: plugin is nil"
+		builder.SetError(fmt.Errorf("cannot set Intel plugin: plugin is nil"))
 
 		return builder
 	}
@@ -168,7 +136,7 @@ func (builder *PtpConfigBuilder) WithIntelPlugin(profileName string, plugin *Int
 	if plugin.Type == "" {
 		klog.V(100).Info("Intel plugin Type is not set")
 
-		builder.errorMsg = "cannot set Intel plugin: plugin Type is not set"
+		builder.SetError(fmt.Errorf("cannot set Intel plugin: plugin Type is not set"))
 
 		return builder
 	}
@@ -176,7 +144,7 @@ func (builder *PtpConfigBuilder) WithIntelPlugin(profileName string, plugin *Int
 	if !slices.Contains(intelPluginTypes, plugin.Type) {
 		klog.V(100).Infof("Intel plugin type %s is not supported", plugin.Type)
 
-		builder.errorMsg = fmt.Sprintf("cannot set Intel plugin: plugin type %s is not supported", plugin.Type)
+		builder.SetError(fmt.Errorf("cannot set Intel plugin: plugin type %s is not supported", plugin.Type))
 
 		return builder
 	}
@@ -190,7 +158,7 @@ func (builder *PtpConfigBuilder) WithIntelPlugin(profileName string, plugin *Int
 		if err != nil {
 			klog.V(100).Infof("Failed to marshal %s plugin: %v", plugin.Type, err)
 
-			builder.errorMsg = fmt.Sprintf("cannot set Intel plugin: failed to marshal plugin struct: %v", err)
+			builder.SetError(fmt.Errorf("cannot set Intel plugin: failed to marshal plugin struct: %w", err))
 
 			return builder
 		}
@@ -210,7 +178,7 @@ func (builder *PtpConfigBuilder) WithIntelPlugin(profileName string, plugin *Int
 		return builder
 	}
 
-	builder.errorMsg = fmt.Sprintf("cannot set Intel plugin: ptpProfile %s does not exist", profileName)
+	builder.SetError(fmt.Errorf("cannot set Intel plugin: ptpProfile %s does not exist", profileName))
 
 	return builder
 }
@@ -218,7 +186,7 @@ func (builder *PtpConfigBuilder) WithIntelPlugin(profileName string, plugin *Int
 // GetPluginType returns the Intel plugin type (e810, e825, or e830) for the specified profile, if one exists. This is a
 // lightweight check that does not unmarshal the plugin data.
 func (builder *PtpConfigBuilder) GetPluginType(profileName string) (PluginType, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return "", err
 	}
 
@@ -262,205 +230,6 @@ func (builder *PtpConfigBuilder) GetPluginType(profileName string) (PluginType, 
 
 // PullPtpConfig pulls an existing PtpConfig into a Builder struct.
 func PullPtpConfig(apiClient *clients.Settings, name, nsname string) (*PtpConfigBuilder, error) {
-	klog.V(100).Infof("Pulling existing PtpConfig %s under namespace %s from cluster", name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("ptpConfig 'apiClient' cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(ptpv1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add PtpConfig scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &PtpConfigBuilder{
-		apiClient: apiClient.Client,
-		Definition: &ptpv1.PtpConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the PtpConfig is empty")
-
-		return nil, fmt.Errorf("ptpConfig 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the PtpConfig is empty")
-
-		return nil, fmt.Errorf(errEmptyNsname)
-	}
-
-	if !builder.Exists() {
-		klog.V(100).Infof("The PtpConfig %s does not exist in namespace %s", name, nsname)
-
-		return nil, fmt.Errorf("ptpConfig object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Get returns the PtpConfig object if found.
-func (builder *PtpConfigBuilder) Get() (*ptpv1.PtpConfig, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Getting PtpConfig object %s in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-	ptpConfig := &ptpv1.PtpConfig{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name:      builder.Definition.Name,
-		Namespace: builder.Definition.Namespace,
-	}, ptpConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	return ptpConfig, nil
-}
-
-// Exists checks whether the given PtpConfig exists on the cluster.
-func (builder *PtpConfigBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if PtpConfig %s exists in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-	if err != nil {
-		klog.V(100).Infof("Failed to get PtpConfig %s in namespace %s: %v",
-			builder.Definition.Name, builder.Definition.Namespace, err)
-
-		return false
-	}
-
-	return true
-}
-
-// Create makes a PtpConfig on the cluster if it does not already exist.
-func (builder *PtpConfigBuilder) Create() (*PtpConfigBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Creating PtpConfig %s in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-	if builder.Exists() {
-		return builder, nil
-	}
-
-	err := builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return nil, err
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// Update changes the existing PtpConfig resource on the cluster, failing if it does not exist or cannot be updated.
-func (builder *PtpConfigBuilder) Update() (*PtpConfigBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Updating PtpConfig %s in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof(
-			"PtpConfig %s does not exist in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, fmt.Errorf("cannot update non-existent ptpConfig")
-	}
-
-	builder.Definition.ResourceVersion = builder.Object.ResourceVersion
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return nil, err
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// Delete removes a PtpConfig from the cluster if it exists.
-func (builder *PtpConfigBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof(
-		"Deleting PtpConfig %s in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof(
-			"PtpConfig %s in namespace %s does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Object)
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
-// validate checks that the builder, definition, and apiClient are properly initialized and there is no errorMsg.
-func (builder *PtpConfigBuilder) validate() (bool, error) {
-	resourceCRD := "ptpConfig"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiClient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
+	return common.PullNamespacedBuilder[ptpv1.PtpConfig, PtpConfigBuilder](
+		context.TODO(), apiClient, ptpv1.AddToScheme, name, nsname)
 }
