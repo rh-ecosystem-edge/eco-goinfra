@@ -263,6 +263,9 @@ func WaitForPodsInNamespacesHealthy(
 // pods are ignored. Empty namespaces selects all namespaces. A zero stableDuration succeeds on the first healthy poll.
 // Success requires a healthy poll at or after the window ends and before the overall deadline; allow time for polling
 // and API calls when choosing timeout.
+//
+// stableDuration is recommended to be 30s+, since short durations are an edge case where tolerated list errors or pods
+// restarting can cause the function to return when the pods are not truly stable.
 func WaitForPodsRemainingHealthy(
 	apiClient *clients.Settings, namespaces []string, timeout, stableDuration time.Duration,
 	options ...metav1.ListOptions) error {
