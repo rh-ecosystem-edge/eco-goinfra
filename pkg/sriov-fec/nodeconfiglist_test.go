@@ -1,59 +1,103 @@
 package sriovfec
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	sriovfectypes "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/fec/fectypes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestNodeConfigList(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedListTestConfig(
+		func(apiClient *clients.Settings, nsname string, _ ...runtimeclient.ListOptions) ([]*NodeConfigBuilder, error) {
+			return List(apiClient, nsname)
+		},
+		sriovfectypes.AddToScheme,
+		nodeConfigGVK,
+	).ExecuteTests(t)
+}
+
+func TestNodeConfigListWithOptions(t *testing.T) {
+	t.Parallel()
+
+	selected := buildDummyNodeConfig("selected", defaultNodeConfigNamespace)
+	selected.Labels = map[string]string{"fec": "selected"}
+
 	testCases := []struct {
-		apiclient     bool
-		nsname        string
+		name          string
+		objects       []runtime.Object
+		options       []runtimeclient.ListOptions
+		expectedNames []string
 		expectedError error
 	}{
 		{
-			apiclient:     false,
-			nsname:        defaultNodeConfigNamespace,
-			expectedError: fmt.Errorf("failed to list SriovFecNodeConfig, 'apiClient' parameter is empty"),
+			name:    "label selector filters node configs",
+			objects: []runtime.Object{selected, buildDummyNodeConfig("other", defaultNodeConfigNamespace)},
+			options: []runtimeclient.ListOptions{{
+				LabelSelector: labels.SelectorFromSet(labels.Set{"fec": "selected"}),
+			}},
+			expectedNames: []string{"selected"},
 		},
 		{
-			apiclient:     true,
-			nsname:        "",
-			expectedError: fmt.Errorf("failed to list SriovFecNodeConfig, 'nsname' parameter is empty"),
+			name: "supplied namespace does not implicitly scope the list",
+			objects: []runtime.Object{
+				buildDummyNodeConfig("default-namespace", defaultNodeConfigNamespace),
+				buildDummyNodeConfig("other-namespace", "other-ns"),
+			},
+			expectedNames: []string{"default-namespace", "other-namespace"},
 		},
 		{
-			apiclient:     true,
-			nsname:        defaultNodeConfigNamespace,
-			expectedError: nil,
+			name: "namespace option scopes the list",
+			objects: []runtime.Object{
+				buildDummyNodeConfig("selected", defaultNodeConfigNamespace),
+				buildDummyNodeConfig("wrong-namespace", "wrong-ns"),
+			},
+			options:       []runtimeclient.ListOptions{{Namespace: defaultNodeConfigNamespace}},
+			expectedNames: []string{"selected"},
+		},
+		{
+			name:          "more than one list option returns error",
+			objects:       []runtime.Object{selected},
+			options:       []runtimeclient.ListOptions{{}, {}},
+			expectedError: errors.New("error: more than one ListOptions was passed"),
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.apiclient {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyNodeConfigList(),
-				SchemeAttachers: testSchemes,
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				K8sMockObjects:  testCase.objects,
+				SchemeAttachers: []clients.SchemeAttacher{sriovfectypes.AddToScheme},
 			})
-		}
 
-		testBuilderList, err := List(testSettings, testCase.nsname)
-		assert.Equal(t, testCase.expectedError, err)
+			builders, err := List(testSettings, defaultNodeConfigNamespace, testCase.options...)
+			assert.Equal(t, testCase.expectedError, err)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, len(buildDummyNodeConfigList()), len(testBuilderList))
-		}
-	}
-}
+			if testCase.expectedError != nil {
+				assert.Nil(t, builders)
 
-func buildDummyNodeConfigList() []runtime.Object {
-	return []runtime.Object{
-		buildDummyNodeConfig("worker-0", "test-ns"),
-		buildDummyNodeConfig("worker-1", "test-ns"),
+				return
+			}
+
+			require.NoError(t, err)
+
+			names := make([]string, 0, len(builders))
+			for _, builder := range builders {
+				names = append(names, builder.Definition.Name)
+			}
+
+			assert.ElementsMatch(t, testCase.expectedNames, names)
+		})
 	}
 }

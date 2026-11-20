@@ -1,73 +1,29 @@
 package sriovfec
 
 import (
-	"fmt"
+	"context"
+	"errors"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	commonkey "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/key"
 	sriovfectypes "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/fec/fectypes"
-	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// List returns SriovFecNodeConfigList from given namespace.
-func List(apiClient *clients.Settings, nsname string, options ...client.ListOptions) ([]*NodeConfigBuilder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("SriovFecNodeConfigList 'apiClient' parameter can not be empty")
-
-		return nil, fmt.Errorf("failed to list SriovFecNodeConfig, 'apiClient' parameter is empty")
-	}
-
-	err := apiClient.AttachScheme(sriovfectypes.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add sriov-fec scheme to client schemes")
-
-		return nil, err
-	}
-
+// List returns SriovFecNodeConfigList. The supplied namespace is validated but, for backward compatibility, is not
+// added to the list options; callers can scope the request with client.InNamespace.
+func List(apiClient *clients.Settings, nsname string, options ...runtimeclient.ListOptions) ([]*NodeConfigBuilder, error) {
 	if nsname == "" {
-		klog.V(100).Info("SriovFecNodeConfigList 'nsname' parameter can not be empty")
-
-		return nil, fmt.Errorf("failed to list SriovFecNodeConfig, 'nsname' parameter is empty")
+		return nil, commonerrors.NewBuilderFieldEmpty(
+			commonkey.NewResourceKey("SriovFecNodeConfig", "", ""), commonerrors.BuilderFieldNamespace)
 	}
-
-	passedOptions := client.ListOptions{}
-	logMessage := fmt.Sprintf("Listing SriovFecNodeConfig in the namespace %s", nsname)
 
 	if len(options) > 1 {
-		klog.V(100).Info("'options' parameter must be empty or single-valued")
-
-		return nil, fmt.Errorf("error: more than one ListOptions was passed")
+		return nil, errors.New("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
-
-	klog.V(100).Infof("%v", logMessage)
-
-	sfncList := new(sriovfectypes.SriovFecNodeConfigList)
-
-	err = apiClient.List(logging.DiscardContext(), sfncList, &passedOptions)
-	if err != nil {
-		klog.V(100).Infof("Failed to list SriovFecNodeConfigs in the namespace %s due to %s", nsname, err.Error())
-
-		return nil, err
-	}
-
-	var sfncBuilderList []*NodeConfigBuilder
-
-	for _, sfnc := range sfncList.Items {
-		copiedObject := sfnc
-		sfncBuilder := &NodeConfigBuilder{
-			apiClient:  apiClient.Client,
-			Object:     &copiedObject,
-			Definition: &copiedObject,
-		}
-
-		sfncBuilderList = append(sfncBuilderList, sfncBuilder)
-	}
-
-	return sfncBuilderList, nil
+	return common.List[sriovfectypes.SriovFecNodeConfig, sriovfectypes.SriovFecNodeConfigList, NodeConfigBuilder](
+		context.TODO(), apiClient, sriovfectypes.AddToScheme, common.ConvertListOptionsToOptions(options)...)
 }
