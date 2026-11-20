@@ -1,249 +1,55 @@
 package metallb
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/mlbtypes"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
-	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var bfdProfileGVK = mlbtypes.GroupVersion.WithKind("BFDProfile")
 
 // BFDBuilder provides struct for the BFDProfile object containing connection to
 // the cluster and the BFDProfile definitions.
 type BFDBuilder struct {
-	Definition *mlbtypes.BFDProfile
-	Object     *mlbtypes.BFDProfile
-	apiClient  runtimeClient.Client
-	errorMsg   string
+	common.EmbeddableBuilder[mlbtypes.BFDProfile, *mlbtypes.BFDProfile]
+	common.EmbeddableCreator[mlbtypes.BFDProfile, BFDBuilder, *mlbtypes.BFDProfile, *BFDBuilder]
+	common.EmbeddableDeleteReturner[mlbtypes.BFDProfile, BFDBuilder, *mlbtypes.BFDProfile, *BFDBuilder]
+	common.EmbeddableForceUpdater[mlbtypes.BFDProfile, BFDBuilder, *mlbtypes.BFDProfile, *BFDBuilder]
+	common.EmbeddableWithOptions[
+		mlbtypes.BFDProfile, BFDBuilder, *mlbtypes.BFDProfile, *BFDBuilder, BFDAdditionalOptions]
 }
 
 // BFDAdditionalOptions additional options for BFDProfile object.
 type BFDAdditionalOptions func(builder *BFDBuilder) (*BFDBuilder, error)
 
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *BFDBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleteReturner.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the BFDProfile GVK for this builder.
+func (builder *BFDBuilder) GetGVK() schema.GroupVersionKind {
+	return bfdProfileGVK
+}
+
 // NewBFDBuilder creates a new instance of BFDBuilder.
 func NewBFDBuilder(apiClient *clients.Settings, name, nsname string) *BFDBuilder {
-	klog.V(100).Infof(
-		"Initializing new BFDBuilder structure with the following params: %s, %s",
-		name, nsname)
-
-	err := apiClient.AttachScheme(mlbtypes.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add metallb scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &BFDBuilder{
-		apiClient: apiClient.Client,
-		Definition: &mlbtypes.BFDProfile{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the BFDProfile is empty")
-
-		builder.errorMsg = "BFDProfile 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the BFDProfile is empty")
-
-		builder.errorMsg = "BFDProfile 'nsname' cannot be empty"
-
-		return builder
-	}
-
-	return builder
-}
-
-// Get returns BFDProfile object if found.
-func (builder *BFDBuilder) Get() (*mlbtypes.BFDProfile, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Collecting BFDProfile object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	bfdProfile := &mlbtypes.BFDProfile{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(),
-		runtimeClient.ObjectKey{Name: builder.Definition.Name, Namespace: builder.Definition.Namespace},
-		bfdProfile)
-	if err != nil {
-		klog.V(100).Infof(
-			"BFDProfile object %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, err
-	}
-
-	return bfdProfile, nil
-}
-
-// Exists checks whether the given BFDProfile exists.
-func (builder *BFDBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if BFDProfile %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
+	return common.NewNamespacedBuilder[mlbtypes.BFDProfile, BFDBuilder](
+		apiClient, mlbtypes.AddToScheme, name, nsname)
 }
 
 // PullBFDProfile pulls existing bfdprofile from cluster.
 func PullBFDProfile(apiClient *clients.Settings, name, nsname string) (*BFDBuilder, error) {
-	klog.V(100).Infof("Pulling existing bfdprofile name %s under namespace %s from cluster", name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("bfdprofile 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(mlbtypes.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add metallb scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &BFDBuilder{
-		apiClient: apiClient.Client,
-		Definition: &mlbtypes.BFDProfile{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the bfdprofile is empty")
-
-		return nil, fmt.Errorf("bfdprofile 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the bfdprofile is empty")
-
-		return nil, fmt.Errorf("bfdprofile 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("bfdprofile object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Create makes a BFDProfile in the cluster and stores the created object in struct.
-func (builder *BFDBuilder) Create() (*BFDBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the BFDProfile %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err != nil {
-			klog.V(100).Info("Failed to create BFDProfile")
-
-			return nil, err
-		}
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, err
-}
-
-// Delete removes BFDProfile object from a cluster.
-func (builder *BFDBuilder) Delete() (*BFDBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Deleting the BFDProfile object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("BFDProfile %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, fmt.Errorf("can not delete BFDProfile: %w", err)
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Update renovates the existing BFDProfile object with the BFDProfile definition in builder.
-func (builder *BFDBuilder) Update(force bool) (*BFDBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the BFDProfile object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("failed to update BFDProfile, object does not exist on cluster")
-	}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		if force {
-			klog.V(100).Infof("%v", msg.FailToUpdateNotification("BFDProfile", builder.Definition.Name, builder.Definition.Namespace))
-
-			builder, err := builder.Delete()
-			if err != nil {
-				klog.V(100).Infof("%v", msg.FailToUpdateError("BFDProfile", builder.Definition.Name, builder.Definition.Namespace))
-
-				return nil, err
-			}
-
-			return builder.Create()
-		}
-	}
-
-	return builder, err
+	return common.PullNamespacedBuilder[mlbtypes.BFDProfile, BFDBuilder](
+		context.TODO(), apiClient, mlbtypes.AddToScheme, name, nsname)
 }
 
 // WithRcvInterval defines the receiveInterval placed in the BFDProfile.
@@ -263,7 +69,7 @@ func (builder *BFDBuilder) WithEchoInterval(ecoInterval uint32) *BFDBuilder {
 
 // WithMultiplier defines the detectMultiplier placed in the BFDProfile.
 func (builder *BFDBuilder) WithMultiplier(multiplier uint32) *BFDBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -288,7 +94,7 @@ func (builder *BFDBuilder) WithPassiveMode(passiveMode bool) *BFDBuilder {
 
 // WithMinimumTTL defines the minimumTTTL placed in the BFDProfile.
 func (builder *BFDBuilder) WithMinimumTTL(minimumTTL uint32) *BFDBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -301,30 +107,6 @@ func (builder *BFDBuilder) WithMinimumTTL(minimumTTL uint32) *BFDBuilder {
 	return builder
 }
 
-// WithOptions creates BFDProfile with generic mutation options.
-func (builder *BFDBuilder) WithOptions(options ...BFDAdditionalOptions) *BFDBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting BFDProfile additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
 // GetBFDProfileGVR returns bfdprofile's GroupVersionResource which could be used for Clean function.
 func GetBFDProfileGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
@@ -332,8 +114,9 @@ func GetBFDProfileGVR() schema.GroupVersionResource {
 	}
 }
 
+// withBoolFlagFor sets a boolean BFDProfile spec field selected by name.
 func (builder *BFDBuilder) withBoolFlagFor(flagName string, flagValue bool) *BFDBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -347,16 +130,15 @@ func (builder *BFDBuilder) withBoolFlagFor(flagName string, flagValue bool) *BFD
 	case "passiveMode":
 		builder.Definition.Spec.PassiveMode = &flagValue
 	default:
-		builder.errorMsg = "invalid bool flag name parameter"
-
-		return builder
+		builder.SetError(fmt.Errorf("invalid bool flag name parameter"))
 	}
 
 	return builder
 }
 
+// withInterval sets an interval BFDProfile spec field selected by name.
 func (builder *BFDBuilder) withInterval(intervalName string, interval uint32) *BFDBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -372,42 +154,8 @@ func (builder *BFDBuilder) withInterval(intervalName string, interval uint32) *B
 	case "ecoInterval":
 		builder.Definition.Spec.EchoInterval = &interval
 	default:
-		builder.errorMsg = "invalid interval parameters"
-
-		return builder
+		builder.SetError(fmt.Errorf("invalid interval parameters"))
 	}
 
 	return builder
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *BFDBuilder) validate() (bool, error) {
-	resourceCRD := "BFDProfile"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
