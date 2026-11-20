@@ -1,16 +1,16 @@
 package ovn
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	ovnv1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ovn/routeadvertisement/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/ovn/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -27,270 +27,238 @@ var (
 			NetworkSelectionType: types.DefaultNetwork,
 		},
 	}
-	routeAdvertisementTestSchemes = []clients.SchemeAttacher{
-		ovnv1.AddToScheme,
-	}
+	routeAdvertisementGVK = ovnv1.SchemeGroupVersion.WithKind("RouteAdvertisements")
 )
 
 func TestNewRouteAdvertisementBuilder(t *testing.T) {
-	testCases := []struct {
-		name              string
-		expectedErrorText string
-	}{
-		{
-			name:              defaultRouteAdvertisementName,
-			expectedErrorText: "",
-		},
-		{
-			name:              "",
-			expectedErrorText: "RouteAdvertisement 'name' cannot be empty",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: routeAdvertisementTestSchemes})
-		testRouteAdvertisementBuilder := NewRouteAdvertisementBuilder(testSettings, testCase.name)
-
-		assert.Equal(t, testCase.expectedErrorText, testRouteAdvertisementBuilder.errorMsg)
-		assert.NotNil(t, testRouteAdvertisementBuilder.Definition)
-
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, testCase.name, testRouteAdvertisementBuilder.Definition.Name)
-		}
-	}
+	testhelper.NewClusterScopedBuilderTestConfig(
+		NewRouteAdvertisementBuilder,
+		ovnv1.AddToScheme,
+		routeAdvertisementGVK,
+	).ExecuteTests(t)
 }
 
-func TestRouteAdvertisementGet(t *testing.T) {
-	testCases := []struct {
-		routeAdvertisement *ovnv1.RouteAdvertisements
-		expectedError      bool
-	}{
-		{
-			routeAdvertisement: buildDummyRouteAdvertisement(defaultRouteAdvertisementName),
-			expectedError:      false,
-		},
-		{
-			routeAdvertisement: buildDummyRouteAdvertisement(""),
-			expectedError:      true,
-		},
-	}
+func TestPullRouteAdvertisement(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.routeAdvertisement != nil {
-			runtimeObjects = append(runtimeObjects, testCase.routeAdvertisement)
-		}
-
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
-			SchemeAttachers: []clients.SchemeAttacher{
-				ovnv1.AddToScheme,
-			},
-		})
-
-		routeAdvertisementBuilder, err := PullRouteAdvertisement(testSettings, testCase.routeAdvertisement.Name)
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.routeAdvertisement.Name, routeAdvertisementBuilder.Definition.Name)
-		}
-	}
+	testhelper.NewClusterScopedPullTestConfig(
+		PullRouteAdvertisement,
+		ovnv1.AddToScheme,
+		routeAdvertisementGVK,
+	).ExecuteTests(t)
 }
 
-func TestRouteAdvertisementExists(t *testing.T) {
-	testCases := []struct {
-		testRouteAdvertisement *ovnv1.RouteAdvertisements
-		expectedStatus         bool
-	}{
-		{
-			testRouteAdvertisement: buildDummyRouteAdvertisement(defaultRouteAdvertisementName),
-			expectedStatus:         true,
-		},
-		{
-			testRouteAdvertisement: buildDummyRouteAdvertisement(""),
-			expectedStatus:         false,
-		},
-	}
+func TestRouteAdvertisementBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+	commonTestConfig := testhelper.NewCommonTestConfig[ovnv1.RouteAdvertisements, RouteAdvertisementBuilder](
+		ovnv1.AddToScheme,
+		routeAdvertisementGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
 
-		if testCase.testRouteAdvertisement != nil {
-			runtimeObjects = append(runtimeObjects, testCase.testRouteAdvertisement)
-		}
-
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
-			SchemeAttachers: []clients.SchemeAttacher{
-				ovnv1.AddToScheme,
-			},
-		})
-
-		routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings)
-
-		if testCase.testRouteAdvertisement != nil {
-			routeAdvertisementBuilder.Definition.Name = testCase.testRouteAdvertisement.Name
-		}
-
-		assert.Equal(t, testCase.expectedStatus, routeAdvertisementBuilder.Exists())
-	}
-}
-
-func TestRouteAdvertisementCreate(t *testing.T) {
-	testCases := []struct {
-		testRouteAdvertisement *ovnv1.RouteAdvertisements
-		expectedError          error
-	}{
-		{
-			testRouteAdvertisement: buildDummyRouteAdvertisement(defaultRouteAdvertisementName),
-			expectedError:          nil,
-		},
-		{
-			testRouteAdvertisement: buildDummyRouteAdvertisement(""),
-			expectedError:          fmt.Errorf("RouteAdvertisement 'name' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			SchemeAttachers: []clients.SchemeAttacher{
-				ovnv1.AddToScheme,
-			},
-		})
-
-		routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings)
-		routeAdvertisementBuilder.Definition = testCase.testRouteAdvertisement
-
-		result, err := routeAdvertisementBuilder.Create()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testRouteAdvertisement.Name, result.Definition.Name)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestRouteAdvertisementDelete(t *testing.T) {
-	testCases := []struct {
-		testRouteAdvertisement *ovnv1.RouteAdvertisements
-		expectedError          error
-	}{
-		{
-			testRouteAdvertisement: buildDummyRouteAdvertisement(defaultRouteAdvertisementName),
-			expectedError:          nil,
-		},
-		{
-			testRouteAdvertisement: buildDummyRouteAdvertisement(""),
-			expectedError:          fmt.Errorf("RouteAdvertisement 'name' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.testRouteAdvertisement != nil {
-			runtimeObjects = append(runtimeObjects, testCase.testRouteAdvertisement)
-		}
-
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
-			SchemeAttachers: []clients.SchemeAttacher{
-				ovnv1.AddToScheme,
-			},
-		})
-
-		routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings)
-		routeAdvertisementBuilder.Definition = testCase.testRouteAdvertisement
-
-		err := routeAdvertisementBuilder.Delete()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.Nil(t, routeAdvertisementBuilder.Object)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestRouteAdvertisementWithTargetVRF(t *testing.T) {
-	testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: routeAdvertisementTestSchemes})
-	routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings)
+	t.Parallel()
 
-	targetVRF := "test-vrf"
-	routeAdvertisementBuilder.WithTargetVRF(targetVRF)
+	testCases := []struct {
+		name           string
+		invalidBuilder bool
+		targetVRF      string
+	}{
+		{
+			name:      "sets target VRF",
+			targetVRF: "test-vrf",
+		},
+		{
+			name:           "invalid builder",
+			invalidBuilder: true,
+			targetVRF:      "test-vrf",
+		},
+	}
 
-	assert.Equal(t, targetVRF, routeAdvertisementBuilder.Definition.Spec.TargetVRF)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildTestRouteAdvertisementBuilder(getTestRouteAdvertisementAPIClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidRouteAdvertisementTestBuilder(getTestRouteAdvertisementAPIClient())
+			}
+
+			builder.WithTargetVRF(testCase.targetVRF)
+
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.targetVRF, builder.Definition.Spec.TargetVRF)
+		})
+	}
 }
 
 func TestRouteAdvertisementWithAdvertisements(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name           string
+		invalidBuilder bool
 		advertisements []ovnv1.AdvertisementType
 		expectedError  string
 	}{
 		{
+			name:           "sets advertisements",
 			advertisements: []ovnv1.AdvertisementType{ovnv1.PodNetwork},
-			expectedError:  "",
 		},
 		{
+			name:           "empty advertisements",
 			advertisements: []ovnv1.AdvertisementType{},
 			expectedError:  "RouteAdvertisement 'advertisements' cannot be empty",
+		},
+		{
+			name:           "invalid builder",
+			invalidBuilder: true,
+			advertisements: []ovnv1.AdvertisementType{ovnv1.PodNetwork},
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: routeAdvertisementTestSchemes})
-		routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		routeAdvertisementBuilder.WithAdvertisements(testCase.advertisements)
+			builder := buildTestRouteAdvertisementBuilder(getTestRouteAdvertisementAPIClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidRouteAdvertisementTestBuilder(getTestRouteAdvertisementAPIClient())
+			}
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.advertisements, routeAdvertisementBuilder.Definition.Spec.Advertisements)
-			assert.Equal(t, "", routeAdvertisementBuilder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedError, routeAdvertisementBuilder.errorMsg)
-		}
+			builder.WithAdvertisements(testCase.advertisements)
+
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.advertisements, builder.Definition.Spec.Advertisements)
+		})
 	}
 }
 
 func TestRouteAdvertisementWithNodeSelector(t *testing.T) {
-	testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: routeAdvertisementTestSchemes})
-	routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings)
+	t.Parallel()
 
-	nodeSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{"node": "test"},
+	testCases := []struct {
+		name           string
+		invalidBuilder bool
+		nodeSelector   metav1.LabelSelector
+	}{
+		{
+			name:         "sets node selector",
+			nodeSelector: metav1.LabelSelector{MatchLabels: map[string]string{"node": "test"}},
+		},
+		{
+			name:           "invalid builder",
+			invalidBuilder: true,
+			nodeSelector:   metav1.LabelSelector{MatchLabels: map[string]string{"node": "test"}},
+		},
 	}
-	routeAdvertisementBuilder.WithNodeSelector(nodeSelector)
 
-	assert.Equal(t, nodeSelector, routeAdvertisementBuilder.Definition.Spec.NodeSelector)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildTestRouteAdvertisementBuilder(getTestRouteAdvertisementAPIClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidRouteAdvertisementTestBuilder(getTestRouteAdvertisementAPIClient())
+			}
+
+			builder.WithNodeSelector(testCase.nodeSelector)
+
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.nodeSelector, builder.Definition.Spec.NodeSelector)
+		})
+	}
 }
 
 func TestRouteAdvertisementWithFRRConfigurationSelector(t *testing.T) {
-	testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: routeAdvertisementTestSchemes})
-	routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings)
+	t.Parallel()
 
-	frrConfigurationSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{"frr": "test"},
+	testCases := []struct {
+		name                     string
+		invalidBuilder           bool
+		frrConfigurationSelector metav1.LabelSelector
+	}{
+		{
+			name:                     "sets FRR configuration selector",
+			frrConfigurationSelector: metav1.LabelSelector{MatchLabels: map[string]string{"frr": "test"}},
+		},
+		{
+			name:                     "invalid builder",
+			invalidBuilder:           true,
+			frrConfigurationSelector: metav1.LabelSelector{MatchLabels: map[string]string{"frr": "test"}},
+		},
 	}
-	routeAdvertisementBuilder.WithFRRConfigurationSelector(frrConfigurationSelector)
 
-	assert.Equal(t, frrConfigurationSelector, routeAdvertisementBuilder.Definition.Spec.FRRConfigurationSelector)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildTestRouteAdvertisementBuilder(getTestRouteAdvertisementAPIClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidRouteAdvertisementTestBuilder(getTestRouteAdvertisementAPIClient())
+			}
+
+			builder.WithFRRConfigurationSelector(testCase.frrConfigurationSelector)
+
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.frrConfigurationSelector, builder.Definition.Spec.FRRConfigurationSelector)
+		})
+	}
 }
 
 func TestRouteAdvertisementWithNetworkSelectors(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name             string
+		invalidBuilder   bool
 		networkSelectors types.NetworkSelectors
 		expectedError    string
 	}{
 		{
+			name: "sets network selectors",
 			networkSelectors: types.NetworkSelectors{
 				{
 					NetworkSelectionType: types.ClusterUserDefinedNetworks,
@@ -301,13 +269,14 @@ func TestRouteAdvertisementWithNetworkSelectors(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "",
 		},
 		{
+			name:             "empty network selectors",
 			networkSelectors: types.NetworkSelectors{},
 			expectedError:    "RouteAdvertisement 'networkSelectors' cannot be empty",
 		},
 		{
+			name: "empty network selection type",
 			networkSelectors: types.NetworkSelectors{
 				{
 					NetworkSelectionType: "",
@@ -315,20 +284,52 @@ func TestRouteAdvertisementWithNetworkSelectors(t *testing.T) {
 			},
 			expectedError: "RouteAdvertisement 'networkSelectors' must have valid NetworkSelectionType",
 		},
+		{
+			name: "invalid network selection type",
+			networkSelectors: types.NetworkSelectors{
+				{
+					NetworkSelectionType: "InvalidNetwork",
+				},
+			},
+			expectedError: "RouteAdvertisement 'networkSelectors[0]' has invalid NetworkSelectionType: InvalidNetwork",
+		},
+		{
+			name:           "invalid builder",
+			invalidBuilder: true,
+			networkSelectors: types.NetworkSelectors{
+				{
+					NetworkSelectionType: types.DefaultNetwork,
+				},
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: routeAdvertisementTestSchemes})
-		routeAdvertisementBuilder := buildTestRouteAdvertisementBuilder(testSettings)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		routeAdvertisementBuilder.WithNetworkSelectors(testCase.networkSelectors)
+			builder := buildTestRouteAdvertisementBuilder(getTestRouteAdvertisementAPIClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidRouteAdvertisementTestBuilder(getTestRouteAdvertisementAPIClient())
+			}
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.networkSelectors, routeAdvertisementBuilder.Definition.Spec.NetworkSelectors)
-			assert.Equal(t, "", routeAdvertisementBuilder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedError, routeAdvertisementBuilder.errorMsg)
-		}
+			builder.WithNetworkSelectors(testCase.networkSelectors)
+
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.networkSelectors, builder.Definition.Spec.NetworkSelectors)
+		})
 	}
 }
 
@@ -352,4 +353,12 @@ func buildTestRouteAdvertisementBuilder(apiClient *clients.Settings) *RouteAdver
 		WithNodeSelector(defaultNodeSelector).
 		WithFRRConfigurationSelector(defaultFrrConfigurationSelector).
 		WithNetworkSelectors(defaultNetworkSelectors)
+}
+
+func buildInvalidRouteAdvertisementTestBuilder(apiClient *clients.Settings) *RouteAdvertisementBuilder {
+	return NewRouteAdvertisementBuilder(apiClient, "")
+}
+
+func getTestRouteAdvertisementAPIClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{})
 }
