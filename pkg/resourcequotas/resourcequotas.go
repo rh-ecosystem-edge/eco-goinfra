@@ -1,36 +1,35 @@
 package resourcequotas
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
-	corev1Typed "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/klog/v2"
 )
 
-const (
-	errEmptyName      = "resource quota 'name' cannot be empty"
-	errEmptyNamespace = "resource quota 'namespace' cannot be empty"
-)
+var resourceQuotaGVK = corev1.SchemeGroupVersion.WithKind("ResourceQuota")
 
 // Builder provides struct for resource quotas containing connection to the cluster.
 type Builder struct {
-	// Resource Quota definition
-	Definition *corev1.ResourceQuota
+	common.EmbeddableBuilder[corev1.ResourceQuota, *corev1.ResourceQuota]
+	common.EmbeddableCreator[corev1.ResourceQuota, Builder, *corev1.ResourceQuota, *Builder]
+	common.EmbeddableDeleter[corev1.ResourceQuota, *corev1.ResourceQuota]
+	common.EmbeddableForceUpdater[corev1.ResourceQuota, Builder, *corev1.ResourceQuota, *Builder]
+}
 
-	// Created resource quota object
-	Object *corev1.ResourceQuota
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+}
 
-	// Used in functions that define or mutate deployment definition. errorMsg is processed before the deployment
-	// object is created.
-	errorMsg  string
-	apiClient corev1Typed.CoreV1Interface
+// GetGVK returns the ResourceQuota GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return resourceQuotaGVK
 }
 
 // NewBuilder creates a new resource quota builder.
@@ -38,86 +37,21 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 	klog.V(100).Infof("Initializing new resource quota structure with the following params: "+
 		"name=%s, namespace=%s", name, nsname)
 
-	if apiClient == nil {
-		klog.V(100).Info("API client is nil")
-
-		return nil
-	}
-
-	builder := &Builder{
-		apiClient: apiClient.CoreV1Interface,
-		Definition: &corev1.ResourceQuota{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("Resource Quota name is empty")
-
-		builder.errorMsg = errEmptyName
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("Resource Quota namespace is empty")
-
-		builder.errorMsg = errEmptyNamespace
-
-		return builder
-	}
-
-	return builder
+	return common.NewNamespacedBuilder[corev1.ResourceQuota, Builder](
+		apiClient, corev1.AddToScheme, name, nsname)
 }
 
 // Pull retrieves the resource quota from the cluster.
 func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
-	if apiClient == nil {
-		klog.V(100).Info("apiClient is nil")
-
-		return nil, fmt.Errorf("apiClient is nil")
-	}
-
 	klog.V(100).Infof("Pulling resource quota with the following params: name=%s, namespace=%s", name, nsname)
 
-	builder := &Builder{
-		apiClient: apiClient.CoreV1Interface,
-		Definition: &corev1.ResourceQuota{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("Resource Quota name is empty")
-
-		return nil, fmt.Errorf(errEmptyName)
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("Resource Quota namespace is empty")
-
-		return nil, fmt.Errorf(errEmptyNamespace)
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("resource quota %s does not exist in namespace %s",
-			name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
+	return common.PullNamespacedBuilder[corev1.ResourceQuota, Builder](
+		context.TODO(), apiClient, corev1.AddToScheme, name, nsname)
 }
 
 // WithQuotaSpec sets the resource quota spec.
 func (builder *Builder) WithQuotaSpec(quotaSpec corev1.ResourceQuotaSpec) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -129,111 +63,6 @@ func (builder *Builder) WithQuotaSpec(quotaSpec corev1.ResourceQuotaSpec) *Build
 	return builder
 }
 
-// Update renovates the existing resource quota in the cluster.
-func (builder *Builder) Update(force bool) (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating resource quota %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		return builder, fmt.Errorf("resource quota %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-	}
-
-	_, err := builder.apiClient.ResourceQuotas(
-		builder.Definition.Namespace).Update(logging.DiscardContext(),
-		builder.Definition, metav1.UpdateOptions{})
-	if err != nil {
-		if force {
-			klog.V(100).Infof("%v", msg.FailToUpdateNotification("resource quota", builder.Definition.Name, builder.Definition.Namespace))
-
-			err := builder.Delete()
-			if err != nil {
-				klog.V(100).Infof("%v", msg.FailToUpdateError("resource quota",
-					builder.Definition.Name, builder.Definition.Namespace))
-
-				return nil, err
-			}
-
-			return builder.Create()
-		}
-
-		return nil, err
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, err
-}
-
-// Exists checks if the resource quota exists in the cluster.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if resource quota %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.ResourceQuotas(
-		builder.Definition.Namespace).Get(logging.DiscardContext(),
-		builder.Definition.Name, metav1.GetOptions{})
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Create creates the resource quota in the cluster.
-func (builder *Builder) Create() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Creating resource quota %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-	if !builder.Exists() {
-		builder.Object, err = builder.apiClient.ResourceQuotas(builder.Definition.Namespace).
-			Create(logging.DiscardContext(), builder.Definition, metav1.CreateOptions{})
-	}
-
-	return builder, err
-}
-
-// Delete deletes the resource quota from the cluster.
-func (builder *Builder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting resource quota %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("Resource quota %s cannot be deleted because it does not exist",
-			builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.ResourceQuotas(builder.Definition.Namespace).Delete(logging.DiscardContext(),
-		builder.Definition.Name, metav1.DeleteOptions{})
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
 // GetGVR returns resource quotas's GroupVersionResource which could be used for Clean function.
 func GetGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{
@@ -241,35 +70,4 @@ func GetGVR() schema.GroupVersionResource {
 		Version:  "v1",
 		Resource: "resourcequotas",
 	}
-}
-
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "ResourceQuota"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s API client is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s",
-			resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
