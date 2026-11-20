@@ -6,8 +6,12 @@ import (
 	"testing"
 	"time"
 
+	mcv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -16,55 +20,39 @@ import (
 const defaultMCPListLabel = "test-label-value"
 
 func TestListMCP(t *testing.T) {
-	testCases := []struct {
-		mcPools       []*MCPBuilder
-		listOptions   []runtimeclient.ListOptions
-		expectedError error
-		client        bool
-	}{
-		{
-			mcPools:       []*MCPBuilder{buildValidMCPTestBuilder(buildTestClientWithDummyMCP())},
-			listOptions:   nil,
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			mcPools:       []*MCPBuilder{buildValidMCPTestBuilder(buildTestClientWithDummyMCP())},
-			listOptions:   []runtimeclient.ListOptions{{Continue: "test"}},
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			mcPools:       []*MCPBuilder{buildValidMCPTestBuilder(buildTestClientWithDummyMCP())},
-			listOptions:   []runtimeclient.ListOptions{{Continue: "test"}, {Continue: "test"}},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
-		},
-		{
-			mcPools:       []*MCPBuilder{buildValidMCPTestBuilder(buildTestClientWithDummyMCP())},
-			listOptions:   []runtimeclient.ListOptions{{Continue: "test"}},
-			expectedError: fmt.Errorf("failed to list MachineConfigPools, 'apiClient' parameter is empty"),
-			client:        false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	testhelper.NewListTestConfig(
+		ListMCP,
+		mcv1.Install,
+		mcpGVK,
+	).ExecuteTests(t)
 
-		if testCase.client {
-			testSettings = buildTestClientWithDummyMCP()
-		}
+	t.Run("single list option succeeds", func(t *testing.T) {
+		t.Parallel()
 
-		mcBuilders, err := ListMCP(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+		builders, err := ListMCP(buildTestClientWithDummyMCP(), runtimeclient.ListOptions{Continue: "test"})
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.mcPools), len(mcBuilders))
-		}
-	}
+		require.NoError(t, err)
+		assert.Len(t, builders, 1)
+	})
+
+	t.Run("multiple list options return error", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := ListMCP(
+			buildTestClientWithDummyMCP(),
+			runtimeclient.ListOptions{Continue: "test"},
+			runtimeclient.ListOptions{Continue: "test"},
+		)
+
+		assert.EqualError(t, err, "error: more than one ListOptions was passed")
+	})
 }
 
 func TestListMCPByMachineConfigSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		client        bool
 		hasLabel      bool
@@ -76,9 +64,8 @@ func TestListMCPByMachineConfigSelector(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			client:        false,
-			hasLabel:      true,
-			expectedError: fmt.Errorf("failed to list MachineConfigPools, 'apiClient' parameter is empty"),
+			client:   false,
+			hasLabel: true,
 		},
 		{
 			client:   true,
@@ -89,34 +76,50 @@ func TestListMCPByMachineConfigSelector(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(fmt.Sprintf("client=%t hasLabel=%t", testCase.client, testCase.hasLabel), func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			mcp := buildDummyMCP(defaultMCPName)
+			var testSettings *clients.Settings
 
-			if testCase.hasLabel {
-				mcp.Spec.MachineConfigSelector = &metav1.LabelSelector{
-					MatchLabels: map[string]string{"test": defaultMCPListLabel},
+			if testCase.client {
+				mcp := buildDummyMCP()
+
+				if testCase.hasLabel {
+					mcp.Spec.MachineConfigSelector = &metav1.LabelSelector{
+						MatchLabels: map[string]string{"test": defaultMCPListLabel},
+					}
 				}
+
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  []runtime.Object{mcp},
+					SchemeAttachers: testSchemes,
+				})
 			}
 
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  []runtime.Object{mcp},
-				SchemeAttachers: testSchemes,
-			})
-		}
+			testBuilder, err := ListMCPByMachineConfigSelector(testSettings, defaultMCPListLabel)
 
-		testBuilder, err := ListMCPByMachineConfigSelector(testSettings, defaultMCPListLabel)
-		assert.Equal(t, testCase.expectedError, err)
+			if !testCase.client {
+				assert.True(t, commonerrors.IsAPIClientNil(err))
 
-		if testCase.expectedError == nil {
-			assert.NotNil(t, testBuilder)
-			assert.Equal(t, defaultMCPName, testBuilder.Definition.Name)
-		}
+				return
+			}
+
+			if testCase.expectedError == nil {
+				require.NoError(t, err)
+				require.NotNil(t, testBuilder)
+				assert.Equal(t, defaultMCPName, testBuilder.Definition.Name)
+
+				return
+			}
+
+			assert.Equal(t, testCase.expectedError, err)
+		})
 	}
 }
 
 func TestListMCPWaitToBeStableFor(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		client        bool
 		stable        bool
@@ -128,9 +131,8 @@ func TestListMCPWaitToBeStableFor(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			client:        false,
-			stable:        true,
-			expectedError: fmt.Errorf("failed to list MachineConfigPools, 'apiClient' parameter is empty"),
+			client: false,
+			stable: true,
 		},
 		{
 			client:        true,
@@ -140,22 +142,31 @@ func TestListMCPWaitToBeStableFor(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(fmt.Sprintf("client=%t stable=%t", testCase.client, testCase.stable), func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			mcp := buildDummyMCP(defaultMCPName)
+			var testSettings *clients.Settings
 
-			if !testCase.stable {
-				mcp.Status.DegradedMachineCount = 1
+			if testCase.client {
+				mcp := buildDummyMCP()
+
+				if !testCase.stable {
+					mcp.Status.DegradedMachineCount = 1
+				}
+
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  []runtime.Object{mcp},
+					SchemeAttachers: testSchemes,
+				})
 			}
 
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  []runtime.Object{mcp},
-				SchemeAttachers: testSchemes,
-			})
-		}
+			err := ListMCPWaitToBeStableFor(testSettings, 500*time.Millisecond, time.Second)
 
-		err := ListMCPWaitToBeStableFor(testSettings, 500*time.Millisecond, time.Second)
-		assert.Equal(t, testCase.expectedError, err)
+			if !testCase.client {
+				assert.True(t, commonerrors.IsAPIClientNil(err))
+			} else {
+				assert.Equal(t, testCase.expectedError, err)
+			}
+		})
 	}
 }
