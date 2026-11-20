@@ -138,12 +138,13 @@ func (config NewBuilderTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 	t.Run("scheme attacher adds GVK", createSchemeAttacherGVKTest[O, SO](config.SchemeAttacher, config.ExpectedGVK))
 
 	type testCase struct {
-		name           string
-		clientNil      bool
-		builderName    string
-		builderNsName  string
-		schemeAttacher clients.SchemeAttacher
-		assertError    func(error) bool
+		name              string
+		clientNil         bool
+		embeddedClientNil bool
+		builderName       string
+		builderNsName     string
+		schemeAttacher    clients.SchemeAttacher
+		assertError       func(error) bool
 	}
 
 	testCases := []testCase{
@@ -162,6 +163,14 @@ func (config NewBuilderTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 			builderNsName:  testResourceNamespace,
 			schemeAttacher: config.SchemeAttacher,
 			assertError:    commonerrors.IsAPIClientNil,
+		},
+		{
+			name:              nilEmbeddedClientReturnsError,
+			embeddedClientNil: true,
+			builderName:       testResourceName,
+			builderNsName:     testResourceNamespace,
+			schemeAttacher:    config.SchemeAttacher,
+			assertError:       commonerrors.IsAPIClientNil,
 		},
 		{
 			name:           "empty name returns error",
@@ -205,6 +214,12 @@ func (config NewBuilderTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 				client = clients.GetTestClients(clients.TestClientParams{
 					SchemeAttachers: []clients.SchemeAttacher{config.SchemeAttacher},
 				})
+			}
+
+			if testCase.embeddedClientNil {
+				// GetTestClients normally sets the embedded runtime client. Clearing it mirrors the state from
+				// GetModifiableTestClients, which leaves the client unset until the caller builds it.
+				client.Client = nil
 			}
 
 			builder := config.newBuilderFunc(client, testCase.schemeAttacher, testCase.builderName, testCase.builderNsName)
