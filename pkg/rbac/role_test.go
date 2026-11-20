@@ -1,15 +1,15 @@
 package rbac
 
 import (
-	"fmt"
 	"testing"
 
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/stretchr/testify/assert"
-	rbacv1 "k8s.io/api/rbac/v1"
 )
 
 var (
@@ -18,362 +18,217 @@ var (
 )
 
 func TestNewRoleBuilder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
+
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *RoleBuilder {
+				return NewRoleBuilder(apiClient, name, nsname, validRoleRule())
+			},
+			rbacv1.AddToScheme,
+			roleGVK,
+		).ExecuteTests(t)
+	})
+
+	t.Run("applies initial rule", func(t *testing.T) {
+		t.Parallel()
+
+		rule := validRoleRule()
+		builder := NewRoleBuilder(getRoleTestClient(), defaultRoleName, defaultRoleNsName, rule)
+
+		require.NotNil(t, builder)
+		require.NoError(t, builder.GetError())
+		assert.Equal(t, []rbacv1.PolicyRule{rule}, builder.Definition.Rules)
+	})
+
 	testCases := []struct {
-		name              string
-		nsName            string
-		rule              rbacv1.PolicyRule
-		expectedErrorText string
-		client            bool
+		name          string
+		rule          rbacv1.PolicyRule
+		expectedError string
 	}{
 		{
-			name:   "test",
-			nsName: "testns",
-			rule: rbacv1.PolicyRule{
-				Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-			client:            true,
-			expectedErrorText: "",
+			name:          "rejects rule without verbs",
+			rule:          rbacv1.PolicyRule{Resources: []string{"pods"}, APIGroups: []string{"v1"}},
+			expectedError: roleMustContainAtLeastOne,
 		},
 		{
-			name:   "test",
-			nsName: "testns",
-			rule: rbacv1.PolicyRule{
-				Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-			client:            false,
-			expectedErrorText: "role builder cannot have nil apiClient",
+			name:          "rejects rule without resources",
+			rule:          rbacv1.PolicyRule{APIGroups: []string{"v1"}, Verbs: []string{"get"}},
+			expectedError: "role must contain at least one Resource",
 		},
 		{
-			name:   "",
-			nsName: "testns",
-			rule: rbacv1.PolicyRule{
-				Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-			client:            true,
-			expectedErrorText: errEmptyRoleName,
-		},
-		{
-			name:   "test",
-			nsName: "",
-			rule: rbacv1.PolicyRule{
-				Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-			client:            true,
-			expectedErrorText: "role 'nsname' cannot be empty",
-		},
-		{
-			name:   "test",
-			nsName: "testns",
-			rule: rbacv1.PolicyRule{
-				Resources: []string{"pods"}, APIGroups: []string{"v1"}},
-			client:            true,
-			expectedErrorText: roleMustContainAtLeastOne,
+			name:          "rejects rule without API groups",
+			rule:          rbacv1.PolicyRule{Resources: []string{"pods"}, Verbs: []string{"get"}},
+			expectedError: "role must contain at least one APIGroup",
 		},
 	}
+
 	for _, testCase := range testCases {
-		var (
-			client *clients.Settings
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			client = clients.GetTestClients(clients.TestClientParams{})
-		}
+			builder := NewRoleBuilder(
+				getRoleTestClient(), defaultRoleName, defaultRoleNsName, testCase.rule)
 
-		testPolicy := NewRoleBuilder(client, testCase.name, testCase.nsName, testCase.rule)
-		if testCase.client {
-			assert.NotNil(t, testPolicy)
-
-			if len(testCase.expectedErrorText) > 0 {
-				assert.Equal(t, testCase.expectedErrorText, testPolicy.errorMsg)
-			}
-		} else {
-			assert.Nil(t, testPolicy)
-		}
+			require.NotNil(t, builder)
+			require.EqualError(t, builder.GetError(), testCase.expectedError)
+			assert.Empty(t, builder.Definition.Rules)
+		})
 	}
 }
 
 func TestPullRole(t *testing.T) {
-	generateRole := func(name, nsName string) *rbacv1.Role {
-		return &rbacv1.Role{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsName,
-			},
-		}
-	}
-	testCases := []struct {
-		name                string
-		nsName              string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-		client              bool
-	}{
-		{
-			name:                "test",
-			nsName:              "test",
-			expectedError:       false,
-			expectedErrorText:   "",
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "",
-			nsName:              "test",
-			expectedError:       true,
-			addToRuntimeObjects: true,
-			expectedErrorText:   errEmptyRoleName,
-			client:              true,
-		},
-		{
-			name:                "test",
-			nsName:              "",
-			expectedError:       true,
-			expectedErrorText:   "role 'namespace' cannot be empty",
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "test",
-			nsName:              "test",
-			expectedError:       true,
-			expectedErrorText:   "role object test does not exist in namespace test",
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-		{
-			name:                "test",
-			nsName:              "test",
-			expectedError:       true,
-			expectedErrorText:   "the apiClient cannot be nil",
-			addToRuntimeObjects: true,
-			client:              false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testRole := generateRole(testCase.name, testCase.nsName)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testRole)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
-
-		builderResult, err := PullRole(testSettings, testCase.name, testCase.nsName)
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testRole.Name, builderResult.Object.Name)
-			assert.Equal(t, testRole.Namespace, builderResult.Object.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullRole,
+		rbacv1.AddToScheme,
+		roleGVK,
+	).ExecuteTests(t)
 }
 
-func TestRoleCreate(t *testing.T) {
-	testCases := []struct {
-		testRole      *RoleBuilder
-		expectedError error
-	}{
-		{
-			testRole:      buildValidRoleBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testRole:      buildInvalidRoleTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(roleMustContainAtLeastOne),
-		},
-		{
-			testRole:      buildValidRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
+func TestRoleBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		roleBuilder, err := testCase.testRole.Create()
-		assert.Equal(t, testCase.expectedError, err)
+	commonTestConfig := newRoleCommonTestConfig()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, roleBuilder.Definition.Name, roleBuilder.Object.Name)
-		}
-	}
-}
-
-func TestRoleExist(t *testing.T) {
-	testCases := []struct {
-		testRole       *RoleBuilder
-		expectedStatus bool
-	}{
-		{
-			testRole:       buildValidRoleBuilder(buildTestClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testRole:       buildInvalidRoleTestBuilder(buildTestClientWithDummyObject()),
-			expectedStatus: false,
-		},
-		{
-			testRole:       buildValidRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testRole.Exists()
-		assert.Equal(t, testCase.expectedStatus, exists)
-	}
-}
-
-func TestRoleDelete(t *testing.T) {
-	testCases := []struct {
-		testRole      *RoleBuilder
-		expectedError error
-	}{
-		{
-			testRole:      buildValidRoleBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testRole:      buildInvalidRoleTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(roleMustContainAtLeastOne),
-		},
-		{
-			testRole:      buildValidRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testRole.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testRole.Object)
-		}
-	}
-}
-
-func TestRoleUpdate(t *testing.T) {
-	testCases := []struct {
-		testRole      *RoleBuilder
-		expectedError error
-	}{
-		{
-			testRole:      buildValidRoleBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testRole:      buildValidRoleBuilder(buildTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testRole:      buildInvalidRoleTestBuilder(buildTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(roleMustContainAtLeastOne),
-		},
-		{
-			testRole:      buildValidRoleBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("role object test does not exist, fail to update"),
-		},
-	}
-	for _, testCase := range testCases {
-		assert.Empty(t, testCase.testRole.Definition.Labels)
-		assert.Nil(t, nil, testCase.testRole.Object)
-		testCase.testRole.Definition.Labels = map[string]string{"test": "test"}
-		testCase.testRole.Definition.ResourceVersion = "999"
-		roleBuilder, err := testCase.testRole.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, map[string]string{"test": "test"}, testCase.testRole.Object.Labels)
-			assert.Equal(t, roleBuilder.Definition, roleBuilder.Object)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestRoleWithRules(t *testing.T) {
+	t.Parallel()
+
+	additionalRules := []rbacv1.PolicyRule{
+		{Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
+		{Resources: []string{"services"}, APIGroups: []string{"v1"}, Verbs: []string{"list"}},
+	}
+
 	testCases := []struct {
-		rule              []rbacv1.PolicyRule
-		expectedError     bool
-		expectedErrorText string
+		name           string
+		invalidBuilder bool
+		rules          []rbacv1.PolicyRule
+		expectedRules  []rbacv1.PolicyRule
+		expectedError  string
 	}{
 		{
-			rule: []rbacv1.PolicyRule{{Resources: []string{"pods"},
-				APIGroups: []string{"v1"}, Verbs: []string{"get"}}},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:  "appends valid rules",
+			rules: additionalRules,
+			expectedRules: append(
+				[]rbacv1.PolicyRule{validRoleRule()},
+				additionalRules...,
+			),
 		},
 		{
-			rule: []rbacv1.PolicyRule{
-				{Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-				{Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}},
-			},
-			expectedError:     false,
-			expectedErrorText: "",
+			name:          "rejects empty rules",
+			rules:         []rbacv1.PolicyRule{},
+			expectedRules: []rbacv1.PolicyRule{validRoleRule()},
+			expectedError: "cannot create role with empty rule",
 		},
 		{
-			rule: []rbacv1.PolicyRule{{Resources: []string{"pods"},
-				APIGroups: []string{"v1"}}},
-			expectedError:     true,
-			expectedErrorText: roleMustContainAtLeastOne,
+			name:          "rejects rule without verbs",
+			rules:         []rbacv1.PolicyRule{{Resources: []string{"pods"}, APIGroups: []string{"v1"}}},
+			expectedRules: []rbacv1.PolicyRule{validRoleRule()},
+			expectedError: roleMustContainAtLeastOne,
+		},
+		{
+			name:          "rejects rule without resources",
+			rules:         []rbacv1.PolicyRule{{APIGroups: []string{"v1"}, Verbs: []string{"get"}}},
+			expectedRules: []rbacv1.PolicyRule{validRoleRule()},
+			expectedError: "role must contain at least one Resource",
+		},
+		{
+			name:          "rejects rule without API groups",
+			rules:         []rbacv1.PolicyRule{{Resources: []string{"pods"}, Verbs: []string{"get"}}},
+			expectedRules: []rbacv1.PolicyRule{validRoleRule()},
+			expectedError: "role must contain at least one APIGroup",
+		},
+		{
+			name:           "invalid builder short circuits",
+			invalidBuilder: true,
+			rules:          additionalRules,
+			expectedRules:  nil,
+			expectedError:  roleMustContainAtLeastOne,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidRoleBuilder(buildTestClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithRules(testCase.rule)
-
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			builder := buildValidRoleBuilder(getRoleTestClient())
+			if testCase.invalidBuilder {
+				builder = buildInvalidRoleTestBuilder(getRoleTestClient())
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.rule, result.Definition.Rules[1:])
-		}
+
+			require.NotNil(t, builder)
+
+			result := builder.WithRules(testCase.rules)
+
+			require.Same(t, builder, result)
+
+			if testCase.expectedError == "" {
+				require.NoError(t, result.GetError())
+			} else {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+			}
+
+			assert.Equal(t, testCase.expectedRules, result.Definition.Rules)
+		})
 	}
 }
 
-func TestWithOptions(t *testing.T) {
-	testSettings := buildTestClientWithDummyObject()
-	testBuilder := buildValidRoleBuilder(testSettings).WithOptions(
-		func(builder *RoleBuilder) (*RoleBuilder, error) {
-			return builder, nil
-		})
+func TestRoleWithOptions(t *testing.T) {
+	t.Parallel()
 
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidRoleBuilder(testSettings).WithOptions(
-		func(builder *RoleBuilder) (*RoleBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
+	testhelper.NewWithOptionsTestConfig(newRoleCommonTestConfig()).ExecuteTests(t)
 }
 
-// buildValidTestBuilder returns a valid Builder for testing purposes.
+func newRoleCommonTestConfig() testhelper.CommonTestConfig[
+	rbacv1.Role,
+	RoleBuilder,
+	*rbacv1.Role,
+	*RoleBuilder,
+] {
+	return testhelper.NewCommonTestConfig[rbacv1.Role, RoleBuilder](
+		rbacv1.AddToScheme,
+		roleGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+}
+
+func getRoleTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{rbacv1.AddToScheme},
+	})
+}
+
+func validRoleRule() rbacv1.PolicyRule {
+	return rbacv1.PolicyRule{
+		Resources: []string{"pods"},
+		APIGroups: []string{"v1"},
+		Verbs:     []string{"get"},
+	}
+}
+
+// buildValidRoleBuilder returns a valid RoleBuilder for testing purposes.
 func buildValidRoleBuilder(apiClient *clients.Settings) *RoleBuilder {
-	return NewRoleBuilder(
-		apiClient,
-		defaultRoleName,
-		defaultRoleNsName,
-		rbacv1.PolicyRule{Resources: []string{"pods"}, APIGroups: []string{"v1"}, Verbs: []string{"get"}})
+	return NewRoleBuilder(apiClient, defaultRoleName, defaultRoleNsName, validRoleRule())
 }
 
-// buildValidTestBuilder returns a valid Builder for testing purposes.
+// buildInvalidRoleTestBuilder returns a RoleBuilder that is already in an error state.
 func buildInvalidRoleTestBuilder(apiClient *clients.Settings) *RoleBuilder {
 	return NewRoleBuilder(apiClient, defaultRoleName, defaultRoleNsName, rbacv1.PolicyRule{})
 }
 
+// buildTestClientWithDummyObject is retained for the baseline ClusterRole tests that use a Role fixture.
 func buildTestClientWithDummyObject() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects: buildDummyRoleObject(),
