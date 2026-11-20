@@ -1,421 +1,282 @@
 package olm
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	oplmV1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/olm/operators/v1alpha1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-func TestNewSubscriptionBuilder(t *testing.T) { //nolint:funlen
+func TestNewSubscriptionBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedBuilderTestConfig(
+		func(apiClient *clients.Settings, name, nsname string) *SubscriptionBuilder {
+			return NewSubscriptionBuilder(apiClient, name, nsname, "test-source", "test-namespace", "package-test")
+		},
+		oplmV1alpha1.AddToScheme,
+		subscriptionGVK,
+	).ExecuteTests(t)
+
+	t.Run("initializes Subscription fields", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewSubscriptionBuilder(
+			buildTestSubscriptionClientWithDummyObject(),
+			"subscription",
+			"test-namespace",
+			"test-source",
+			"catalog-namespace",
+			"package-test",
+		)
+
+		require.NoError(t, builder.GetError())
+		require.NotNil(t, builder.Definition.Spec)
+		assert.Equal(t, "test-source", builder.Definition.Spec.CatalogSource)
+		assert.Equal(t, "catalog-namespace", builder.Definition.Spec.CatalogSourceNamespace)
+		assert.Equal(t, "package-test", builder.Definition.Spec.Package)
+	})
+
 	testCases := []struct {
 		name                   string
-		namespace              string
 		catalogSource          string
 		catalogSourceNamespace string
 		packageName            string
 		expectedError          string
-		client                 bool
 	}{
 		{
-			name:                   "subscription",
-			namespace:              "test-namespace",
-			catalogSource:          "test-source",
-			catalogSourceNamespace: "test-namespace",
-			packageName:            "package-test",
-			client:                 true,
-			expectedError:          "",
-		},
-		{
-			name:                   "",
-			namespace:              "test-namespace",
-			catalogSource:          "test-source",
-			catalogSourceNamespace: "test-namespace",
-			packageName:            "package-test",
-			client:                 true,
-			expectedError:          "subscription 'subName' cannot be empty",
-		},
-		{
-			name:                   "subscription",
-			namespace:              "",
-			catalogSource:          "test-source",
-			catalogSourceNamespace: "test-namespace",
-			packageName:            "package-test",
-			client:                 true,
-			expectedError:          errEmptySubNamespace,
-		},
-		{
-			name:                   "subscription",
-			namespace:              "test-namespace",
+			name:                   "empty catalog source",
 			catalogSource:          "",
-			catalogSourceNamespace: "test-namespace",
+			catalogSourceNamespace: "catalog-namespace",
 			packageName:            "package-test",
-			client:                 true,
 			expectedError:          "subscription 'catalogSource' cannot be empty",
 		},
 		{
-			name:                   "subscription",
-			namespace:              "test-namespace",
+			name:                   "empty catalog source namespace",
 			catalogSource:          "test-source",
 			catalogSourceNamespace: "",
 			packageName:            "package-test",
-			client:                 true,
 			expectedError:          "subscription 'catalogSourceNamespace' cannot be empty",
 		},
 		{
-			name:                   "subscription",
-			namespace:              "test-namespace",
+			name:                   "empty package name",
 			catalogSource:          "test-source",
-			catalogSourceNamespace: "test-namespace",
+			catalogSourceNamespace: "catalog-namespace",
 			packageName:            "",
-			client:                 true,
 			expectedError:          "subscription 'packageName' cannot be empty",
 		},
-		{
-			name:                   "subscription",
-			namespace:              "test-namespace",
-			catalogSource:          "test-source",
-			catalogSourceNamespace: "test-namespace",
-			packageName:            "package-test",
-			client:                 false,
-			expectedError:          "",
-		},
 	}
+
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
-		}
+			builder := NewSubscriptionBuilder(
+				buildTestSubscriptionClientWithDummyObject(),
+				"subscription",
+				"test-namespace",
+				testCase.catalogSource,
+				testCase.catalogSourceNamespace,
+				testCase.packageName,
+			)
 
-		subscription := NewSubscriptionBuilder(
-			testSettings,
-			testCase.name,
-			testCase.namespace,
-			testCase.catalogSource,
-			testCase.catalogSourceNamespace,
-			testCase.packageName)
-
-		if testCase.client {
-			assert.Equal(t, testCase.expectedError, subscription.errorMsg)
-
-			if testCase.expectedError == "" {
-				assert.NotNil(t, subscription.Definition)
-				assert.Equal(t, testCase.name, subscription.Definition.Name)
-				assert.Equal(t, testCase.namespace, subscription.Definition.Namespace)
-			}
-		} else {
-			assert.Nil(t, subscription)
-		}
+			assert.EqualError(t, builder.GetError(), testCase.expectedError)
+		})
 	}
 }
 
 func TestPullSubscription(t *testing.T) {
-	subscription := func(name, namespace string) *oplmV1alpha1.Subscription {
-		return &oplmV1alpha1.Subscription{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: &oplmV1alpha1.SubscriptionSpec{
-				CatalogSource: "test",
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "subscription",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("subscription 'subName' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "subscription",
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf(errEmptySubNamespace),
-			client:              true,
-		},
-		{
-			name:                "subscription",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: false,
-			expectedError: fmt.Errorf(
-				"subscription object named subscription does not exist in namespace test-namespace"),
-			client: true,
-		},
-		{
-			name:                "subscription",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("subscription 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		subscription := subscription(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, subscription)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects, SchemeAttachers: testSchemes})
-		}
-
-		builderResult, err := PullSubscription(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Object.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Object.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullSubscription,
+		oplmV1alpha1.AddToScheme,
+		subscriptionGVK,
+	).ExecuteTests(t)
 }
 
-func TestSubscriptionGet(t *testing.T) {
-	testCases := []struct {
-		subscription  *SubscriptionBuilder
-		expectedError string
-	}{
-		{
-			subscription:  buildValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedError: "",
-		},
-		{
-			subscription:  buildInValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedError: errEmptySubNamespace,
-		},
-		{
-			subscription: buildValidSubscriptionBuilder(
-				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			expectedError: "subscriptions.operators.coreos.com \"subscription\" not found",
-		},
-	}
+func TestSubscriptionBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		subscription, err := testCase.subscription.Get()
+	commonTestConfig := testhelper.NewCommonTestConfig[oplmV1alpha1.Subscription, SubscriptionBuilder](
+		oplmV1alpha1.AddToScheme,
+		subscriptionGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, subscription.Name, testCase.subscription.Definition.Name)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
-}
-
-func TestSubscriptionExist(t *testing.T) {
-	testCases := []struct {
-		subscription   *SubscriptionBuilder
-		expectedStatus bool
-	}{
-		{
-			subscription:   buildValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			subscription: buildValidSubscriptionBuilder(
-				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.subscription.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
-
-func TestSubscriptionDelete(t *testing.T) {
-	testCases := []struct {
-		subscription  *SubscriptionBuilder
-		expectedError error
-	}{
-		{
-			subscription:  buildValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			subscription: buildValidSubscriptionBuilder(
-				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.subscription.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.subscription.Object)
-		}
-	}
-}
-
-func TestSubscriptionUpdate(t *testing.T) {
-	testCases := []struct {
-		subscription  *SubscriptionBuilder
-		expectedError error
-		startingCSV   string
-	}{
-		{
-			subscription:  buildValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedError: nil,
-			startingCSV:   "test",
-		},
-		{
-			subscription:  buildInValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptySubNamespace),
-			startingCSV:   "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Empty(t, testCase.subscription.Definition.Spec.StartingCSV)
-		assert.Nil(t, nil, testCase.subscription.Object)
-		testCase.subscription.Definition.Spec.StartingCSV = testCase.startingCSV
-		testCase.subscription.Definition.ResourceVersion = "999"
-		_, err := testCase.subscription.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.startingCSV, testCase.subscription.Object.Spec.StartingCSV)
-		}
-	}
-}
-
-func TestSubscriptionCreate(t *testing.T) {
-	testCases := []struct {
-		subscription  *SubscriptionBuilder
-		expectedError error
-	}{
-		{
-			subscription:  buildValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			subscription:  buildInValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptySubNamespace),
-		},
-		{
-			subscription: buildValidSubscriptionBuilder(
-				clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		catalogSourceBuilder, err := testCase.subscription.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, catalogSourceBuilder.Definition.Name, catalogSourceBuilder.Object.Name)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestSubscriptionWithChannel(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		expectedErrorText string
-		channel           string
+		name           string
+		channel        string
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			channel:           "test",
-			expectedErrorText: "",
+			name:    "sets channel",
+			channel: "test",
 		},
 		{
-			channel:           "",
-			expectedErrorText: "can not redefine subscription with empty channel",
+			name:          "rejects empty channel",
+			expectedError: "can not redefine subscription with empty channel",
+		},
+		{
+			name:           "invalid builder short-circuits",
+			channel:        "test",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestSubscriptionClientWithDummyObject()
-		subscriptionBuilder := buildValidSubscriptionBuilder(testSettings).WithChannel(testCase.channel)
-		assert.Equal(t, testCase.expectedErrorText, subscriptionBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, subscriptionBuilder.Definition.Spec.Channel, testCase.channel)
-		}
+			builder := buildValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject())
+
+			if testCase.invalidBuilder {
+				builder = buildInValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject())
+			}
+
+			builder = builder.WithChannel(testCase.channel)
+
+			if testCase.invalidBuilder {
+				assert.Error(t, builder.GetError())
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.channel, builder.Definition.Spec.Channel)
+		})
 	}
 }
 
 func TestSubscriptionWithStartingCSV(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		expectedErrorText string
-		csv               string
+		name           string
+		startingCSV    string
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			csv:               "test",
-			expectedErrorText: "",
+			name:        "sets starting CSV",
+			startingCSV: "test",
 		},
 		{
-			csv:               "",
-			expectedErrorText: "can not redefine subscription with empty startingCSV",
+			name:          "rejects empty starting CSV",
+			expectedError: "can not redefine subscription with empty startingCSV",
+		},
+		{
+			name:           "invalid builder short-circuits",
+			startingCSV:    "test",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestSubscriptionClientWithDummyObject()
-		subscriptionBuilder := buildValidSubscriptionBuilder(testSettings).WithStartingCSV(testCase.csv)
-		assert.Equal(t, testCase.expectedErrorText, subscriptionBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, subscriptionBuilder.Definition.Spec.StartingCSV, testCase.csv)
-		}
+			builder := buildValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject())
+
+			if testCase.invalidBuilder {
+				builder = buildInValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject())
+			}
+
+			builder = builder.WithStartingCSV(testCase.startingCSV)
+
+			if testCase.invalidBuilder {
+				assert.Error(t, builder.GetError())
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.startingCSV, builder.Definition.Spec.StartingCSV)
+		})
 	}
 }
 
 func TestSubscriptionWithInstallPlanApproval(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		expectedErrorText string
+		name              string
 		installPlan       oplmV1alpha1.Approval
+		invalidBuilder    bool
+		expectedErrorText string
 	}{
 		{
-			installPlan:       oplmV1alpha1.ApprovalAutomatic,
-			expectedErrorText: "",
+			name:        "sets automatic approval",
+			installPlan: oplmV1alpha1.ApprovalAutomatic,
 		},
 		{
-			installPlan:       "",
+			name:              "rejects invalid approval",
 			expectedErrorText: "Subscription 'installPlanApproval' must be either \"Automatic\" or \"Manual\"",
+		},
+		{
+			name:           "invalid builder short-circuits",
+			installPlan:    oplmV1alpha1.ApprovalAutomatic,
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestSubscriptionClientWithDummyObject()
-		subscriptionBuilder := buildValidSubscriptionBuilder(testSettings).WithInstallPlanApproval(testCase.installPlan)
-		assert.Equal(t, testCase.expectedErrorText, subscriptionBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, subscriptionBuilder.Definition.Spec.InstallPlanApproval, testCase.installPlan)
-		}
+			builder := buildValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject())
+
+			if testCase.invalidBuilder {
+				builder = buildInValidSubscriptionBuilder(buildTestSubscriptionClientWithDummyObject())
+			}
+
+			builder = builder.WithInstallPlanApproval(testCase.installPlan)
+
+			if testCase.invalidBuilder {
+				assert.Error(t, builder.GetError())
+
+				return
+			}
+
+			if testCase.expectedErrorText != "" {
+				assert.EqualError(t, builder.GetError(), testCase.expectedErrorText)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.installPlan, builder.Definition.Spec.InstallPlanApproval)
+		})
 	}
 }
 
