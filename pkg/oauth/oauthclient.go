@@ -1,194 +1,41 @@
 package oauth
 
 import (
-	"fmt"
+	"context"
 
 	oauthv1 "github.com/openshift/api/oauth/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
-
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+var oauthClientGVK = oauthv1.GroupVersion.WithKind("OAuthClient")
 
 // OAuthClientBuilder provides struct for the OAuthClient object containing connection to
 // the cluster and the OAuthClient definitions.
 type OAuthClientBuilder struct {
-	// OAuthClient definition, used to create the OAuthClient object.
-	Definition *oauthv1.OAuthClient
-	// Created OAuthClient object.
-	Object *oauthv1.OAuthClient
-	// api clients to interact with the cluster.
-	apiClient goclient.Client
+	common.EmbeddableBuilder[oauthv1.OAuthClient, *oauthv1.OAuthClient]
+	common.EmbeddableCreator[
+		oauthv1.OAuthClient, OAuthClientBuilder, *oauthv1.OAuthClient, *OAuthClientBuilder]
+	common.EmbeddableDeleter[oauthv1.OAuthClient, *oauthv1.OAuthClient]
+	common.EmbeddableUpdater[
+		oauthv1.OAuthClient, OAuthClientBuilder, *oauthv1.OAuthClient, *OAuthClientBuilder]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *OAuthClientBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableUpdater.SetBase(builder)
+}
+
+// GetGVK returns the OAuthClient GVK for this builder.
+func (builder *OAuthClientBuilder) GetGVK() schema.GroupVersionKind {
+	return oauthClientGVK
 }
 
 // PullOAuthClient loads an existing OAuthClient into Builder struct.
 func PullOAuthClient(apiClient *clients.Settings, name string) (*OAuthClientBuilder, error) {
-	klog.V(100).Infof("Pulling existing OAuthClient %s", name)
-
-	if apiClient == nil {
-		return nil, fmt.Errorf("apiClient cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(oauthv1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add oauth v1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := OAuthClientBuilder{
-		apiClient: apiClient.Client,
-		Definition: &oauthv1.OAuthClient{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The OAuthClient 'name' is empty")
-
-		return nil, fmt.Errorf("error: OAuthClient 'name' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("error: OAuthClient object %s not found", name)
-	}
-
-	builder.Definition = builder.Object
-
-	return &builder, nil
-}
-
-// Get returns OAuthClient if found.
-func (builder *OAuthClientBuilder) Get() (*oauthv1.OAuthClient, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Fetching existing OAuthClient with name %s from cluster", builder.Definition.Name)
-
-	oauthClient := &oauthv1.OAuthClient{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name: builder.Definition.Name,
-	}, oauthClient)
-	if err != nil {
-		return nil, err
-	}
-
-	return oauthClient, nil
-}
-
-// Create constructs an OAuthClient object on the cluster from a builder.
-func (builder *OAuthClientBuilder) Create() (*OAuthClientBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the OAuthClient %s", builder.Definition.Name)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err == nil {
-			builder.Object = builder.Definition
-		}
-	}
-
-	return builder, err
-}
-
-// Exists checks whether the given OAuthClient exists.
-func (builder *OAuthClientBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if OAuthClient %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Update renovates a builder in the cluster and stores the created object in struct.
-func (builder *OAuthClientBuilder) Update() (*OAuthClientBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the OAuthClient %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("error: OAuthClient object %s does not exist", builder.Definition.Name)
-	}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err == nil {
-		builder.Object = builder.Definition
-	}
-
-	return builder, nil
-}
-
-// Delete removes a OAuthClient from the cluster.
-func (builder *OAuthClientBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting the OAuthClient %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("OAuthClient %s cannot be deleted"+
-			" because it does not exist", builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return fmt.Errorf("error: cannot delete OAuthClient: %w", err)
-	}
-
-	builder.Object = nil
-	builder.Definition.ResourceVersion = ""
-	builder.Definition.CreationTimestamp = metav1.Time{}
-
-	return nil
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *OAuthClientBuilder) validate() (bool, error) {
-	resourceCRD := "OAuthClient"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiClient is nil", resourceCRD)
-
-		return false, fmt.Errorf("error: %s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	return true, nil
+	return common.PullClusterScopedBuilder[oauthv1.OAuthClient, OAuthClientBuilder](
+		context.TODO(), apiClient, oauthv1.AddToScheme, name)
 }
