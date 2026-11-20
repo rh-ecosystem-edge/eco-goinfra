@@ -1,59 +1,45 @@
 package mco
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	mcv1 "github.com/openshift/api/machineconfiguration/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestListMC(t *testing.T) {
-	testCases := []struct {
-		machineConfigs []*MCBuilder
-		listOptions    []runtimeclient.ListOptions
-		expectedError  error
-		client         bool
-	}{
-		{
-			machineConfigs: []*MCBuilder{buildValidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig())},
-			listOptions:    nil,
-			expectedError:  nil,
-			client:         true,
-		},
-		{
-			machineConfigs: []*MCBuilder{buildValidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig())},
-			listOptions:    []runtimeclient.ListOptions{{Continue: "test"}},
-			expectedError:  nil,
-			client:         true,
-		},
-		{
-			machineConfigs: []*MCBuilder{buildValidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig())},
-			listOptions:    []runtimeclient.ListOptions{{Continue: "test"}, {Continue: "test"}},
-			expectedError:  fmt.Errorf("error: more than one ListOptions was passed"),
-			client:         true,
-		},
-		{
-			machineConfigs: []*MCBuilder{buildValidMachineConfigTestBuilder(buildTestClientWithDummyMachineConfig())},
-			listOptions:    []runtimeclient.ListOptions{{Continue: "test"}},
-			expectedError:  fmt.Errorf("failed to list MachineConfigs, 'apiClient' parameter is empty"),
-			client:         false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	testhelper.NewListTestConfig(
+		ListMC,
+		mcv1.Install,
+		machineConfigGVK,
+	).ExecuteTests(t)
+}
 
-		if testCase.client {
-			testSettings = buildTestClientWithDummyMachineConfig()
-		}
+func TestListMCOptions(t *testing.T) {
+	t.Parallel()
 
-		mcBuilders, err := ListMC(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+	t.Run("single option is accepted", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.machineConfigs), len(mcBuilders))
-		}
-	}
+		builders, err := ListMC(newMachineConfigTestClient(), runtimeclient.ListOptions{Continue: "test"})
+		require.NoError(t, err)
+		assert.Empty(t, builders)
+	})
+
+	t.Run("more than one option returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builders, err := ListMC(
+			newMachineConfigTestClient(),
+			runtimeclient.ListOptions{Continue: "test"},
+			runtimeclient.ListOptions{Continue: "test"},
+		)
+		require.EqualError(t, err, "error: more than one ListOptions was passed")
+		assert.Empty(t, builders)
+	})
 }
