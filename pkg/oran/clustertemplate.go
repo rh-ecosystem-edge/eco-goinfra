@@ -8,116 +8,28 @@ import (
 
 	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ClusterTemplateBuilder provides a struct to inferface with ClusterTemplate resources on a specific cluster.
 type ClusterTemplateBuilder struct {
-	// Definition of the ClusterTemplate used to create the resource.
-	Definition *provisioningv1alpha1.ClusterTemplate
-	// Object of the ClusterTemplate as it is on the cluster.
-	Object *provisioningv1alpha1.ClusterTemplate
-	// apiClient used to interact with the cluster.
-	apiClient runtimeclient.Client
-	// errorMsg used to store latest error message from functions that do not return errors.
-	errorMsg string
+	common.EmbeddableBuilder[provisioningv1alpha1.ClusterTemplate, *provisioningv1alpha1.ClusterTemplate]
+}
+
+// GetGVK returns the ClusterTemplate GVK for this builder.
+func (builder *ClusterTemplateBuilder) GetGVK() schema.GroupVersionKind {
+	return provisioningv1alpha1.GroupVersion.WithKind("ClusterTemplate")
 }
 
 // PullClusterTemplate pulls an existing ClusterTemplate into a ClusterTemplateBuilder struct.
 func PullClusterTemplate(apiClient *clients.Settings, name, nsname string) (*ClusterTemplateBuilder, error) {
-	klog.V(100).Infof("Pulling existing ClusterTemplate %s in namespace %s from cluster", name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient of the ClusterTemplate is nil")
-
-		return nil, fmt.Errorf("clusterTemplate 'apiClient' cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(provisioningv1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Infof("Failed to add provisioning v1alpha1 scheme to client schemes: %v", err)
-
-		return nil, err
-	}
-
-	builder := &ClusterTemplateBuilder{
-		apiClient: apiClient.Client,
-		Definition: &provisioningv1alpha1.ClusterTemplate{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the ClusterTemplate is empty")
-
-		return nil, fmt.Errorf("clusterTemplate 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The nsname of the ClusterTemplate is empty")
-
-		return nil, fmt.Errorf("clusterTemplate 'nsname' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		klog.V(100).Infof("The ClusterTemplate %s does not exist in namespace %s", name, nsname)
-
-		return nil, fmt.Errorf("clusterTemplate object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Get returns the ClusterTemplate object if found.
-func (builder *ClusterTemplateBuilder) Get() (*provisioningv1alpha1.ClusterTemplate, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting ClusterTemplate object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	clusterTemplate := &provisioningv1alpha1.ClusterTemplate{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), runtimeclient.ObjectKey{
-		Name:      builder.Definition.Name,
-		Namespace: builder.Definition.Namespace,
-	}, clusterTemplate)
-	if err != nil {
-		klog.V(100).Infof("Failed to get ClusterTemplate object %s in namespace %s: %v",
-			builder.Definition.Name, builder.Definition.Namespace, err)
-
-		return nil, err
-	}
-
-	return clusterTemplate, nil
-}
-
-// Exists checks whether this ClusterTemplate exists on the cluster.
-func (builder *ClusterTemplateBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if ClusterTemplate %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
+	return common.PullNamespacedBuilder[provisioningv1alpha1.ClusterTemplate, ClusterTemplateBuilder](
+		context.TODO(), apiClient, provisioningv1alpha1.AddToScheme, name, nsname)
 }
 
 // WaitForCondition waits up to the provided timeout for a condition matching expected. It checks only the Type, Status,
@@ -125,21 +37,28 @@ func (builder *ClusterTemplateBuilder) Exists() bool {
 // expected condition are ignored.
 func (builder *ClusterTemplateBuilder) WaitForCondition(
 	expected metav1.Condition, timeout time.Duration) (*ClusterTemplateBuilder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return nil, err
 	}
 
 	klog.V(100).Infof("Waiting up to %s until ClusterTemplate %s in namespace %s has condition %v",
 		timeout, builder.Definition.Name, builder.Definition.Namespace, expected)
 
-	if !builder.Exists() {
-		klog.V(100).Infof("ClusterTemplate %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
+	object, err := builder.Get()
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			klog.V(100).Infof("ClusterTemplate %s does not exist in namespace %s",
+				builder.Definition.Name, builder.Definition.Namespace)
 
-		return nil, fmt.Errorf("cannot wait for non-existent ClusterTemplate")
+			return nil, fmt.Errorf("cannot wait for non-existent ClusterTemplate")
+		}
+
+		return nil, err
 	}
 
-	err := wait.PollUntilContextTimeout(
+	builder.Object = object
+
+	err = wait.PollUntilContextTimeout(
 		context.TODO(), 3*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
 			var err error
 
@@ -180,35 +99,4 @@ func (builder *ClusterTemplateBuilder) WaitForCondition(
 	}
 
 	return builder, nil
-}
-
-// validate checks that the builder, definition, and apiClient are properly initialized and there is no errorMsg.
-func (builder *ClusterTemplateBuilder) validate() (bool, error) {
-	resourceCRD := "clusterTemplate"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiClient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
