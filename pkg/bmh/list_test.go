@@ -9,6 +9,7 @@ import (
 
 	bmhv1alpha1 "github.com/metal3-io/baremetal-operator/apis/metal3.io/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/labels"
@@ -280,7 +281,7 @@ func TestListInventoryEligibleBMH(t *testing.T) {
 				},
 			},
 			assertError: func(err error) bool {
-				return err != nil && err.Error() == "simulated list failure"
+				return commonerrors.IsAPICallFailedWithVerb(err, "list")
 			},
 		},
 	}
