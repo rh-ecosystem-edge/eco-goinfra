@@ -1,41 +1,51 @@
 package sriov
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
-	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	"k8s.io/klog/v2"
-
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/klog/v2"
 )
 
 const (
 	errInvalidDeviceType = "invalid device type, allowed devType values are: vfio-pci or netdevice"
 )
 
+var policyGVK = srIovV1.GroupVersion.WithKind("SriovNetworkNodePolicy")
+
 // PolicyBuilder provides struct for srIovPolicy object containing connection to the cluster and the srIovPolicy
 // definitions.
 type PolicyBuilder struct {
-	// srIovPolicy definition. Used to create srIovPolicy object.
-	Definition *srIovV1.SriovNetworkNodePolicy
-	// Created srIovPolicy object.
-	Object *srIovV1.SriovNetworkNodePolicy
-	// Used in functions that define or mutate srIovPolicy definition. errorMsg is processed before the srIovPolicy
-	// object is created.
-	errorMsg string
-	// apiClient opens api connection to the cluster.
-	apiClient runtimeClient.Client
+	common.EmbeddableBuilder[srIovV1.SriovNetworkNodePolicy, *srIovV1.SriovNetworkNodePolicy]
+	common.EmbeddableCreator[srIovV1.SriovNetworkNodePolicy, PolicyBuilder,
+		*srIovV1.SriovNetworkNodePolicy, *PolicyBuilder]
+	common.EmbeddableDeleter[srIovV1.SriovNetworkNodePolicy, *srIovV1.SriovNetworkNodePolicy]
+	common.EmbeddableForceUpdater[srIovV1.SriovNetworkNodePolicy, PolicyBuilder,
+		*srIovV1.SriovNetworkNodePolicy, *PolicyBuilder]
+	common.EmbeddableWithOptions[srIovV1.SriovNetworkNodePolicy, PolicyBuilder,
+		*srIovV1.SriovNetworkNodePolicy, *PolicyBuilder, PolicyAdditionalOptions]
 }
 
 // PolicyAdditionalOptions additional options for SriovNetworkNodePolicy object.
 type PolicyAdditionalOptions func(builder *PolicyBuilder) (*PolicyBuilder, error)
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *PolicyBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the SriovNetworkNodePolicy GVK for this builder.
+func (builder *PolicyBuilder) GetGVK() schema.GroupVersionKind {
+	return policyGVK
+}
 
 // NewPolicyBuilder creates a new instance of PolicyBuilder.
 func NewPolicyBuilder(
@@ -46,70 +56,43 @@ func NewPolicyBuilder(
 	vfsNumber int,
 	nicNames []string,
 	nodeSelector map[string]string) *PolicyBuilder {
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
+	builder := common.NewNamespacedBuilder[srIovV1.SriovNetworkNodePolicy, PolicyBuilder](
+		apiClient, srIovV1.AddToScheme, name, nsname)
 
-		return nil
-	}
-
-	err := apiClient.AttachScheme(srIovV1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add sriovv1 scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &PolicyBuilder{
-		apiClient: apiClient.Client,
-		Definition: &srIovV1.SriovNetworkNodePolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-			Spec: srIovV1.SriovNetworkNodePolicySpec{
-				NodeSelector: nodeSelector,
-				NumVfs:       vfsNumber,
-				ResourceName: resName,
-				Priority:     1,
-				NicSelector: srIovV1.SriovNetworkNicSelector{
-					PfNames: nicNames,
-				},
-			},
+	builder.Definition.Spec = srIovV1.SriovNetworkNodePolicySpec{
+		NodeSelector: nodeSelector,
+		NumVfs:       vfsNumber,
+		ResourceName: resName,
+		Priority:     1,
+		NicSelector: srIovV1.SriovNetworkNicSelector{
+			PfNames: nicNames,
 		},
 	}
 
-	if name == "" {
-		builder.errorMsg = "SriovNetworkNodePolicy 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		builder.errorMsg = "SriovNetworkNodePolicy 'nsname' cannot be empty"
-
+	if builder.GetError() != nil {
 		return builder
 	}
 
 	if resName == "" {
-		builder.errorMsg = "SriovNetworkNodePolicy 'resName' cannot be empty"
+		builder.SetError(fmt.Errorf("SriovNetworkNodePolicy 'resName' cannot be empty"))
 
 		return builder
 	}
 
 	if len(nicNames) == 0 {
-		builder.errorMsg = "SriovNetworkNodePolicy 'nicNames' cannot be empty list"
+		builder.SetError(fmt.Errorf("SriovNetworkNodePolicy 'nicNames' cannot be empty list"))
 
 		return builder
 	}
 
 	if len(nodeSelector) == 0 {
-		builder.errorMsg = "SriovNetworkNodePolicy 'nodeSelector' cannot be empty map"
+		builder.SetError(fmt.Errorf("SriovNetworkNodePolicy 'nodeSelector' cannot be empty map"))
 
 		return builder
 	}
 
 	if vfsNumber <= 0 {
-		builder.errorMsg = "SriovNetworkNodePolicy 'vfsNumber' cannot be zero of negative"
+		builder.SetError(fmt.Errorf("SriovNetworkNodePolicy 'vfsNumber' cannot be zero of negative"))
 
 		return builder
 	}
@@ -119,14 +102,14 @@ func NewPolicyBuilder(
 
 // WithDevType sets device type in the SriovNetworkNodePolicy definition. Allowed devTypes are vfio-pci and netdevice.
 func (builder *PolicyBuilder) WithDevType(devType string) *PolicyBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	allowedDevTypes := []string{"vfio-pci", "netdevice"}
 
 	if !slices.Contains(allowedDevTypes, devType) {
-		builder.errorMsg = errInvalidDeviceType
+		builder.SetError(fmt.Errorf(errInvalidDeviceType))
 
 		return builder
 	}
@@ -138,24 +121,24 @@ func (builder *PolicyBuilder) WithDevType(devType string) *PolicyBuilder {
 
 // WithVFRange sets specific VF range for each configured PF.
 func (builder *PolicyBuilder) WithVFRange(firstVF, lastVF int) *PolicyBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if firstVF < 0 || lastVF < 0 {
-		builder.errorMsg = "firstPF or lastVF can not be less than 0"
+		builder.SetError(fmt.Errorf("firstPF or lastVF can not be less than 0"))
 
 		return builder
 	}
 
 	if firstVF > lastVF {
-		builder.errorMsg = "firstPF argument can not be greater than lastPF"
+		builder.SetError(fmt.Errorf("firstPF argument can not be greater than lastPF"))
 
 		return builder
 	}
 
 	if lastVF > 63 {
-		builder.errorMsg = "lastVF can not be greater than 63"
+		builder.SetError(fmt.Errorf("lastVF can not be greater than 63"))
 
 		return builder
 	}
@@ -172,12 +155,12 @@ func (builder *PolicyBuilder) WithVFRange(firstVF, lastVF int) *PolicyBuilder {
 
 // WithMTU sets required MTU in the given SriovNetworkNodePolicy.
 func (builder *PolicyBuilder) WithMTU(mtu int) *PolicyBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if 1 > mtu || mtu > 9192 {
-		builder.errorMsg = fmt.Sprintf("invalid mtu size %d allowed mtu should be in range 1...9192", mtu)
+		builder.SetError(fmt.Errorf("invalid mtu size %d allowed mtu should be in range 1...9192", mtu))
 
 		return builder
 	}
@@ -189,7 +172,7 @@ func (builder *PolicyBuilder) WithMTU(mtu int) *PolicyBuilder {
 
 // WithRDMA sets RDMA mode in SriovNetworkNodePolicy object.
 func (builder *PolicyBuilder) WithRDMA(rdma bool) *PolicyBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -198,14 +181,14 @@ func (builder *PolicyBuilder) WithRDMA(rdma bool) *PolicyBuilder {
 	return builder
 }
 
-// WithVhostNet sets Vhost mode in in SriovNetworkNodePolicy object.
+// WithVhostNet sets Vhost mode in SriovNetworkNodePolicy object.
 func (builder *PolicyBuilder) WithVhostNet(vhost bool) *PolicyBuilder {
-	klog.V(100).Infof("Redefining SriovNetworkNodePolicy %s with"+
-		" NeedVhostNet: %t", builder.Definition.Name, vhost)
-
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
+
+	klog.V(100).Infof("Redefining SriovNetworkNodePolicy %s with NeedVhostNet: %t",
+		builder.Definition.Name, vhost)
 
 	builder.Definition.Spec.NeedVhostNet = vhost
 
@@ -214,202 +197,20 @@ func (builder *PolicyBuilder) WithVhostNet(vhost bool) *PolicyBuilder {
 
 // WithExternallyManaged sets ExternallyManaged option in SriovNetworkNodePolicy object.
 func (builder *PolicyBuilder) WithExternallyManaged(externallyManaged bool) *PolicyBuilder {
-	klog.V(100).Infof("Redefining SriovNetworkNodePolicy %s with"+
-		" externallyManaged: %t", builder.Definition.Name, externallyManaged)
-
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
+
+	klog.V(100).Infof("Redefining SriovNetworkNodePolicy %s with externallyManaged: %t",
+		builder.Definition.Name, externallyManaged)
 
 	builder.Definition.Spec.ExternallyManaged = externallyManaged
 
 	return builder
 }
 
-// WithOptions creates SriovNetworkNodePolicy with generic mutation options.
-func (builder *PolicyBuilder) WithOptions(options ...PolicyAdditionalOptions) *PolicyBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting SriovNetworkNodePolicy additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
 // PullPolicy pulls existing sriovnetworknodepolicy from cluster.
 func PullPolicy(apiClient *clients.Settings, name, nsname string) (*PolicyBuilder, error) {
-	klog.V(100).Infof("Pulling existing sriovnetworknodepolicy name %s under namespace %s from cluster", name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("sriovnetworknodepolicy 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(srIovV1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add sriovv1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &PolicyBuilder{
-		apiClient: apiClient.Client,
-		Definition: &srIovV1.SriovNetworkNodePolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the sriovnetworknodepolicy is empty")
-
-		return nil, fmt.Errorf("sriovnetworknodepolicy 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the sriovnetworknodepolicy is empty")
-
-		return nil, fmt.Errorf("sriovnetworknodepolicy 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("sriovnetworknodepolicy object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Get returns CatalogSource object if found.
-func (builder *PolicyBuilder) Get() (*srIovV1.SriovNetworkNodePolicy, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Collecting SriovNetworkNodePolicy object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	nodePolicy := &srIovV1.SriovNetworkNodePolicy{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(),
-		runtimeClient.ObjectKey{Name: builder.Definition.Name, Namespace: builder.Definition.Namespace},
-		nodePolicy)
-	if err != nil {
-		klog.V(100).Infof(
-			"SriovNetworkNodePolicy object %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, err
-	}
-
-	return nodePolicy, nil
-}
-
-// Create generates an SriovNetworkNodePolicy in the cluster and stores the created object in struct.
-func (builder *PolicyBuilder) Create() (*PolicyBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	if !builder.Exists() {
-		err := builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// Delete removes an SriovNetworkNodePolicy object.
-func (builder *PolicyBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	if !builder.Exists() {
-		klog.V(100).Infof("SriovNetworkNodePolicy %s in namespace %s cannot be deleted because it does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
-// Exists checks whether the given SriovNetworkNodePolicy object exists in the cluster.
-func (builder *PolicyBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if SriovNetworkNodePolicy %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *PolicyBuilder) validate() (bool, error) {
-	resourceCRD := "SriovNetworkNodePolicy"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
+	return common.PullNamespacedBuilder[srIovV1.SriovNetworkNodePolicy, PolicyBuilder](
+		context.TODO(), apiClient, srIovV1.AddToScheme, name, nsname)
 }
