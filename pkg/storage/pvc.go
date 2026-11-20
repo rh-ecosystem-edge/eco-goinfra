@@ -7,13 +7,11 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	schema "k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
@@ -22,69 +20,53 @@ const (
 	accessModeReadWriteOnce = "ReadWriteOnce"
 )
 
-var validPVCModesMap = map[string]string{
-	accessModeReadWriteOnce: accessModeReadWriteOnce,
-	"ReadOnlyMany":          "ReadOnlyMany",
-	"ReadWriteMany":         "ReadWriteMany",
-	"ReadWriteOncePod":      "ReadWriteOncePod",
-}
+var (
+	persistentVolumeClaimGVK = corev1.SchemeGroupVersion.WithKind("PersistentVolumeClaim")
+
+	validPVCModesMap = map[string]string{
+		accessModeReadWriteOnce: accessModeReadWriteOnce,
+		"ReadOnlyMany":          "ReadOnlyMany",
+		"ReadWriteMany":         "ReadWriteMany",
+		"ReadWriteOncePod":      "ReadWriteOncePod",
+	}
+)
 
 // PVCBuilder provides struct for persistentvolumeclaim object containing connection
 // to the cluster and the persistentvolumeclaim definitions.
 type PVCBuilder struct {
-	// PersistentVolumeClaim definition. Used to create a persistentvolumeclaim object
-	Definition *corev1.PersistentVolumeClaim
-	// Created persistentvolumeclaim object
-	Object *corev1.PersistentVolumeClaim
+	common.EmbeddableBuilder[corev1.PersistentVolumeClaim, *corev1.PersistentVolumeClaim]
+	common.EmbeddableCreator[
+		corev1.PersistentVolumeClaim,
+		PVCBuilder,
+		*corev1.PersistentVolumeClaim,
+		*PVCBuilder,
+	]
+	common.EmbeddableDeleter[corev1.PersistentVolumeClaim, *corev1.PersistentVolumeClaim]
+}
 
-	errorMsg  string
-	apiClient *clients.Settings
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *PVCBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+}
+
+// GetGVK returns the PersistentVolumeClaim GVK for this builder.
+func (builder *PVCBuilder) GetGVK() schema.GroupVersionKind {
+	return persistentVolumeClaimGVK
 }
 
 // NewPVCBuilder creates a new structure for persistentvolumeclaim.
 func NewPVCBuilder(apiClient *clients.Settings, name, nsname string) *PVCBuilder {
-	klog.V(100).Infof("Creating PersistentVolumeClaim %s in namespace %s",
-		name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("storageSystem 'apiClient' cannot be empty")
-
-		return nil
-	}
-
-	builder := &PVCBuilder{
-		Definition: &corev1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-			Spec: corev1.PersistentVolumeClaimSpec{},
-		},
-	}
-
-	builder.apiClient = apiClient
-
-	if name == "" {
-		klog.V(100).Info("PVC name is empty")
-
-		builder.errorMsg = "PVC name is empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("PVC namespace is empty")
-
-		builder.errorMsg = "PVC namespace is empty"
-
-		return builder
-	}
-
-	return builder
+	return common.NewNamespacedBuilder[corev1.PersistentVolumeClaim, PVCBuilder](
+		apiClient, corev1.AddToScheme, name, nsname)
 }
 
 // WithPVCAccessMode configure access mode for the PV.
 func (builder *PVCBuilder) WithPVCAccessMode(accessMode string) (*PVCBuilder, error) {
+	if err := common.Validate(builder); err != nil {
+		return builder, err
+	}
+
 	klog.V(100).Infof("Set PVC accessMode: %s", accessMode)
 
 	if accessMode == "" {
@@ -99,13 +81,8 @@ func (builder *PVCBuilder) WithPVCAccessMode(accessMode string) (*PVCBuilder, er
 		return builder, fmt.Errorf("invalid accessMode for PVC %s", accessMode)
 	}
 
-	if builder.Definition.Spec.AccessModes != nil {
-		builder.Definition.Spec.AccessModes = append(builder.Definition.Spec.AccessModes,
-			corev1.PersistentVolumeAccessMode(accessMode))
-	} else {
-		builder.Definition.Spec.AccessModes =
-			[]corev1.PersistentVolumeAccessMode{corev1.PersistentVolumeAccessMode(accessMode)}
-	}
+	builder.Definition.Spec.AccessModes = append(
+		builder.Definition.Spec.AccessModes, corev1.PersistentVolumeAccessMode(accessMode))
 
 	return builder, nil
 }
@@ -121,32 +98,36 @@ func validatePVCAccessMode(accessMode string) bool {
 
 // WithPVCCapacity configures the minimum resources the volume should have.
 func (builder *PVCBuilder) WithPVCCapacity(capacity string) (*PVCBuilder, error) {
+	if err := common.Validate(builder); err != nil {
+		return builder, err
+	}
+
 	if capacity == "" {
 		klog.V(100).Info("Capacity of the PersistentVolumeClaim is empty")
 
 		return builder, fmt.Errorf("capacity of the PersistentVolumeClaim is empty")
 	}
 
-	defer func() (*PVCBuilder, error) {
-		if r := recover(); r != nil {
-			klog.V(100).Infof("Failed to parse %v", capacity)
+	parsedCapacity, err := resource.ParseQuantity(capacity)
+	if err != nil {
+		klog.V(100).Infof("Failed to parse %v", capacity)
 
-			return builder, fmt.Errorf("failed to parse: %v", capacity)
-		}
+		return builder, fmt.Errorf("failed to parse: %v", capacity)
+	}
 
-		return builder, nil
-	}() //nolint:errcheck
-
-	capMap := make(map[corev1.ResourceName]resource.Quantity)
-	capMap[corev1.ResourceStorage] = resource.MustParse(capacity)
-
-	builder.Definition.Spec.Resources = corev1.VolumeResourceRequirements{Requests: capMap}
+	builder.Definition.Spec.Resources = corev1.VolumeResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceStorage: parsedCapacity},
+	}
 
 	return builder, nil
 }
 
 // WithStorageClass configures storageClass required by the claim.
 func (builder *PVCBuilder) WithStorageClass(storageClass string) (*PVCBuilder, error) {
+	if err := common.Validate(builder); err != nil {
+		return builder, err
+	}
+
 	klog.V(100).Infof("Set storage class %s for the PersistentVolumeClaim", storageClass)
 
 	if storageClass == "" {
@@ -163,6 +144,10 @@ func (builder *PVCBuilder) WithStorageClass(storageClass string) (*PVCBuilder, e
 
 // WithVolumeMode configures what type of volume is required by the claim.
 func (builder *PVCBuilder) WithVolumeMode(volumeMode string) (*PVCBuilder, error) {
+	if err := common.Validate(builder); err != nil {
+		return builder, err
+	}
+
 	klog.V(100).Infof("Set VolumeMode %s for the PersistentVolumeClaim", volumeMode)
 
 	if volumeMode == "" {
@@ -180,77 +165,15 @@ func (builder *PVCBuilder) WithVolumeMode(volumeMode string) (*PVCBuilder, error
 			volumeMode, builder.Definition.Name, builder.Definition.Name)
 	}
 
-	// volumeMode is string while Spec.VolumeMode requires pointer to corev1.PersistentVolumeMode,
-	// therefore temporary variable strVolMode is created to be used within assignment.
-	strVolMode := corev1.PersistentVolumeMode(volumeMode)
-
-	builder.Definition.Spec.VolumeMode = &strVolMode
+	persistentVolumeMode := corev1.PersistentVolumeMode(volumeMode)
+	builder.Definition.Spec.VolumeMode = &persistentVolumeMode
 
 	return builder, nil
 }
 
-// Create generates a PVC in cluster and stores the created object in struct.
-func (builder *PVCBuilder) Create() (*PVCBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating persistentVolumeClaim %s", builder.Definition.Name)
-
-	var err error
-	if !builder.Exists() {
-		builder.Object, err = builder.apiClient.PersistentVolumeClaims(builder.Definition.Namespace).Create(
-			logging.DiscardContext(), builder.Definition, metav1.CreateOptions{})
-	}
-
-	return builder, err
-}
-
-// Delete removes PVC from cluster.
-func (builder *PVCBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		klog.V(100).Infof("PersistentVolumeClaim %s in %s namespace is invalid: %v",
-			builder.Definition.Name, builder.Definition.Namespace, err)
-
-		return err
-	}
-
-	klog.V(100).Infof("Delete PersistentVolumeClaim %s from %s namespace",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("PersistentVolumeClaim %s not found in %s namespace",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.PersistentVolumeClaims(builder.Definition.Namespace).Delete(
-		logging.DiscardContext(), builder.Definition.Name, metav1.DeleteOptions{})
-	if err != nil {
-		klog.V(100).Infof("Failed to delete PersistentVolumeClaim %s from %s namespace",
-			builder.Definition.Name, builder.Definition.Namespace)
-		klog.V(100).Infof("PersistenteVolumeClaim deletion error: %v", err)
-
-		return err
-	}
-
-	klog.V(100).Infof("Deleted PersistentVolumeClaim %s from %s namespace",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	builder.Object = nil
-
-	return nil
-}
-
 // DeleteAndWait deletes PersistentVolumeClaim and waits until it is removed from the cluster.
 func (builder *PVCBuilder) DeleteAndWait(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
-		klog.V(100).Infof("PersistentVolumeClaim %s in %s namespace is invalid: %v",
-			builder.Definition.Name, builder.Definition.Namespace, err)
-
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -267,13 +190,9 @@ func (builder *PVCBuilder) DeleteAndWait(timeout time.Duration) error {
 
 	return wait.PollUntilContextTimeout(
 		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-			_, err := builder.apiClient.PersistentVolumeClaims(builder.Definition.Namespace).Get(
-				logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
-			if k8serrors.IsNotFound(err) {
-				return true, nil
-			}
+			_, err := common.Get(ctx, builder)
 
-			return false, nil
+			return k8serrors.IsNotFound(err), nil
 		})
 }
 
@@ -282,94 +201,8 @@ func (builder *PVCBuilder) DeleteAndWait(timeout time.Duration) error {
 func PullPersistentVolumeClaim(
 	apiClient *clients.Settings, name string, nsname string) (
 	*PVCBuilder, error) {
-	klog.V(100).Infof("Pulling existing PersistentVolumeClaim object: %s from namespace %s",
-		name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("The PersistentVolumeClaim apiClient is nil")
-
-		return nil, fmt.Errorf("persistentVolumeClaim 'apiClient' cannot be empty")
-	}
-
-	builder := &PVCBuilder{
-		apiClient: apiClient,
-		Definition: &corev1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the PersistentVolumeClaim is empty")
-
-		return nil, fmt.Errorf("persistentVolumeClaim 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the PersistentVolumeClaim is empty")
-
-		return nil, fmt.Errorf("persistentVolumeClaim 'nsname' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("persistentVolumeClaim object %s does not exist in namespace %s",
-			name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Exists checks whether the given PersistentVolumeClaim exists.
-func (builder *PVCBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if PersistentVolumeClaim %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.PersistentVolumeClaims(builder.Definition.Namespace).Get(
-		logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *PVCBuilder) validate() (bool, error) {
-	resourceCRD := "PersistentVolumeClaim"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
+	return common.PullNamespacedBuilder[corev1.PersistentVolumeClaim, PVCBuilder](
+		context.TODO(), apiClient, corev1.AddToScheme, name, nsname)
 }
 
 // GetPersistentVolumeClaimGVR returns the GroupVersionResource for the PersistentVolumeClaim.
@@ -385,7 +218,7 @@ func GetPersistentVolumeClaimGVR() schema.GroupVersionResource {
 func validateVolumeMode(volumeMode string) bool {
 	klog.V(100).Infof("Validating volumeMode %s", volumeMode)
 
-	var validVolumeModes = []string{
+	validVolumeModes := []string{
 		"Block",
 		"Filesystem",
 	}
