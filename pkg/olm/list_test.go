@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -272,68 +274,95 @@ func TestListClusterServiceVersionInAllNamespaces(t *testing.T) {
 }
 
 func TestListInstallPlan(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		installPlan   []*InstallPlanBuilder
+		name          string
 		nsName        string
 		listOptions   []client.ListOptions
-		expectedError error
+		objectsExist  bool
 		client        bool
+		expectedCount int
+		expectedError string
+		assertError   func(error) bool
 	}{
 		{
-			installPlan: []*InstallPlanBuilder{
-				buildValidInstallPlanBuilder(buildInstallPlanTestClientWithDummyObject())},
+			name:          "valid list",
 			nsName:        "test-namespace",
-			expectedError: nil,
+			objectsExist:  true,
 			client:        true,
+			expectedCount: 1,
 		},
 		{
-			installPlan: []*InstallPlanBuilder{
-				buildValidInstallPlanBuilder(buildInstallPlanTestClientWithDummyObject())},
-			nsName:        "",
-			expectedError: fmt.Errorf("the nsname of the installplan is empty"),
-			client:        true,
+			name:        "empty namespace returns error",
+			nsName:      "",
+			client:      true,
+			assertError: commonerrors.IsBuilderNamespaceEmpty,
 		},
 		{
-			installPlan: []*InstallPlanBuilder{
-				buildValidInstallPlanBuilder(buildInstallPlanTestClientWithDummyObject())},
+			name:          "valid list with options",
 			nsName:        "test-namespace",
-			expectedError: nil,
 			listOptions:   []client.ListOptions{{Continue: "true"}},
+			objectsExist:  true,
 			client:        true,
+			expectedCount: 1,
 		},
 		{
-			installPlan: []*InstallPlanBuilder{
-				buildValidInstallPlanBuilder(buildInstallPlanTestClientWithDummyObject())},
+			name:          "multiple options return error",
 			nsName:        "test-namespace",
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
 			listOptions:   []client.ListOptions{{Continue: "true"}, {Limit: 100}},
 			client:        true,
+			expectedError: "error: more than one ListOptions was passed",
 		},
 		{
-			installPlan: []*InstallPlanBuilder{
-				buildValidInstallPlanBuilder(buildInstallPlanTestClientWithDummyObject())},
+			name:        "nil client returns error",
+			nsName:      "test-namespace",
+			listOptions: []client.ListOptions{},
+			client:      false,
+			assertError: commonerrors.IsAPIClientNil,
+		},
+		{
+			name:          "missing resources return error",
 			nsName:        "test-namespace",
-			expectedError: fmt.Errorf("failed to list installPlan, 'apiClient' parameter is empty"),
-			listOptions:   []client.ListOptions{},
-			client:        false,
+			client:        true,
+			expectedError: "installplan not found in namespace test-namespace",
 		},
 	}
+
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyInstallPlan(),
-				SchemeAttachers: testSchemes,
-			})
-		}
+			var (
+				testSettings   *clients.Settings
+				runtimeObjects = []runtime.Object{}
+			)
 
-		netBuilders, err := ListInstallPlan(testSettings, testCase.nsName, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+			if testCase.objectsExist {
+				runtimeObjects = buildDummyInstallPlan()
+			}
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(netBuilders), len(testCase.installPlan))
-		}
+			if testCase.client {
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  runtimeObjects,
+					SchemeAttachers: testSchemes,
+				})
+			}
+
+			installPlanBuilders, err := ListInstallPlan(testSettings, testCase.nsName, testCase.listOptions...)
+
+			switch {
+			case testCase.assertError != nil:
+				assert.Truef(t, testCase.assertError(err), "unexpected error: %v", err)
+				assert.Nil(t, installPlanBuilders)
+			case testCase.expectedError != "":
+				assert.EqualError(t, err, testCase.expectedError)
+				assert.Nil(t, installPlanBuilders)
+			default:
+				assert.NoError(t, err)
+				assert.Len(t, installPlanBuilders, testCase.expectedCount)
+			}
+		})
 	}
 }
 
