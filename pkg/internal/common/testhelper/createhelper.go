@@ -76,7 +76,7 @@ func (config CreateTestConfig[O, B, SO, SB]) Name() string {
 
 // ExecuteTests runs the standard set of Create tests for the configured resource.
 //
-//nolint:funlen // Test functions with multiple test cases are expected to be long.
+//nolint:funlen,gocognit // Test functions with multiple test cases are expected to be long and branchy.
 func (config CreateTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 	t.Helper()
 
@@ -125,7 +125,12 @@ func (config CreateTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 			var objects []runtime.Object
 
 			if testCase.objectExists {
-				objects = append(objects, buildDummyObject[O, SO](testResourceName, testResourceNamespace))
+				var namespace string
+				if config.ResourceScope.IsNamespaced() {
+					namespace = testResourceNamespace
+				}
+
+				objects = append(objects, buildDummyObject[O, SO](testResourceName, namespace))
 			}
 
 			client := clients.GetTestClients(clients.TestClientParams{
@@ -161,6 +166,13 @@ func (config CreateTestConfig[O, B, SO, SB]) ExecuteTests(t *testing.T) {
 				if testCase.expectObjectSet {
 					require.NotNil(t, result.GetObject())
 					assert.Equal(t, testResourceName, result.GetObject().GetName())
+
+					if testCase.objectExists {
+						// The returned object must be the one seeded in the cluster, not a new object created
+						// because the tracker key did not match the seeded object.
+						assert.Equal(
+							t, testAnnotationValue, result.GetObject().GetAnnotations()[testAnnotationKey])
+					}
 
 					if config.ResourceScope.IsNamespaced() {
 						assert.Equal(t, testResourceNamespace, result.GetObject().GetNamespace())

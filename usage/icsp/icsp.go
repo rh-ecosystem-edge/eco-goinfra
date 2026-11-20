@@ -14,9 +14,10 @@ func main() {
 	var icspBuilderName = "testicsp"
 	// Define new ICSPBuilder
 	icspbuilder := icsp.NewICSPBuilder(apiClient, icspBuilderName, "mysource", []string{"mymirror.io"})
-	// Delete ImageContentSourcePolicy if exists
-	if icspbuilder.Exists() {
-		_ = icspbuilder.Delete()
+	// Delete ImageContentSourcePolicy if exists. Delete succeeds when the policy is not found, so there is no need
+	// to check existence first, which would also skip the reset on transient Get errors.
+	if err := icspbuilder.Delete(); err != nil {
+		log.Fatal(err)
 	}
 
 	// Create new ImageContentSourcePolicy from icspbuilder.

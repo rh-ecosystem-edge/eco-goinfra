@@ -17,6 +17,7 @@ import (
 
 const (
 	nilClientReturnsError               = "nil client returns error"
+	nilEmbeddedClientReturnsError       = "settings without embedded client returns error"
 	schemeAttachmentFailureReturnsError = "scheme attachment failure returns error"
 	emptyNamespaceReturnsError          = "empty namespace returns error"
 )

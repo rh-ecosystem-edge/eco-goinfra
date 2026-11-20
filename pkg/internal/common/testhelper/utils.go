@@ -140,14 +140,16 @@ func isOptionFailure(err error) bool {
 	return errors.Is(err, errOptionFailure)
 }
 
-// buildDummyObject creates a minimal Kubernetes object with only name and namespace set. The namespace is always set
-// even for cluster-scoped resources since the Kubernetes API simply ignores it for those types. This avoids needing
-// separate constructors for namespaced vs cluster-scoped test objects.
+// buildDummyObject creates a minimal Kubernetes object with a marker annotation. Callers must pass an empty namespace
+// for cluster-scoped resources: the fake client's tracker keys objects by namespace and, unlike a real API server, does
+// not ignore it for cluster-scoped types. A mismatched namespace makes the object unreachable and hides AlreadyExists
+// paths.
 func buildDummyObject[O any, SO common.ObjectPointer[O]](name, namespace string) SO {
 	var dummyObject SO = new(O)
 
 	dummyObject.SetName(name)
 	dummyObject.SetNamespace(namespace)
+	dummyObject.SetAnnotations(map[string]string{testAnnotationKey: testAnnotationValue})
 
 	return dummyObject
 }
