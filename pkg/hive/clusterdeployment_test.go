@@ -1,16 +1,18 @@
 package hive
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	hiveextV1Beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/hiveextension/v1beta1"
 	hivev1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/hive/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/hive/api/v1/agent"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/hive/api/v1/none"
 	ibiv1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/imagebasedinstall/api/hiveextensions/v1alpha1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -19,6 +21,7 @@ var (
 	testSchemes = []clients.SchemeAttacher{
 		hivev1.AddToScheme,
 	}
+
 	defaultClusterDeploymentName      = "clusterdeploymentname"
 	defaultClusterDeploymentNamespace = "clusterdeploymentnamespace"
 	defaultClusterName                = "clustername"
@@ -27,100 +30,151 @@ var (
 	defaultAgentSelector              = metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}}
 )
 
+//nolint:funlen // Table-driven constructor validation.
 func TestNewABMClusterDeploymentBuilder(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		description       string
 		name              string
 		nsName            string
 		clusterName       string
 		baseDomain        string
 		clusterInstallRef string
 		agentSelector     metav1.LabelSelector
-		expectedError     string
+		assertError       func(error) bool
 	}{
 		{
+			description:       "valid builder",
 			name:              "testdeployment",
 			nsName:            "test-namespace",
 			clusterName:       "clustertest",
 			baseDomain:        "domaintest",
 			clusterInstallRef: "installreftest",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     "",
+			assertError:       func(err error) bool { return err == nil },
 		},
 		{
-			name:              "",
+			description:       "empty name",
 			nsName:            "test-namespace",
 			clusterName:       "clustertest",
 			baseDomain:        "domaintest",
 			clusterInstallRef: "installreftest",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     errEmptyName,
+			assertError:       commonerrors.IsBuilderNameEmpty,
 		},
 		{
+			description:       "empty namespace",
 			name:              "testdeployment",
 			nsName:            "",
 			clusterName:       "clustertest",
 			baseDomain:        "domaintest",
 			clusterInstallRef: "installreftest",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     errEmptyNamespace,
+			assertError:       commonerrors.IsBuilderNamespaceEmpty,
 		},
 		{
+			description:       "empty cluster name",
 			name:              "testdeployment",
 			nsName:            "test-namespace",
 			clusterName:       "",
 			baseDomain:        "domaintest",
 			clusterInstallRef: "installreftest",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     errEmptyClusterName,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == errEmptyClusterName
+			},
 		},
 		{
+			description:       "empty base domain",
 			name:              "testdeployment",
 			nsName:            "test-namespace",
 			clusterName:       "clustertest",
 			baseDomain:        "",
 			clusterInstallRef: "installreftest",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     errEmptyBaseDomain,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == errEmptyBaseDomain
+			},
 		},
 		{
+			description:       "empty cluster install reference",
 			name:              "testdeployment",
 			nsName:            "test-namespace",
 			clusterName:       "clustertest",
 			baseDomain:        "domaintest",
 			clusterInstallRef: "",
 			agentSelector:     metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-			expectedError:     errEmptyClusterInstallRefName,
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == errEmptyClusterInstallRefName
+			},
 		},
 		{
+			description:       "empty agent selector is allowed",
 			name:              "testdeployment",
 			nsName:            "test-namespace",
 			clusterName:       "clustertest",
 			baseDomain:        "domaintest",
 			clusterInstallRef: "installreftest",
 			agentSelector:     metav1.LabelSelector{},
-			expectedError:     "",
+			assertError:       func(err error) bool { return err == nil },
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		testClusterDeployment := NewABMClusterDeploymentBuilder(
-			testSettings, testCase.name, testCase.nsName, testCase.clusterName,
-			testCase.baseDomain, testCase.clusterInstallRef, testCase.agentSelector)
-		assert.Equal(t, testCase.expectedError, testClusterDeployment.errorMsg)
-		assert.NotNil(t, testClusterDeployment.Definition)
+		t.Run(testCase.description, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testClusterDeployment.Definition.Name)
-		}
+			testSettings := buildTestClientWithClusterDeploymentScheme()
+			testClusterDeployment := NewABMClusterDeploymentBuilder(
+				testSettings, testCase.name, testCase.nsName, testCase.clusterName,
+				testCase.baseDomain, testCase.clusterInstallRef, testCase.agentSelector)
+
+			require.NotNil(t, testClusterDeployment)
+			assert.Truef(t, testCase.assertError(testClusterDeployment.GetError()),
+				"unexpected error, got: %v", testClusterDeployment.GetError())
+			require.NotNil(t, testClusterDeployment.Definition)
+
+			if testClusterDeployment.GetError() == nil {
+				assert.Equal(t, testCase.name, testClusterDeployment.Definition.Name)
+				assert.Equal(t, testCase.clusterName, testClusterDeployment.Definition.Spec.ClusterName)
+				assert.Equal(t, testCase.baseDomain, testClusterDeployment.Definition.Spec.BaseDomain)
+				require.NotNil(t, testClusterDeployment.Definition.Spec.ClusterInstallRef)
+				assert.Equal(t, kindAgentClusterInstall, testClusterDeployment.Definition.Spec.ClusterInstallRef.Kind)
+				require.NotNil(t, testClusterDeployment.Definition.Spec.Platform.AgentBareMetal)
+				assert.Equal(t, testCase.agentSelector,
+					testClusterDeployment.Definition.Spec.Platform.AgentBareMetal.AgentSelector)
+			}
+		})
 	}
 }
 
-//nolint:funlen
+//nolint:funlen // Table-driven constructor validation.
 func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
+
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *ClusterDeploymentBuilder {
+				return NewClusterDeploymentByInstallRefBuilder(
+					apiClient,
+					name,
+					nsname,
+					defaultClusterName,
+					defaultBaseDomain,
+					buildTestClusterInstallRef(defaultClusterInstallRef),
+					buildTestAgentPlatform(defaultAgentSelector),
+				)
+			},
+			hivev1.AddToScheme,
+			clusterDeploymentGVK,
+		).ExecuteTests(t)
+	})
+
 	testCases := []struct {
 		name              string
-		nsName            string
 		clusterName       string
 		baseDomain        string
 		clusterInstallRef hivev1.ClusterInstallLocalReference
@@ -128,26 +182,7 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 		expectedError     string
 	}{
 		{
-			name:        "testdeployment",
-			nsName:      "test-namespace",
-			clusterName: "clustertest",
-			baseDomain:  "domaintest",
-			clusterInstallRef: hivev1.ClusterInstallLocalReference{
-				Group:   hiveextV1Beta1.Group,
-				Version: hiveextV1Beta1.Version,
-				Kind:    kindAgentClusterInstall,
-				Name:    "test-agentclusterinstall",
-			},
-			platform: hivev1.Platform{
-				AgentBareMetal: &agent.BareMetalPlatform{
-					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-				},
-			},
-			expectedError: "",
-		},
-		{
-			name:        "testdeployment",
-			nsName:      "test-namespace",
+			name:        "valid image cluster install",
 			clusterName: "clustertest",
 			baseDomain:  "domaintest",
 			clusterInstallRef: hivev1.ClusterInstallLocalReference{
@@ -159,416 +194,216 @@ func TestNewClusterDeploymentByInstallRefBuilder(t *testing.T) {
 			platform: hivev1.Platform{
 				None: &none.Platform{},
 			},
-			expectedError: "",
 		},
 		{
-			name:        "",
-			nsName:      "test-namespace",
-			clusterName: "",
-			baseDomain:  "domaintest",
-			clusterInstallRef: hivev1.ClusterInstallLocalReference{
-				Group:   hiveextV1Beta1.Group,
-				Version: hiveextV1Beta1.Version,
-				Kind:    kindAgentClusterInstall,
-				Name:    "test-agentclusterinstall",
-			},
-			platform: hivev1.Platform{
-				AgentBareMetal: &agent.BareMetalPlatform{
-					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-				},
-			},
-			expectedError: errEmptyName,
+			name:              "empty cluster name",
+			baseDomain:        "domaintest",
+			clusterInstallRef: buildTestClusterInstallRef("test-agentclusterinstall"),
+			platform:          buildTestAgentPlatform(defaultAgentSelector),
+			expectedError:     errEmptyClusterName,
 		},
 		{
-			name:        "testdeployment",
-			nsName:      "",
-			clusterName: "clustertest",
-			baseDomain:  "domaintest",
-			clusterInstallRef: hivev1.ClusterInstallLocalReference{
-				Group:   hiveextV1Beta1.Group,
-				Version: hiveextV1Beta1.Version,
-				Kind:    kindAgentClusterInstall,
-				Name:    "test-agentclusterinstall",
-			},
-			platform: hivev1.Platform{
-				AgentBareMetal: &agent.BareMetalPlatform{
-					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-				},
-			},
-			expectedError: errEmptyNamespace,
+			name:              "empty base domain",
+			clusterName:       "clustertest",
+			clusterInstallRef: buildTestClusterInstallRef("test-agentclusterinstall"),
+			platform:          buildTestAgentPlatform(defaultAgentSelector),
+			expectedError:     errEmptyBaseDomain,
 		},
 		{
-			name:        "testdeployment",
-			nsName:      "test-namespace",
-			clusterName: "",
-			baseDomain:  "domaintest",
-			clusterInstallRef: hivev1.ClusterInstallLocalReference{
-				Group:   hiveextV1Beta1.Group,
-				Version: hiveextV1Beta1.Version,
-				Kind:    kindAgentClusterInstall,
-				Name:    "test-agentclusterinstall",
-			},
-			platform: hivev1.Platform{
-				AgentBareMetal: &agent.BareMetalPlatform{
-					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-				},
-			},
-			expectedError: errEmptyClusterName,
-		},
-		{
-			name:        "testdeployment",
-			nsName:      "test-namespace",
-			clusterName: "clustertest",
-			baseDomain:  "",
-			clusterInstallRef: hivev1.ClusterInstallLocalReference{
-				Group:   hiveextV1Beta1.Group,
-				Version: hiveextV1Beta1.Version,
-				Kind:    kindAgentClusterInstall,
-				Name:    "test-agentclusterinstall",
-			},
-			platform: hivev1.Platform{
-				AgentBareMetal: &agent.BareMetalPlatform{
-					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-				},
-			},
-			expectedError: errEmptyBaseDomain,
-		},
-		{
-			name:        "testdeployment",
-			nsName:      "test-namespace",
-			clusterName: "clustertest",
-			baseDomain:  "domaintest",
-			clusterInstallRef: hivev1.ClusterInstallLocalReference{
-				Group:   hiveextV1Beta1.Group,
-				Version: hiveextV1Beta1.Version,
-				Kind:    kindAgentClusterInstall,
-				Name:    "",
-			},
-			platform: hivev1.Platform{
-				AgentBareMetal: &agent.BareMetalPlatform{
-					AgentSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
-				},
-			},
-			expectedError: errEmptyClusterInstallRefName,
+			name:              "empty cluster install reference name",
+			clusterName:       "clustertest",
+			baseDomain:        "domaintest",
+			clusterInstallRef: buildTestClusterInstallRef(""),
+			platform:          buildTestAgentPlatform(defaultAgentSelector),
+			expectedError:     errEmptyClusterInstallRefName,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		testClusterDeployment := NewClusterDeploymentByInstallRefBuilder(
-			testSettings, testCase.name, testCase.nsName, testCase.clusterName,
-			testCase.baseDomain, testCase.clusterInstallRef, testCase.platform)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testClusterDeployment.errorMsg)
-		assert.NotNil(t, testClusterDeployment.Definition)
+			testClusterDeployment := NewClusterDeploymentByInstallRefBuilder(
+				buildTestClientWithClusterDeploymentScheme(),
+				"testdeployment",
+				"test-namespace",
+				testCase.clusterName,
+				testCase.baseDomain,
+				testCase.clusterInstallRef,
+				testCase.platform,
+			)
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testClusterDeployment.Definition.Name)
-		}
+			if testCase.expectedError != "" {
+				require.Error(t, testClusterDeployment.GetError())
+				assert.Equal(t, testCase.expectedError, testClusterDeployment.GetError().Error())
+
+				return
+			}
+
+			require.NoError(t, testClusterDeployment.GetError())
+			assert.Equal(t, testCase.clusterName, testClusterDeployment.Definition.Spec.ClusterName)
+			assert.Equal(t, testCase.baseDomain, testClusterDeployment.Definition.Spec.BaseDomain)
+			assert.Equal(t, testCase.clusterInstallRef, *testClusterDeployment.Definition.Spec.ClusterInstallRef)
+			assert.Equal(t, testCase.platform, testClusterDeployment.Definition.Spec.Platform)
+		})
 	}
 }
 
 func TestPullClusterDeployment(t *testing.T) {
-	generateClusterDeployment := func(name, nsName string) *hivev1.ClusterDeployment {
-		return &hivev1.ClusterDeployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsName,
-			},
-			Spec: hivev1.ClusterDeploymentSpec{
-				//ReleaseImage: "release-1-1",
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "imageset",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf(errEmptyName),
-			client:              true,
-		},
-		{
-			name:                "imageset",
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf(errEmptyNamespace),
-			client:              true,
-		},
-		{
-			name:                "imageset",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("clusterdeployment object imageset does not exist in namespace test-namespace"),
-			client:              true,
-		},
-		{
-			name:                "imageset",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("the apiClient cannot be nil"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testClusterDeployment := generateClusterDeployment(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testClusterDeployment)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		builderResult, err := PullClusterDeployment(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Object.Name)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullClusterDeployment, hivev1.AddToScheme, clusterDeploymentGVK).ExecuteTests(t)
 }
 
-func TestClusterDeploymentGet(t *testing.T) {
-	testCases := []struct {
-		testClusterDeployment *ClusterDeploymentBuilder
-		expectedError         error
-	}{
-		{
-			testClusterDeployment: buildValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedError:         nil,
-		},
-		{
-			testClusterDeployment: buildInValidClusterDeploymentBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedError:         fmt.Errorf(errEmptyNamespace),
-		},
-		{
-			testClusterDeployment: buildValidClusterDeploymentBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:         fmt.Errorf("clusterdeployments.hive.openshift.io \"clusterdeploymentname\" not found"),
-		},
-	}
+func TestClusterDeploymentBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		clusterClusterDeployment, err := testCase.testClusterDeployment.Get()
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
+	commonTestConfig := testhelper.NewCommonTestConfig[hivev1.ClusterDeployment, ClusterDeploymentBuilder](
+		hivev1.AddToScheme,
+		clusterDeploymentGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, clusterClusterDeployment.Name, testCase.testClusterDeployment.Definition.Name)
-		}
-	}
-}
-
-func TestClusterDeploymentCreate(t *testing.T) {
-	testCases := []struct {
-		testClusterDeployment *ClusterDeploymentBuilder
-		expectedError         error
-	}{
-		{
-			testClusterDeployment: buildValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedError:         nil,
-		},
-		{
-			testClusterDeployment: buildInValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedError:         fmt.Errorf(errEmptyNamespace),
-		},
-		{
-			testClusterDeployment: buildValidClusterDeploymentBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:         nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		clusterClusterDeployment, err := testCase.testClusterDeployment.Create()
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.testClusterDeployment.Definition.Name, clusterClusterDeployment.Object.Name)
-		}
-	}
-}
-
-func TestClusterDeploymentUpdate(t *testing.T) {
-	testCases := []struct {
-		testClusterDeployment *ClusterDeploymentBuilder
-		expectedError         error
-	}{
-		{
-			testClusterDeployment: buildValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedError:         nil,
-		},
-		{
-			testClusterDeployment: buildInValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedError:         fmt.Errorf(errEmptyNamespace),
-		},
-		{
-			testClusterDeployment: buildValidClusterDeploymentBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:         fmt.Errorf("clusterdeployments.hive.openshift.io \"clusterdeploymentname\" not found"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, testCase.testClusterDeployment.Definition.Spec.ClusterName, defaultClusterName)
-		testCase.testClusterDeployment.Definition.ResourceVersion = "999"
-		testCase.testClusterDeployment.Definition.Spec.ClusterName = "test"
-		clusterDeployment, err := testCase.testClusterDeployment.Update(false)
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testCase.expectedError, err)
-			assert.Equal(t, clusterDeployment.Object.Spec.ClusterName, "test")
-		}
-	}
-}
-
-func TestClusterDeploymentDelete(t *testing.T) {
-	testCases := []struct {
-		testClusterDeployment *ClusterDeploymentBuilder
-		expectedError         error
-	}{
-		{
-			testClusterDeployment: buildValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedError:         nil,
-		},
-		{
-			testClusterDeployment: buildInValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedError:         fmt.Errorf(errEmptyNamespace),
-		},
-		{
-			testClusterDeployment: buildValidClusterDeploymentBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:         nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testClusterDeployment.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testClusterDeployment.Object)
-		}
-	}
-}
-
-func TestClusterDeploymentExists(t *testing.T) {
-	testCases := []struct {
-		testClusterDeployment *ClusterDeploymentBuilder
-		expectedStatus        bool
-	}{
-		{
-			testClusterDeployment: buildValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedStatus:        true,
-		},
-		{
-			testClusterDeployment: buildInValidClusterDeploymentBuilder(buildClusterDeploymentClientWithDummyObject()),
-			expectedStatus:        false,
-		},
-		{
-			testClusterDeployment: buildValidClusterDeploymentBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:        false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.testClusterDeployment.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestClusterDeploymentWithOptions(t *testing.T) {
-	testSettings := buildClusterDeploymentClientWithDummyObject()
-	testBuilder := buildValidClusterDeploymentBuilder(testSettings).WithOptions(
-		func(builder *ClusterDeploymentBuilder) (*ClusterDeploymentBuilder, error) {
-			return builder, nil
-		})
+	t.Parallel()
 
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidClusterDeploymentBuilder(testSettings).WithOptions(
-		func(builder *ClusterDeploymentBuilder) (*ClusterDeploymentBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
+	testhelper.NewWithOptionsTestConfig(
+		testhelper.NewCommonTestConfig[hivev1.ClusterDeployment, ClusterDeploymentBuilder](
+			hivev1.AddToScheme,
+			clusterDeploymentGVK,
+			testhelper.ResourceScopeNamespaced,
+		)).ExecuteTests(t)
 }
 
 func TestClusterDeploymentWithAdditionalAgentSelectorLabels(t *testing.T) {
+	t.Parallel()
+
+	validBuilder := func() *ClusterDeploymentBuilder {
+		return buildValidClusterDeploymentBuilder(buildTestClientWithClusterDeploymentScheme())
+	}
+	invalidBuilder := func() *ClusterDeploymentBuilder {
+		return buildInValidClusterDeploymentBuilder(buildTestClientWithClusterDeploymentScheme())
+	}
+	nonABMBuilder := func() *ClusterDeploymentBuilder {
+		return buildValidNonABMClusterDeploymentBuilder(buildTestClientWithClusterDeploymentScheme())
+	}
+
 	testCases := []struct {
-		additionalAgentSelector map[string]string
-		expectedErrorText       string
+		name           string
+		builder        func() *ClusterDeploymentBuilder
+		agentSelector  map[string]string
+		assertError    func(error) bool
+		expectedLabels map[string]string
 	}{
 		{
-			additionalAgentSelector: map[string]string{"test": "test"},
-			expectedErrorText:       "",
+			name:           "adds and merges labels",
+			builder:        validBuilder,
+			agentSelector:  map[string]string{"additional": "label"},
+			assertError:    func(err error) bool { return err == nil },
+			expectedLabels: map[string]string{"test": "test", "additional": "label"},
 		},
 		{
-			additionalAgentSelector: map[string]string{},
-			expectedErrorText:       "agentSelector cannot be empty",
+			name:          "empty selector",
+			builder:       validBuilder,
+			agentSelector: map[string]string{},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "agentSelector cannot be empty"
+			},
+		},
+		{
+			name:          "non agent bare metal platform",
+			builder:       nonABMBuilder,
+			agentSelector: map[string]string{"additional": "label"},
+			assertError: func(err error) bool {
+				return err != nil && err.Error() == "clusterdeployment type must be AgentBareMetal to use agentSelector"
+			},
+		},
+		{
+			name:          "invalid builder",
+			builder:       invalidBuilder,
+			agentSelector: map[string]string{"additional": "label"},
+			assertError:   commonerrors.IsBuilderNamespaceEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildClusterDeploymentClientWithDummyObject()
-		clusterDeployment := buildValidClusterDeploymentBuilder(testSettings).WithAdditionalAgentSelectorLabels(
-			testCase.additionalAgentSelector)
-		assert.Equal(t, testCase.expectedErrorText, clusterDeployment.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, clusterDeployment.Definition.Spec.Platform.AgentBareMetal.AgentSelector.MatchLabels,
-				testCase.additionalAgentSelector)
-		}
+			builder := testCase.builder()
+
+			result := builder.WithAdditionalAgentSelectorLabels(testCase.agentSelector)
+
+			require.Same(t, builder, result)
+			assert.Truef(t, testCase.assertError(result.GetError()), "unexpected error, got: %v", result.GetError())
+
+			if result.GetError() == nil {
+				assert.Equal(t, testCase.expectedLabels,
+					result.Definition.Spec.Platform.AgentBareMetal.AgentSelector.MatchLabels)
+			}
+		})
 	}
 }
 
 func TestClusterDeploymentWithPullSecret(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		psName            string
-		expectedErrorText string
+		name        string
+		psName      string
+		valid       bool
+		assertError func(error) bool
 	}{
 		{
-			psName:            "test",
-			expectedErrorText: "",
+			name:        "sets pull secret",
+			psName:      "test",
+			valid:       true,
+			assertError: func(err error) bool { return err == nil },
 		},
 		{
-			psName:            "",
-			expectedErrorText: "",
+			name:        "empty pull secret name is allowed",
+			psName:      "",
+			valid:       true,
+			assertError: func(err error) bool { return err == nil },
+		},
+		{
+			name:        "invalid builder",
+			psName:      "test",
+			assertError: commonerrors.IsBuilderNamespaceEmpty,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildClusterDeploymentClientWithDummyObject()
-		clusterDeployment := buildValidClusterDeploymentBuilder(testSettings).WithPullSecret(testCase.psName)
-		assert.Equal(t, testCase.expectedErrorText, clusterDeployment.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, clusterDeployment.Definition.Spec.PullSecretRef.Name, testCase.psName)
-		}
+			var builder *ClusterDeploymentBuilder
+			if testCase.valid {
+				builder = buildValidClusterDeploymentBuilder(buildTestClientWithClusterDeploymentScheme())
+			} else {
+				builder = buildInValidClusterDeploymentBuilder(buildTestClientWithClusterDeploymentScheme())
+			}
+
+			result := builder.WithPullSecret(testCase.psName)
+
+			require.Same(t, builder, result)
+			assert.Truef(t, testCase.assertError(result.GetError()), "unexpected error, got: %v", result.GetError())
+
+			if result.GetError() == nil {
+				require.NotNil(t, result.Definition.Spec.PullSecretRef)
+				assert.Equal(t, testCase.psName, result.Definition.Spec.PullSecretRef.Name)
+			}
+		})
 	}
 }
 
@@ -580,7 +415,7 @@ func buildValidClusterDeploymentBuilder(apiClient *clients.Settings) *ClusterDep
 		defaultClusterName,
 		defaultBaseDomain,
 		defaultClusterInstallRef,
-		defaultAgentSelector)
+		*defaultAgentSelector.DeepCopy())
 }
 
 func buildInValidClusterDeploymentBuilder(apiClient *clients.Settings) *ClusterDeploymentBuilder {
@@ -591,12 +426,52 @@ func buildInValidClusterDeploymentBuilder(apiClient *clients.Settings) *ClusterD
 		defaultClusterName,
 		defaultBaseDomain,
 		defaultClusterInstallRef,
-		defaultAgentSelector)
+		*defaultAgentSelector.DeepCopy())
+}
+
+func buildValidNonABMClusterDeploymentBuilder(apiClient *clients.Settings) *ClusterDeploymentBuilder {
+	return NewClusterDeploymentByInstallRefBuilder(
+		apiClient,
+		defaultClusterDeploymentName,
+		defaultClusterDeploymentNamespace,
+		defaultClusterName,
+		defaultBaseDomain,
+		hivev1.ClusterInstallLocalReference{
+			Group:   ibiv1alpha1.Group,
+			Version: ibiv1alpha1.Version,
+			Kind:    "ImageClusterInstall",
+			Name:    defaultClusterInstallRef,
+		},
+		hivev1.Platform{None: &none.Platform{}},
+	)
+}
+
+func buildTestClusterInstallRef(name string) hivev1.ClusterInstallLocalReference {
+	return hivev1.ClusterInstallLocalReference{
+		Group:   hiveextV1Beta1.Group,
+		Version: hiveextV1Beta1.Version,
+		Kind:    kindAgentClusterInstall,
+		Name:    name,
+	}
+}
+
+func buildTestAgentPlatform(agentSelector metav1.LabelSelector) hivev1.Platform {
+	return hivev1.Platform{
+		AgentBareMetal: &agent.BareMetalPlatform{
+			AgentSelector: agentSelector,
+		},
+	}
 }
 
 func buildClusterDeploymentClientWithDummyObject() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  buildDummyClusterDeployment(),
+		SchemeAttachers: testSchemes,
+	})
+}
+
+func buildTestClientWithClusterDeploymentScheme() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
 		SchemeAttachers: testSchemes,
 	})
 }
