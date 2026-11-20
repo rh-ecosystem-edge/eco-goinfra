@@ -1,28 +1,39 @@
 package keda
 
 import (
+	"context"
 	"fmt"
 
 	kedav1alpha1 "github.com/kedacore/keda-olm-operator/api/keda/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var controllerGVK = kedav1alpha1.GroupVersion.WithKind("KedaController")
 
 // ControllerBuilder provides a struct for KedaController object from the cluster and a KedaController definition.
 type ControllerBuilder struct {
-	// KedaController definition, used to create the KedaController object.
-	Definition *kedav1alpha1.KedaController
-	// Created KedaController object.
-	Object *kedav1alpha1.KedaController
-	// Used to store latest error message upon defining or mutating KedaController definition.
-	errorMsg string
-	// api client to interact with the cluster.
-	apiClient goclient.Client
+	common.EmbeddableBuilder[kedav1alpha1.KedaController, *kedav1alpha1.KedaController]
+	common.EmbeddableCreator[kedav1alpha1.KedaController, ControllerBuilder,
+		*kedav1alpha1.KedaController, *ControllerBuilder]
+	common.EmbeddableDeleteReturner[kedav1alpha1.KedaController, ControllerBuilder,
+		*kedav1alpha1.KedaController, *ControllerBuilder]
+	common.EmbeddableUpdater[kedav1alpha1.KedaController, ControllerBuilder,
+		*kedav1alpha1.KedaController, *ControllerBuilder]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *ControllerBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleteReturner.SetBase(builder)
+	builder.EmbeddableUpdater.SetBase(builder)
+}
+
+// GetGVK returns the KedaController GVK for this builder.
+func (builder *ControllerBuilder) GetGVK() schema.GroupVersionKind {
+	return controllerGVK
 }
 
 // NewControllerBuilder creates a new instance of ControllerBuilder.
@@ -32,201 +43,16 @@ func NewControllerBuilder(
 		"Initializing new kedaController structure with the following params: "+
 			"name: %s, namespace: %s", name, nsname)
 
-	if apiClient == nil {
-		klog.V(100).Info("kedaController 'apiClient' cannot be empty")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(kedav1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add kedav1alpha1 scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &ControllerBuilder{
-		apiClient: apiClient.Client,
-		Definition: &kedav1alpha1.KedaController{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the KedaController is empty")
-
-		builder.errorMsg = "kedaController 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The nsname of the KedaController is empty")
-
-		builder.errorMsg = "kedaController 'nsname' cannot be empty"
-
-		return builder
-	}
-
-	return builder
+	return common.NewNamespacedBuilder[kedav1alpha1.KedaController, ControllerBuilder](
+		apiClient, kedav1alpha1.AddToScheme, name, nsname)
 }
 
 // PullController pulls existing kedaController from cluster.
 func PullController(apiClient *clients.Settings, name, nsname string) (*ControllerBuilder, error) {
 	klog.V(100).Infof("Pulling existing kedaController name %s in namespace %s from cluster", name, nsname)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("kedaController 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(kedav1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add kedav1alpha1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := ControllerBuilder{
-		apiClient: apiClient.Client,
-		Definition: &kedav1alpha1.KedaController{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the kedaController is empty")
-
-		return nil, fmt.Errorf("kedaController 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the kedaController is empty")
-
-		return nil, fmt.Errorf("kedaController 'nsname' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("kedaController object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return &builder, nil
-}
-
-// Get fetches the defined kedaController from the cluster.
-func (builder *ControllerBuilder) Get() (*kedav1alpha1.KedaController, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting kedaController %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	kedaObj := &kedav1alpha1.KedaController{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name:      builder.Definition.Name,
-		Namespace: builder.Definition.Namespace,
-	}, kedaObj)
-	if err != nil {
-		return nil, err
-	}
-
-	return kedaObj, nil
-}
-
-// Create makes a kedaController in the cluster and stores the created object in struct.
-func (builder *ControllerBuilder) Create() (*ControllerBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the kedaController %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err == nil {
-			builder.Object = builder.Definition
-		}
-	}
-
-	return builder, err
-}
-
-// Delete removes kedaController from a cluster.
-func (builder *ControllerBuilder) Delete() (*ControllerBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Deleting the kedaController %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("kedaController %s in namespace %s cannot be deleted because it does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, fmt.Errorf("can not delete kedaController: %w", err)
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Exists checks whether the given kedaController exists.
-func (builder *ControllerBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if kedaController %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Update renovates the existing kedaController object with kedaController definition in builder.
-func (builder *ControllerBuilder) Update() (*ControllerBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating kedaController %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		klog.V(100).Infof("%v", msg.FailToUpdateError("kedaController", builder.Definition.Name, builder.Definition.Namespace))
-
-		return nil, err
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
+	return common.PullNamespacedBuilder[kedav1alpha1.KedaController, ControllerBuilder](
+		context.TODO(), apiClient, kedav1alpha1.AddToScheme, name, nsname)
 }
 
 // WithAdmissionWebhooks sets the kedaController operator's profile.
@@ -236,7 +62,7 @@ func (builder *ControllerBuilder) WithAdmissionWebhooks(
 		"Adding admissionWebhooks to kedaController %s in namespace %s; admissionWebhooks %v",
 		builder.Definition.Name, builder.Definition.Namespace, admissionWebhooks)
 
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -252,7 +78,7 @@ func (builder *ControllerBuilder) WithOperator(
 		"Adding operator to kedaController %s in namespace %s; operator %v",
 		builder.Definition.Name, builder.Definition.Namespace, operator)
 
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -268,7 +94,7 @@ func (builder *ControllerBuilder) WithMetricsServer(
 		"Adding metricsServer to kedaController %s in namespace %s; metricsServer %v",
 		builder.Definition.Name, builder.Definition.Namespace, metricsServer)
 
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -284,14 +110,14 @@ func (builder *ControllerBuilder) WithWatchNamespace(
 		"Adding watchNamespace to kedaController %s in namespace %s; watchNamespace %v",
 		builder.Definition.Name, builder.Definition.Namespace, watchNamespace)
 
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if watchNamespace == "" {
 		klog.V(100).Info("The watchNamespace is empty")
 
-		builder.errorMsg = "'watchNamespace' argument cannot be empty"
+		builder.SetError(fmt.Errorf("'watchNamespace' argument cannot be empty"))
 
 		return builder
 	}
@@ -299,30 +125,4 @@ func (builder *ControllerBuilder) WithWatchNamespace(
 	builder.Definition.Spec.WatchNamespace = watchNamespace
 
 	return builder
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *ControllerBuilder) validate() (bool, error) {
-	resourceCRD := "KedaController"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	return true, nil
 }
