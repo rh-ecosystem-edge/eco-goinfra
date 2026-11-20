@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/mlbtypes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -19,336 +21,234 @@ var (
 	defaultIPAddressPoolName = "default-pool"
 	defaultNsName            = "test-namespace"
 	defaultIPPoolRange       = []string{"1.1.1.1", "1.1.1.20"}
+	ipAddressPoolGVK         = mlbtypes.GroupVersion.WithKind("IPAddressPool")
+	errEmptyIPAddressPool    = fmt.Errorf("IPAddressPool 'addrPool' cannot be empty list")
 )
 
-func TestPullAddressPool(t *testing.T) {
-	generateIPAddressPool := func(name, namespace string) *mlbtypes.IPAddressPool {
-		return &mlbtypes.IPAddressPool{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: mlbtypes.IPAddressPoolSpec{
-				AvoidBuggyIPs: true,
-			},
-		}
-	}
-
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "addresspool",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("addresspool 'name' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "addresspool",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("addresspool object addresspool does not exist in namespace test-namespace"),
-			client:              true,
-		},
-		{
-			name:                "addresspool",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("addresspool 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testIPAddressPool := generateIPAddressPool(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIPAddressPool)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects, SchemeAttachers: testSchemes})
-		}
-
-		builderResult, err := PullAddressPool(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Object.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Object.Namespace)
-		}
-	}
-}
-
 func TestNewIPAddressPoolBuilder(t *testing.T) {
-	generateIPAddressPoolBuilder := NewIPAddressPoolBuilder
+	t.Parallel()
+
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
+
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *IPAddressPoolBuilder {
+				return NewIPAddressPoolBuilder(apiClient, name, nsname, defaultIPPoolRange)
+			},
+			mlbtypes.AddToScheme,
+			ipAddressPoolGVK,
+		).ExecuteTests(t)
+	})
 
 	testCases := []struct {
 		name          string
-		namespace     string
-		addrPool      []string
-		expectedError string
+		addresses     []string
+		expectedError error
 	}{
 		{
-			name:          "addresspool",
-			namespace:     "test-namespace",
-			addrPool:      []string{"1.1.1.1", "1.1.1.20"},
-			expectedError: "",
+			name:      "valid address pool",
+			addresses: defaultIPPoolRange,
 		},
 		{
-			name:          "",
-			namespace:     "test-namespace",
-			addrPool:      []string{"1.1.1.1", "1.1.1.20"},
-			expectedError: "IPAddressPool 'name' cannot be empty",
-		},
-		{
-			name:          "addresspool",
-			namespace:     "",
-			addrPool:      []string{"1.1.1.1", "1.1.1.20"},
-			expectedError: "IPAddressPool 'nsname' cannot be empty",
-		},
-		{
-			name:          "addresspool",
-			namespace:     "test-namespace",
-			addrPool:      []string{},
-			expectedError: "IPAddressPool 'addrPool' cannot be empty list",
+			name:          "empty address pool",
+			addresses:     []string{},
+			expectedError: errEmptyIPAddressPool,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
-		testIPAddressPoolBuilder := generateIPAddressPoolBuilder(
-			testSettings, testCase.name, testCase.namespace, testCase.addrPool)
-		assert.Equal(t, testCase.expectedError, testIPAddressPoolBuilder.errorMsg)
-		assert.NotNil(t, testIPAddressPoolBuilder.Definition)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testIPAddressPoolBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testIPAddressPoolBuilder.Definition.Namespace)
-		}
+			builder := NewIPAddressPoolBuilder(
+				newIPAddressPoolTestClient(), defaultIPAddressPoolName, defaultNsName, testCase.addresses)
+
+			require.NotNil(t, builder, "NewIPAddressPoolBuilder returned a nil builder")
+			assert.Equal(t, testCase.expectedError, builder.GetError(), "unexpected builder error")
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, testCase.addresses, builder.Definition.Spec.Addresses,
+					"builder definition should contain the requested addresses")
+			}
+		})
 	}
 }
 
-func TestIPAddressPoolGet(t *testing.T) {
-	testCases := []struct {
-		testIPAddressPool *IPAddressPoolBuilder
-		expectedError     error
-	}{
-		{
-			testIPAddressPool: buildValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			expectedError:     nil,
-		},
-		{
-			testIPAddressPool: buildInValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			expectedError:     fmt.Errorf("IPAddressPool 'addrPool' cannot be empty list"),
-		},
-	}
+func TestPullAddressPool(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		ipAddressPool, err := testCase.testIPAddressPool.Get()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, ipAddressPool.Name, testCase.testIPAddressPool.Definition.Name)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullAddressPool,
+		mlbtypes.AddToScheme,
+		ipAddressPoolGVK,
+	).ExecuteTests(t)
 }
 
-func TestIPAddressPoolExist(t *testing.T) {
-	testCases := []struct {
-		testIPAddressPool *IPAddressPoolBuilder
-		expectedStatus    bool
-	}{
-		{
-			testIPAddressPool: buildValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			expectedStatus:    true,
-		},
-		{
-			testIPAddressPool: buildInValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			expectedStatus:    false,
-		},
-	}
+func TestIPAddressPoolMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exist := testCase.testIPAddressPool.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
+	commonTestConfig := newIPAddressPoolCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
-func TestIPAddressPoolCreate(t *testing.T) {
-	testCases := []struct {
-		testIPAddressPool *IPAddressPoolBuilder
-		expectedError     error
-	}{
-		{
-			testIPAddressPool: buildValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			expectedError:     nil,
-		},
-		{
-			testIPAddressPool: buildInValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			expectedError:     fmt.Errorf("IPAddressPool 'addrPool' cannot be empty list"),
-		},
-	}
+func TestIPAddressPoolWithOptions(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		ipAddressPoolBuilder, err := testCase.testIPAddressPool.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, ipAddressPoolBuilder.Definition, ipAddressPoolBuilder.Object)
-		}
-	}
-}
-
-func TestIPAddressPoolDelete(t *testing.T) {
-	testCases := []struct {
-		testIPAddressPool *IPAddressPoolBuilder
-		expectedError     error
-	}{
-		{
-			testIPAddressPool: buildValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			expectedError:     nil,
-		},
-		{
-			testIPAddressPool: buildInValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			expectedError:     fmt.Errorf("IPAddressPool 'addrPool' cannot be empty list"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testIPAddressPool.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testIPAddressPool.Object)
-		}
-	}
-}
-
-func TestIPAddressPoolUpdate(t *testing.T) {
-	testCases := []struct {
-		testIPAddressPool *IPAddressPoolBuilder
-		expectedError     error
-		autoAssign        bool
-	}{
-		{
-			testIPAddressPool: buildValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			expectedError:     nil,
-			autoAssign:        true,
-		},
-		{
-			testIPAddressPool: buildInValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			expectedError:     fmt.Errorf("IPAddressPool 'addrPool' cannot be empty list"),
-			autoAssign:        false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Nil(t, testCase.testIPAddressPool.Definition.Spec.AutoAssign)
-		assert.Nil(t, nil, testCase.testIPAddressPool.Object)
-		testCase.testIPAddressPool.WithAutoAssign(true)
-		testCase.testIPAddressPool.Definition.ResourceVersion = "999"
-		_, err := testCase.testIPAddressPool.Update(false)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, &testCase.autoAssign, testCase.testIPAddressPool.Definition.Spec.AutoAssign)
-		}
-	}
+	testhelper.NewWithOptionsTestConfig(newIPAddressPoolCommonTestConfig()).ExecuteTests(t)
 }
 
 func TestIPAddressPoolWithAutoAssign(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testIPAddressPool *IPAddressPoolBuilder
-		autoAssign        bool
+		name          string
+		valid         bool
+		autoAssign    bool
+		expectedError error
 	}{
 		{
-			testIPAddressPool: buildValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			autoAssign:        true,
+			name:       "sets auto assign true on valid builder",
+			valid:      true,
+			autoAssign: true,
 		},
 		{
-			testIPAddressPool: buildValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			autoAssign:        false,
+			name:       "sets auto assign false on valid builder",
+			valid:      true,
+			autoAssign: false,
+		},
+		{
+			name:          "invalid builder short circuits",
+			valid:         false,
+			autoAssign:    true,
+			expectedError: errEmptyIPAddressPool,
 		},
 	}
 
 	for _, testCase := range testCases {
-		ipAddressPoolBuilder := testCase.testIPAddressPool.WithAutoAssign(testCase.autoAssign)
-		assert.Equal(t, testCase.autoAssign, *ipAddressPoolBuilder.Definition.Spec.AutoAssign)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := newIPAddressPoolBuilderForModifierTest(testCase.valid)
+
+			result := builder.WithAutoAssign(testCase.autoAssign)
+
+			require.Same(t, builder, result, "WithAutoAssign should return the original builder")
+			assert.Equal(t, testCase.expectedError, result.GetError(), "unexpected builder error")
+
+			if testCase.expectedError == nil {
+				require.NotNil(t, result.Definition.Spec.AutoAssign, "AutoAssign should be set")
+				assert.Equal(t, testCase.autoAssign, *result.Definition.Spec.AutoAssign,
+					"AutoAssign should match the requested value")
+			} else {
+				assert.Nil(t, result.Definition.Spec.AutoAssign, "AutoAssign should not change on an invalid builder")
+			}
+		})
 	}
 }
 
 func TestIPAddressPoolWithAvoidBuggyIPs(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testIPAddressPool *IPAddressPoolBuilder
-		avoidBuggyIPs     bool
+		name          string
+		valid         bool
+		avoidBuggyIPs bool
+		expectedError error
 	}{
 		{
-			testIPAddressPool: buildValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			avoidBuggyIPs:     true,
+			name:          "sets avoid buggy IPs true on valid builder",
+			valid:         true,
+			avoidBuggyIPs: true,
 		},
 		{
-			testIPAddressPool: buildValidIPAddressPoolBuilder(buildTestClientWithDummyObject()),
-			avoidBuggyIPs:     false,
+			name:          "sets avoid buggy IPs false on valid builder",
+			valid:         true,
+			avoidBuggyIPs: false,
+		},
+		{
+			name:          "invalid builder short circuits",
+			valid:         false,
+			avoidBuggyIPs: true,
+			expectedError: errEmptyIPAddressPool,
 		},
 	}
 
 	for _, testCase := range testCases {
-		ipAddressPoolBuilder := testCase.testIPAddressPool.WithAvoidBuggyIPs(testCase.avoidBuggyIPs)
-		assert.Equal(t, testCase.avoidBuggyIPs, ipAddressPoolBuilder.Definition.Spec.AvoidBuggyIPs)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := newIPAddressPoolBuilderForModifierTest(testCase.valid)
+
+			result := builder.WithAvoidBuggyIPs(testCase.avoidBuggyIPs)
+
+			require.Same(t, builder, result, "WithAvoidBuggyIPs should return the original builder")
+			assert.Equal(t, testCase.expectedError, result.GetError(), "unexpected builder error")
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, testCase.avoidBuggyIPs, result.Definition.Spec.AvoidBuggyIPs,
+					"AvoidBuggyIPs should match the requested value")
+			} else {
+				assert.False(t, result.Definition.Spec.AvoidBuggyIPs,
+					"AvoidBuggyIPs should not change on an invalid builder")
+			}
+		})
 	}
 }
 
-func TestIPAddressPoolWithOptions(t *testing.T) {
-	testSettings := buildTestClientWithDummyObject()
-	testBuilder := buildValidIPAddressPoolBuilder(testSettings).WithOptions(
-		func(builder *IPAddressPoolBuilder) (*IPAddressPoolBuilder, error) {
-			return builder, nil
-		})
-
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidIPAddressPoolBuilder(testSettings).WithOptions(
-		func(builder *IPAddressPoolBuilder) (*IPAddressPoolBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
-}
-
 func TestGetIPAddressPoolGVR(t *testing.T) {
-	assert.Equal(t, GetIPAddressPoolGVR(),
-		schema.GroupVersionResource{
-			Group: APIGroup, Version: APIVersion, Resource: resourceIPAddressPools,
-		})
+	t.Parallel()
+
+	assert.Equal(t, GetIPAddressPoolGVR(), schema.GroupVersionResource{
+		Group: APIGroup, Version: APIVersion, Resource: resourceIPAddressPools,
+	}, "GVR should match the documented IPAddressPool resource")
 }
 
+// newIPAddressPoolCommonTestConfig returns the shared test configuration for IPAddressPool builder methods.
+func newIPAddressPoolCommonTestConfig() testhelper.CommonTestConfig[
+	mlbtypes.IPAddressPool, IPAddressPoolBuilder, *mlbtypes.IPAddressPool, *IPAddressPoolBuilder] {
+	return testhelper.NewCommonTestConfig[mlbtypes.IPAddressPool, IPAddressPoolBuilder](
+		mlbtypes.AddToScheme,
+		ipAddressPoolGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+}
+
+// newIPAddressPoolTestClient returns a fake client configured with the MetalLB scheme.
+func newIPAddressPoolTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: testSchemes,
+	})
+}
+
+// newIPAddressPoolBuilderForModifierTest returns a valid or builder-error-state IPAddressPool builder.
+func newIPAddressPoolBuilderForModifierTest(valid bool) *IPAddressPoolBuilder {
+	if valid {
+		return buildValidIPAddressPoolBuilder(newIPAddressPoolTestClient())
+	}
+
+	return buildInValidIPAddressPoolBuilder(newIPAddressPoolTestClient())
+}
+
+// buildValidIPAddressPoolBuilder returns a valid IPAddressPool builder for testing.
 func buildValidIPAddressPoolBuilder(apiClient *clients.Settings) *IPAddressPoolBuilder {
 	return NewIPAddressPoolBuilder(
 		apiClient, defaultIPAddressPoolName, defaultNsName, defaultIPPoolRange)
 }
 
+// buildInValidIPAddressPoolBuilder returns an IPAddressPool builder with an empty address list.
 func buildInValidIPAddressPoolBuilder(apiClient *clients.Settings) *IPAddressPoolBuilder {
 	return NewIPAddressPoolBuilder(
 		apiClient, defaultIPAddressPoolName, defaultNsName, []string{})
 }
 
+// buildTestClientWithDummyObject returns a fake client containing the shared dummy IPAddressPool.
 func buildTestClientWithDummyObject() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  buildDummyIPAddressPool(),
@@ -356,6 +256,7 @@ func buildTestClientWithDummyObject() *clients.Settings {
 	})
 }
 
+// buildDummyIPAddressPool returns the shared dummy IPAddressPool objects used by MetalLB tests.
 func buildDummyIPAddressPool() []runtime.Object {
 	return append([]runtime.Object{}, &mlbtypes.IPAddressPool{
 		ObjectMeta: metav1.ObjectMeta{
