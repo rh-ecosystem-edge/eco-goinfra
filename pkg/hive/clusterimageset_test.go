@@ -5,8 +5,11 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	hivev1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/hive/api/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -17,315 +20,128 @@ var (
 )
 
 func TestNewClusterImageSetBuilder(t *testing.T) {
-	testCases := []struct {
-		name          string
-		releaseImage  string
-		expectedError string
-	}{
-		{
-			name:          "imageset",
-			releaseImage:  "release-1-1",
-			expectedError: "",
-		},
-		{
-			name:          "",
-			releaseImage:  "release-1-1",
-			expectedError: "clusterimageset 'name' cannot be empty",
-		},
-		{
-			name:          "imageset",
-			releaseImage:  "",
-			expectedError: "clusterimageset 'releaseImage' cannot be empty",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		testImageSet := NewClusterImageSetBuilder(testSettings, testCase.name, testCase.releaseImage)
-		assert.Equal(t, testCase.expectedError, testImageSet.errorMsg)
-		assert.NotNil(t, testImageSet.Definition)
+	testhelper.NewClusterScopedBuilderTestConfig[hivev1.ClusterImageSet, ClusterImageSetBuilder](
+		func(apiClient *clients.Settings, name string) *ClusterImageSetBuilder {
+			return NewClusterImageSetBuilder(apiClient, name, defaultClusterImageSetRelease)
+		},
+		hivev1.AddToScheme,
+		clusterImageSetGVK,
+	).ExecuteTests(t)
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testImageSet.Definition.Name)
-		}
-	}
+	t.Run("sets release image", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewClusterImageSetBuilder(
+			clients.GetTestClients(clients.TestClientParams{}), defaultClusterImageSetName, defaultClusterImageSetRelease)
+
+		require.NoError(t, builder.GetError())
+		assert.Equal(t, defaultClusterImageSetRelease, builder.Definition.Spec.ReleaseImage)
+	})
+
+	t.Run("empty release image returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewClusterImageSetBuilder(
+			clients.GetTestClients(clients.TestClientParams{}), defaultClusterImageSetName, "")
+
+		assert.EqualError(t, builder.GetError(), "clusterimageset 'releaseImage' cannot be empty")
+	})
 }
 
 func TestPullClusterImageSet(t *testing.T) {
-	generateClusterImageSet := func(name string) *hivev1.ClusterImageSet {
-		return &hivev1.ClusterImageSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-			Spec: hivev1.ClusterImageSetSpec{
-				ReleaseImage: "release-1-1",
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		name                string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "imageset",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("clusterimageset 'name' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "imageset",
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("clusterimageset object imageset does not exist"),
-			client:              true,
-		},
-		{
-			name:                "imageset",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("clusterImageSet 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testImageSet := generateClusterImageSet(testCase.name)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testImageSet)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects, SchemeAttachers: testSchemes})
-		}
-
-		builderResult, err := PullClusterImageSet(testSettings, testCase.name)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Object.Name)
-		}
-	}
+	testhelper.NewClusterScopedPullTestConfig[hivev1.ClusterImageSet, ClusterImageSetBuilder](
+		PullClusterImageSet, hivev1.AddToScheme, clusterImageSetGVK).ExecuteTests(t)
 }
 
-func TestClusterImageSetGet(t *testing.T) {
-	testCases := []struct {
-		testClusterImageSet *ClusterImageSetBuilder
-		expectedError       error
-	}{
-		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedError:       nil,
-		},
-		{
-			testClusterImageSet: buildInValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedError:       fmt.Errorf("clusterimageset 'name' cannot be empty"),
-		},
-		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:       fmt.Errorf("clusterimagesets.hive.openshift.io \"imageset\" not found"),
-		},
-	}
+func TestClusterImageSetBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		clusterImageSet, err := testCase.testClusterImageSet.Get()
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
+	commonTestConfig := testhelper.NewCommonTestConfig[hivev1.ClusterImageSet, ClusterImageSetBuilder](
+		hivev1.AddToScheme,
+		clusterImageSetGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, clusterImageSet.Name, testCase.testClusterImageSet.Definition.Name)
-		}
-	}
-}
-
-func TestClusterImageSetCreate(t *testing.T) {
-	testCases := []struct {
-		testClusterImageSet *ClusterImageSetBuilder
-		expectedError       error
-	}{
-		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedError:       nil,
-		},
-		{
-			testClusterImageSet: buildInValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedError:       fmt.Errorf("clusterimageset 'name' cannot be empty"),
-		},
-		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:       nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		clusterImageSet, err := testCase.testClusterImageSet.Create()
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.testClusterImageSet.Definition.Name, clusterImageSet.Object.Name)
-		}
-	}
-}
-
-func TestClusterImageSetUpdate(t *testing.T) {
-	testCases := []struct {
-		testClusterImageSet *ClusterImageSetBuilder
-		expectedError       error
-	}{
-		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedError:       nil,
-		},
-		{
-			testClusterImageSet: buildInValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedError:       fmt.Errorf("clusterimageset 'name' cannot be empty"),
-		},
-		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:       fmt.Errorf("clusterimagesets.hive.openshift.io \"imageset\" not found"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, testCase.testClusterImageSet.Definition.Spec.ReleaseImage, "imageset-release-1-1")
-		testCase.testClusterImageSet.Definition.ResourceVersion = "999"
-		testCase.testClusterImageSet.Definition.Spec.ReleaseImage = "test"
-		application, err := testCase.testClusterImageSet.Update(false)
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testCase.expectedError, err)
-			assert.Equal(t, application.Object.Spec.ReleaseImage, "test")
-		}
-	}
-}
-
-func TestClusterImageSetDelete(t *testing.T) {
-	testCases := []struct {
-		testClusterImageSet *ClusterImageSetBuilder
-		expectedError       error
-	}{
-		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedError:       nil,
-		},
-		{
-			testClusterImageSet: buildInValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedError:       fmt.Errorf("clusterimageset 'name' cannot be empty"),
-		},
-		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:       nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testClusterImageSet.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testClusterImageSet.Object)
-		}
-	}
-}
-
-func TestClusterImageSetExists(t *testing.T) {
-	testCases := []struct {
-		testClusterImageSet *ClusterImageSetBuilder
-		expectedStatus      bool
-	}{
-		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedStatus:      true,
-		},
-		{
-			testClusterImageSet: buildInValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			expectedStatus:      false,
-		},
-		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.testClusterImageSet.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestClusterImageSetWithOptions(t *testing.T) {
-	testSettings := buildClusterImageSetClientWithDummyObject()
-	testBuilder := buildValidClusterImageSetBuilder(testSettings).WithOptions(
-		func(builder *ClusterImageSetBuilder) (*ClusterImageSetBuilder, error) {
-			return builder, nil
-		})
+	t.Parallel()
 
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidClusterImageSetBuilder(testSettings).WithOptions(
-		func(builder *ClusterImageSetBuilder) (*ClusterImageSetBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
+	testhelper.NewWithOptionsTestConfig(
+		testhelper.NewCommonTestConfig[hivev1.ClusterImageSet, ClusterImageSetBuilder](
+			hivev1.AddToScheme,
+			clusterImageSetGVK,
+			testhelper.ResourceScopeClusterScoped,
+		)).ExecuteTests(t)
 }
 
 func TestClusterImageSetWithReleaseImage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testClusterImageSet *ClusterImageSetBuilder
-		releaseImage        string
-		expectedError       string
+		name           string
+		releaseImage   string
+		expectedError  error
+		invalidBuilder bool
 	}{
 		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			releaseImage:        "release-1-1",
-			expectedError:       "",
+			name:         "sets release image",
+			releaseImage: "release-2-1",
 		},
 		{
-			testClusterImageSet: buildValidClusterImageSetBuilder(buildClusterImageSetClientWithDummyObject()),
-			releaseImage:        "",
-			expectedError:       "cannot set releaseImage to empty string",
+			name:          "rejects empty release image",
+			releaseImage:  "",
+			expectedError: fmt.Errorf("cannot set releaseImage to empty string"),
+		},
+		{
+			name:           "invalid builder stops processing",
+			releaseImage:   "release-2-1",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testClusterImageSetBuilder := testCase.testClusterImageSet.WithReleaseImage(testCase.releaseImage)
-		assert.Equal(t, testCase.expectedError, testClusterImageSetBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.releaseImage != "" {
-			assert.Equal(t, testCase.releaseImage, testClusterImageSetBuilder.Definition.Spec.ReleaseImage)
-		} else {
-			assert.Equal(t, defaultClusterImageSetRelease, testClusterImageSetBuilder.Definition.Spec.ReleaseImage)
-		}
+			apiClient := clients.GetTestClients(clients.TestClientParams{})
+
+			var builder *ClusterImageSetBuilder
+			if testCase.invalidBuilder {
+				builder = NewClusterImageSetBuilder(apiClient, "", defaultClusterImageSetRelease)
+			} else {
+				builder = NewClusterImageSetBuilder(apiClient, defaultClusterImageSetName, defaultClusterImageSetRelease)
+			}
+
+			result := builder.WithReleaseImage(testCase.releaseImage)
+
+			switch {
+			case testCase.invalidBuilder:
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+			case testCase.expectedError != nil:
+				assert.Equal(t, testCase.expectedError, result.GetError())
+				assert.Equal(t, defaultClusterImageSetRelease, result.Definition.Spec.ReleaseImage)
+			default:
+				assert.NoError(t, result.GetError())
+				assert.Equal(t, testCase.releaseImage, result.Definition.Spec.ReleaseImage)
+			}
+		})
 	}
 }
 
-func buildValidClusterImageSetBuilder(apiClient *clients.Settings) *ClusterImageSetBuilder {
-	builder := NewClusterImageSetBuilder(apiClient, defaultClusterImageSetName, defaultClusterImageSetRelease)
-
-	return builder
-}
-
-func buildInValidClusterImageSetBuilder(apiClient *clients.Settings) *ClusterImageSetBuilder {
-	return NewClusterImageSetBuilder(apiClient, "", defaultClusterImageSetRelease)
-}
-
+// buildClusterImageSetClientWithDummyObject returns a test client with a ClusterImageSet object.
 func buildClusterImageSetClientWithDummyObject() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  buildDummyClusterImageSetConfig(),
@@ -333,6 +149,7 @@ func buildClusterImageSetClientWithDummyObject() *clients.Settings {
 	})
 }
 
+// buildDummyClusterImageSetConfig returns a ClusterImageSet runtime object for tests.
 func buildDummyClusterImageSetConfig() []runtime.Object {
 	return append([]runtime.Object{}, &hivev1.ClusterImageSet{
 		ObjectMeta: metav1.ObjectMeta{
