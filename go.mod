@@ -218,7 +218,7 @@ require (
 replace (
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
 	github.com/k8snetworkplumbingwg/ptp-operator => github.com/openshift/ptp-operator v0.0.0-20261023023103-cbe73c6129a9 // release-5.0
-	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20260923181747-4d6a7b26cbe2 // release-5.0
+	github.com/k8snetworkplumbingwg/sriov-network-operator => github.com/openshift/sriov-network-operator v0.0.0-20261110110630-2dc04db94a9d // release-5.1
 	// PTP declares legacy v0.0.1 versions that outrank its compatible timestamped releases.
 	github.com/openshift/api => github.com/openshift/api v0.0.0-20261017003925-24b2699a9b32 // release-5.0
 	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20261015075541-6446fecb0c88 // release-5.0
