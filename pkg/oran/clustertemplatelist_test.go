@@ -1,71 +1,38 @@
 package oran
 
 import (
-	"fmt"
 	"testing"
 
+	provisioningv1alpha1 "github.com/openshift-kni/oran-o2ims/api/provisioning/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/apimachinery/pkg/labels"
+	"github.com/stretchr/testify/require"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestListClusterTemplates(t *testing.T) {
-	testCases := []struct {
-		clusterTemplates []*ClusterTemplateBuilder
-		listOptions      []runtimeclient.ListOptions
-		client           bool
-		expectedError    error
-	}{
-		{
-			clusterTemplates: []*ClusterTemplateBuilder{
-				buildValidClusterTemplateTestBuilder(buildTestClientWithDummyClusterTemplate()),
-			},
-			listOptions:   nil,
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			clusterTemplates: []*ClusterTemplateBuilder{
-				buildValidClusterTemplateTestBuilder(buildTestClientWithDummyClusterTemplate()),
-			},
-			listOptions:   []runtimeclient.ListOptions{{LabelSelector: labels.NewSelector()}},
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			clusterTemplates: []*ClusterTemplateBuilder{
-				buildValidClusterTemplateTestBuilder(buildTestClientWithDummyClusterTemplate()),
-			},
-			listOptions: []runtimeclient.ListOptions{
-				{LabelSelector: labels.NewSelector()},
-				{LabelSelector: labels.NewSelector()},
-			},
-			client:        true,
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-		},
-		{
-			clusterTemplates: []*ClusterTemplateBuilder{
-				buildValidClusterTemplateTestBuilder(buildTestClientWithDummyClusterTemplate()),
-			},
-			listOptions:   nil,
-			client:        false,
-			expectedError: fmt.Errorf("failed to list clusterTemplates, 'apiClient' parameter is nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	testhelper.NewListTestConfig(
+		ListClusterTemplates,
+		provisioningv1alpha1.AddToScheme,
+		clusterTemplateGVK,
+	).ExecuteTests(t)
+}
 
-		if testCase.client {
-			testSettings = buildTestClientWithDummyClusterTemplate()
-		}
+func TestListClusterTemplatesRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		builders, err := ListClusterTemplates(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: provisioningTestSchemes,
+	})
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.clusterTemplates), len(builders))
-		}
-	}
+	builders, err := ListClusterTemplates(
+		testSettings,
+		runtimeclient.ListOptions{},
+		runtimeclient.ListOptions{},
+	)
+	require.EqualError(t, err, "error: more than one ListOptions was passed")
+	assert.Nil(t, builders)
 }
