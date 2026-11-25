@@ -5,654 +5,329 @@ import (
 	"testing"
 
 	lcav1 "github.com/openshift-kni/lifecycle-agent/api/imagebasedupgrade/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 )
 
-var (
-	lcav1TestSchemes = []clients.SchemeAttacher{
+var imageBasedUpgradeGVK = lcav1.GroupVersion.WithKind("ImageBasedUpgrade")
+
+func TestPullImageBasedUpgrade(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewSingletonClusterScopedPullTestConfig(
+		PullImageBasedUpgrade,
 		lcav1.AddToScheme,
-	}
-)
+		imageBasedUpgradeGVK,
+		ibuName,
+	).ExecuteTests(t)
+}
+
+func TestImageBasedUpgradeBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[lcav1.ImageBasedUpgrade, ImageBasedUpgradeBuilder](
+		lcav1.AddToScheme,
+		imageBasedUpgradeGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
+}
 
 func TestImageBasedUpgradeWithOptions(t *testing.T) {
-	testSettings := buildTestClientWithDummyObject()
-	testBuilder, _ := PullImageBasedUpgrade(testSettings)
-	testBuilder = testBuilder.WithOptions(
-		func(builder *ImageBasedUpgradeBuilder) (*ImageBasedUpgradeBuilder, error) {
-			return builder, nil
-		})
+	t.Parallel()
 
-	assert.Equal(t, "", testBuilder.errorMsg)
-
-	testBuilder = testBuilder.WithOptions(
-		func(builder *ImageBasedUpgradeBuilder) (*ImageBasedUpgradeBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
+	testhelper.NewWithOptionsTestConfig(
+		testhelper.NewCommonTestConfig[lcav1.ImageBasedUpgrade, ImageBasedUpgradeBuilder](
+			lcav1.AddToScheme,
+			imageBasedUpgradeGVK,
+			testhelper.ResourceScopeClusterScoped,
+		)).ExecuteTests(t)
 }
 
-func TestImageBasedUpgradePull(t *testing.T) {
+//nolint:funlen // Table-driven coverage for all ImageBasedUpgrade modifiers.
+func TestImageBasedUpgradeModifiers(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-		expectedErrorText   string
+		name          string
+		prepare       func(*ImageBasedUpgradeBuilder)
+		modify        func(*ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder
+		assertApplied func(*testing.T, *ImageBasedUpgradeBuilder)
 	}{
 		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
+			name: "with seed image",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithSeedImage("quay.io/foo")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, "quay.io/foo", builder.Definition.Spec.SeedImageRef.Image)
+			},
+		},
+		{
+			name: "with empty seed image",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithSeedImage("")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Empty(t, builder.Definition.Spec.SeedImageRef.Image)
+			},
+		},
+		{
+			name: "with extra manifests",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithExtraManifests("cmName", "nsName")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, []lcav1.ConfigMapRef{{Name: "cmName", Namespace: "nsName"}},
+					builder.Definition.Spec.ExtraManifests)
+			},
+		},
+		{
+			name: "with empty extra manifests",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithExtraManifests("", "")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, []lcav1.ConfigMapRef{{}}, builder.Definition.Spec.ExtraManifests)
+			},
+		},
+		{
+			name: "with OADP content",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithOadpContent("cmName", "nsName")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, []lcav1.ConfigMapRef{{Name: "cmName", Namespace: "nsName"}},
+					builder.Definition.Spec.OADPContent)
+			},
+		},
+		{
+			name: "with empty OADP content",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithOadpContent("", "")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, []lcav1.ConfigMapRef{{}}, builder.Definition.Spec.OADPContent)
+			},
+		},
+		{
+			name: "with auto rollback timeout",
+			prepare: func(builder *ImageBasedUpgradeBuilder) {
+				builder.Definition.Spec.AutoRollbackOnFailure = &lcav1.AutoRollbackOnFailure{}
+			},
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.AutoRollbackOnFailureInitMonitorTimeoutSeconds(1800)
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, 1800, builder.Definition.Spec.AutoRollbackOnFailure.InitMonitorTimeoutSeconds)
+			},
+		},
+		{
+			name: "disable init monitor rollback",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.AutoRollbackOnFailureDisabledInitMonitor()
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, disabled,
+					builder.Definition.Annotations["auto-rollback-on-failure.lca.openshift.io/init-monitor"])
+			},
+		},
+		{
+			name: "disable post reboot rollback",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.AutoRollbackOnFailureDisableForPostReboot()
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, disabled,
+					builder.Definition.Annotations["auto-rollback-on-failure.lca.openshift.io/post-reboot-config"])
+			},
+		},
+		{
+			name: "disable upgrade completion rollback",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.AutoRollbackOnFailureDisableForUpgradeCompletion()
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, disabled,
+					builder.Definition.Annotations["auto-rollback-on-failure.lca.openshift.io/upgrade-completion"])
+			},
+		},
+		{
+			name: "with seed image version",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithSeedImageVersion("seedversion")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, "seedversion", builder.Definition.Spec.SeedImageRef.Version)
+			},
+		},
+		{
+			name: "with empty seed image version",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithSeedImageVersion("")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Empty(t, builder.Definition.Spec.SeedImageRef.Version)
+			},
+		},
+		{
+			name: "with seed image pull secret",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithSeedImagePullSecretRef("pull-secret")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				require.NotNil(t, builder.Definition.Spec.SeedImageRef.PullSecretRef)
+				assert.Equal(t, "pull-secret", builder.Definition.Spec.SeedImageRef.PullSecretRef.Name)
+			},
+		},
+		{
+			name: "with empty seed image pull secret",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithSeedImagePullSecretRef("")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				require.NotNil(t, builder.Definition.Spec.SeedImageRef.PullSecretRef)
+				assert.Empty(t, builder.Definition.Spec.SeedImageRef.PullSecretRef.Name)
+			},
+		},
+		{
+			name: "with stage",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithStage(idle)
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, lcav1.ImageBasedUpgradeStage(idle), builder.Definition.Spec.Stage)
+			},
+		},
+		{
+			name: "with unrecognized stage",
+			modify: func(builder *ImageBasedUpgradeBuilder) *ImageBasedUpgradeBuilder {
+				return builder.WithStage("Wrong")
+			},
+			assertApplied: func(t *testing.T, builder *ImageBasedUpgradeBuilder) {
+				t.Helper()
+				assert.Equal(t, lcav1.ImageBasedUpgradeStage("Wrong"), builder.Definition.Spec.Stage)
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testIBU := generateImageBasedUpgrade()
+			builder := buildValidImageBasedUpgradeTestBuilder(newImageBasedUpgradeTestClient(nil))
+			if testCase.prepare != nil {
+				testCase.prepare(builder)
+			}
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
+			builder = testCase.modify(builder)
+			require.NoError(t, builder.GetError())
+			testCase.assertApplied(t, builder)
 
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
+			invalidBuilder := testCase.modify(buildInvalidImageBasedUpgradeTestBuilder(newImageBasedUpgradeTestClient(nil)))
+			require.Error(t, invalidBuilder.GetError())
+			assert.True(t, commonerrors.IsBuilderNameEmpty(invalidBuilder.GetError()))
 		})
-
-		// Test the PullImageBasedUpgrade function
-		builderResult, err := PullImageBasedUpgrade(testSettings)
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
-	}
-}
-
-func TestImageBasedUpgradeUpdate(t *testing.T) {
-	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-		expectedErrorText   string
-	}{
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIBU := generateImageBasedUpgrade()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
-		})
-
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-		assert.Nil(t, err)
-
-		// Test the PullImageBasedUpgrade function
-		builderResult, err := ibuBuilder.WithSeedImage("quay.io/no-image").Update()
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-			assert.Equal(t, builderResult.Object.Spec.SeedImageRef.Image, "quay.io/no-image")
-		}
-	}
-}
-
-func TestImageBasedUpgradeDelete(t *testing.T) {
-	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-	}{
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIBU := generateImageBasedUpgrade()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
-		})
-
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-		assert.Nil(t, err)
-
-		// Test the Delete function
-		builderResult, err := ibuBuilder.Delete()
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, builderResult.Object)
-		}
-	}
-}
-
-func TestImageBasedUpgradeGet(t *testing.T) {
-	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-	}{
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-		},
-		{
-			expectedError:       fmt.Errorf("error: received nil ImageBasedUpgrade builder"),
-			addToRuntimeObjects: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIBU := generateImageBasedUpgrade()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
-		})
-
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-		}
-
-		// Test the Get function
-		builderResult, err := ibuBuilder.Get()
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
-	}
-}
-
-func TestImageBasedUpgradeExists(t *testing.T) {
-	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-	}{
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-		},
-		{
-			expectedError:       fmt.Errorf("imagebasedupgrade object upgrade does not exist"),
-			addToRuntimeObjects: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIBU := generateImageBasedUpgrade()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
-		})
-
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-		}
-
-		// Test the Exists function
-		builderResult := ibuBuilder.Exists()
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
-	}
-}
-
-func TestImageBasedUpgradeWithSeedImage(t *testing.T) {
-	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-		seedImage           string
-	}{
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			seedImage:           "quay.io/foo",
-		},
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			seedImage:           "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIBU := generateImageBasedUpgrade()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
-		})
-
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-		assert.Nil(t, err)
-
-		// Test the WithSeedImage function
-		builderResult := ibuBuilder.WithSeedImage(testCase.seedImage)
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
-	}
-}
-
-func TestImageBasedUpgradeWithExtraManifests(t *testing.T) {
-	testCases := []struct {
-		expectedError                    error
-		addToRuntimeObjects              bool
-		extraManifestsConfigMapName      string
-		extraManifestsConfigMapNamespace string
-	}{
-		{
-			expectedError:                    nil,
-			addToRuntimeObjects:              true,
-			extraManifestsConfigMapName:      "cmName",
-			extraManifestsConfigMapNamespace: "nsName",
-		},
-		{
-			expectedError:                    nil,
-			addToRuntimeObjects:              true,
-			extraManifestsConfigMapName:      "",
-			extraManifestsConfigMapNamespace: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIBU := generateImageBasedUpgrade()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
-		})
-
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-		assert.Nil(t, err)
-
-		// Test the WithExtraManifests function
-		builderResult := ibuBuilder.WithExtraManifests(
-			testCase.extraManifestsConfigMapName, testCase.extraManifestsConfigMapNamespace)
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
-	}
-}
-
-func TestImageBasedUpgradeWithOadpContent(t *testing.T) {
-	testCases := []struct {
-		expectedError                 error
-		addToRuntimeObjects           bool
-		oadpContentConfigMapName      string
-		oadpContentConfigMapNamespace string
-	}{
-		{
-			expectedError:                 nil,
-			addToRuntimeObjects:           true,
-			oadpContentConfigMapName:      "cmName",
-			oadpContentConfigMapNamespace: "nsName",
-		},
-		{
-			expectedError:                 nil,
-			addToRuntimeObjects:           true,
-			oadpContentConfigMapName:      "",
-			oadpContentConfigMapNamespace: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIBU := generateImageBasedUpgrade()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
-		})
-
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-		assert.Nil(t, err)
-
-		// Test the WithExtraManifests function
-		builderResult := ibuBuilder.WithExtraManifests(
-			testCase.oadpContentConfigMapName, testCase.oadpContentConfigMapNamespace)
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
-	}
-}
-
-func TestImageBasedUpgradeWithSeedImageVersion(t *testing.T) {
-	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-		seedImageVersion    string
-	}{
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			seedImageVersion:    "seedversion",
-		},
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			seedImageVersion:    "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIBU := generateImageBasedUpgrade()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
-		})
-
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-		assert.Nil(t, err)
-
-		// Test the WithExtraManifests function
-		builderResult := ibuBuilder.WithSeedImageVersion(
-			testCase.seedImageVersion)
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
-	}
-}
-
-func TestImageBasedUpgradeWithSeedImagePullSecretRef(t *testing.T) {
-	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-		pullSecretName      string
-	}{
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			pullSecretName:      "pull-secret",
-		},
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			pullSecretName:      "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIBU := generateImageBasedUpgrade()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
-		})
-
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-		assert.Nil(t, err)
-
-		// Test the WithExtraManifests function
-		builderResult := ibuBuilder.WithSeedImagePullSecretRef(
-			testCase.pullSecretName)
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
 	}
 }
 
 func TestImageBasedUpgradeWaitUntilStageComplete(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-		stage               string
+		name          string
+		stage         string
+		objects       []runtime.Object
+		expectedError string
 	}{
 		{
-			expectedError:       fmt.Errorf("wrong stage selected for imagebasedupgrade"),
-			addToRuntimeObjects: true,
-			stage:               "wrong_stage",
+			name:          "wrong stage",
+			stage:         "wrong_stage",
+			objects:       buildDummyImageBasedUpgradeRuntime(),
+			expectedError: "wrong stage selected for imagebasedupgrade",
 		},
 		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			stage:               idle,
+			name:    "idle stage completes",
+			stage:   idle,
+			objects: buildDummyImageBasedUpgradeRuntime(),
+		},
+		{
+			name:          "resource does not exist",
+			stage:         idle,
+			expectedError: fmt.Sprintf("imagebasedupgrade object %s does not exist", ibuName),
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.addToRuntimeObjects {
-			testSettings = buildTestClientWithDummyObject()
-		} else {
-			testSettings = buildTestClientWithoutDummyObject()
-		}
+			builder := buildValidImageBasedUpgradeTestBuilder(newImageBasedUpgradeTestClient(testCase.objects))
+			result, err := builder.WaitUntilStageComplete(testCase.stage)
 
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-		}
-
-		// Test the WithExtraManifests function
-		builderResult, err := ibuBuilder.WaitUntilStageComplete(
-			testCase.stage)
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
-	}
-}
-
-func TestImageBasedUpgradeWithStage(t *testing.T) {
-	testCases := []struct {
-		expectedError       error
-		addToRuntimeObjects bool
-		stage               string
-	}{
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			stage:               idle,
-		},
-		{
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			stage:               "Wrong",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testIBU := generateImageBasedUpgrade()
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testIBU)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: lcav1TestSchemes,
+			if testCase.expectedError == "" {
+				require.NoError(t, err)
+				require.NotNil(t, result)
+			} else {
+				require.EqualError(t, err, testCase.expectedError)
+				require.NotNil(t, result)
+			}
 		})
-
-		ibuBuilder, err := PullImageBasedUpgrade(testSettings)
-		assert.Nil(t, err)
-
-		// Test the WithExtraManifests function
-		builderResult := ibuBuilder.WithStage(
-			testCase.stage)
-
-		// Check the error
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.NotNil(t, builderResult)
-		}
 	}
 }
 
-func generateImageBasedUpgrade() *lcav1.ImageBasedUpgrade {
-	return &lcav1.ImageBasedUpgrade{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "upgrade",
-		},
-	}
+func buildValidImageBasedUpgradeTestBuilder(apiClient *clients.Settings) *ImageBasedUpgradeBuilder {
+	return common.NewClusterScopedBuilder[lcav1.ImageBasedUpgrade, ImageBasedUpgradeBuilder](
+		apiClient, lcav1.AddToScheme, ibuName)
 }
 
-func buildTestClientWithDummyObject() *clients.Settings {
+func buildInvalidImageBasedUpgradeTestBuilder(apiClient *clients.Settings) *ImageBasedUpgradeBuilder {
+	return common.NewClusterScopedBuilder[lcav1.ImageBasedUpgrade, ImageBasedUpgradeBuilder](
+		apiClient, lcav1.AddToScheme, "")
+}
+
+func newImageBasedUpgradeTestClient(objects []runtime.Object) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyIBU(),
-		SchemeAttachers: lcav1TestSchemes,
+		K8sMockObjects:  objects,
+		SchemeAttachers: []clients.SchemeAttacher{lcav1.AddToScheme},
 	})
 }
 
-func buildTestClientWithoutDummyObject() *clients.Settings {
-	return clients.GetTestClients(clients.TestClientParams{})
-}
-
-func buildDummyIBU() []runtime.Object {
-	return append([]runtime.Object{}, &lcav1.ImageBasedUpgrade{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "upgrade",
-		},
-		Spec: lcav1.ImageBasedUpgradeSpec{
-			Stage: idle,
-		},
-		Status: lcav1.ImageBasedUpgradeStatus{
-			Conditions: []metav1.Condition{
-				{
-					Type:   idle,
-					Status: isTrue,
-				},
+func buildDummyImageBasedUpgradeRuntime() []runtime.Object {
+	return []runtime.Object{
+		&lcav1.ImageBasedUpgrade{
+			ObjectMeta: metav1.ObjectMeta{Name: ibuName},
+			Spec:       lcav1.ImageBasedUpgradeSpec{Stage: idle},
+			Status: lcav1.ImageBasedUpgradeStatus{
+				Conditions: []metav1.Condition{{Type: idle, Status: isTrue}},
 			},
 		},
-	})
+	}
 }
