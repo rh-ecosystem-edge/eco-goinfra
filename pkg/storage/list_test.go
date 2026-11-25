@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -19,52 +21,49 @@ var (
 )
 
 func TestListPV(t *testing.T) {
-	testCases := []struct {
-		pv            []*PVBuilder
-		listOptions   []metav1.ListOptions
-		expectedError error
-		client        bool
-	}{
-		{
-			pv:            []*PVBuilder{buildValidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume())},
-			listOptions:   nil,
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			pv:            []*PVBuilder{buildValidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume())},
-			listOptions:   []metav1.ListOptions{{LabelSelector: defaultLabelSelector}},
-			expectedError: nil,
-			client:        true,
-		},
-		{
-			pv:            []*PVBuilder{buildValidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume())},
-			listOptions:   []metav1.ListOptions{{LabelSelector: defaultLabelSelector}, {LabelSelector: defaultLabelSelector}},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
-		},
-		{
-			pv:            []*PVBuilder{buildValidPersistentVolumeTestBuilder(buildTestClientWithDummyPersistentVolume())},
-			listOptions:   []metav1.ListOptions{{LabelSelector: defaultLabelSelector}},
-			expectedError: fmt.Errorf("failed to list persistentVolume, 'apiClient' parameter is empty"),
-			client:        false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	testhelper.NewListTestConfig(
+		ListPV,
+		corev1.AddToScheme,
+		persistentVolumeGVK,
+	).ExecuteTests(t)
+}
 
-		if testCase.client {
-			testSettings = buildTestClientWithDummyPersistentVolume()
-		}
+func TestListPVRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		pvBuilders, err := ListPV(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+	builders, err := ListPV(
+		clients.GetTestClients(clients.TestClientParams{}),
+		metav1.ListOptions{},
+		metav1.ListOptions{},
+	)
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.pv), len(pvBuilders))
-		}
-	}
+	require.EqualError(t, err, "error: more than one ListOptions was passed")
+	assert.Nil(t, builders)
+}
+
+func TestListPVWithLabelSelector(t *testing.T) {
+	t.Parallel()
+
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: []runtime.Object{
+			buildPersistentVolumeWithLabels("pv-worker-0", defaultLabel),
+			buildPersistentVolumeWithLabels("pv-worker-1", defaultLabel),
+			buildPersistentVolumeWithLabels(
+				"pv-control-plane-0", map[string]string{"ceph.rook.io/DeviceSet": "ocs-deviceset-1"}),
+		},
+		SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
+	})
+
+	builders, err := ListPV(testSettings, metav1.ListOptions{LabelSelector: defaultLabelSelector})
+
+	require.NoError(t, err)
+	require.Len(t, builders, 2)
+	assert.ElementsMatch(t, []string{"pv-worker-0", "pv-worker-1"}, []string{
+		builders[0].Definition.Name,
+		builders[1].Definition.Name,
+	})
 }
 
 func TestListPVC(t *testing.T) {
@@ -159,6 +158,15 @@ func buildDummyPVCObject(name, namespace string) *corev1.PersistentVolumeClaim {
 			Name:      name,
 			Namespace: namespace,
 			Labels:    defaultLabel,
+		},
+	}
+}
+
+func buildPersistentVolumeWithLabels(name string, labels map[string]string) *corev1.PersistentVolume {
+	return &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: labels,
 		},
 	}
 }
