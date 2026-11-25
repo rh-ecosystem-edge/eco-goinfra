@@ -2,12 +2,13 @@ package storage
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	storageV1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,523 +16,374 @@ import (
 )
 
 const (
+	testStorageClassBuilderName    = "storageclass-test"
 	defaultStorageClassProvisioner = "test-provisioner"
 	defaultParameterKey            = "readOnly"
 	defaultParameterValue          = "false"
 )
 
 func TestNewClassBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewClusterScopedBuilderTestConfig(
+		func(apiClient *clients.Settings, name string) *ClassBuilder {
+			return NewClassBuilder(apiClient, name, defaultStorageClassProvisioner)
+		},
+		storageV1.AddToScheme,
+		storageClassGVK,
+	).ExecuteTests(t)
+
 	testCases := []struct {
-		storageClassName        string
-		storageClassProvisioner string
-		client                  bool
-		expectedErrorText       string
+		name          string
+		provisioner   string
+		expectedError string
 	}{
 		{
-			storageClassName:        defaultStorageClassName,
-			storageClassProvisioner: defaultStorageClassProvisioner,
-			client:                  true,
-			expectedErrorText:       "",
+			name:        "valid provisioner",
+			provisioner: defaultStorageClassProvisioner,
 		},
 		{
-			storageClassName:        "",
-			storageClassProvisioner: defaultStorageClassProvisioner,
-			client:                  true,
-			expectedErrorText:       errEmptyStorageClassName,
-		},
-		{
-			storageClassName:        defaultStorageClassName,
-			storageClassProvisioner: "",
-			client:                  true,
-			expectedErrorText:       errEmptyProvisioner,
-		},
-		{
-			storageClassName:        defaultStorageClassName,
-			storageClassProvisioner: defaultStorageClassProvisioner,
-			client:                  false,
-			expectedErrorText:       "",
+			name:          "empty provisioner",
+			provisioner:   "",
+			expectedError: errEmptyProvisioner,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
+			builder := NewClassBuilder(
+				buildTestClientWithoutDummyStorageClass(),
+				testStorageClassBuilderName,
+				testCase.provisioner,
+			)
 
-		classBuilder := NewClassBuilder(testSettings, testCase.storageClassName, testCase.storageClassProvisioner)
-		if testCase.client {
-			assert.Equal(t, testCase.expectedErrorText, classBuilder.errorMsg)
-
-			if testCase.expectedErrorText == "" {
-				assert.Equal(t, testCase.storageClassName, classBuilder.Definition.Name)
-				assert.Equal(t, testCase.storageClassProvisioner, classBuilder.Definition.Provisioner)
+			if testCase.expectedError == "" {
+				require.NoError(t, builder.GetError())
+			} else {
+				require.EqualError(t, builder.GetError(), testCase.expectedError)
 			}
-		} else {
-			assert.Nil(t, classBuilder)
-		}
-	}
-}
 
-func TestClassWithReclaimPolicy(t *testing.T) {
-	testCases := []struct {
-		reclaimPolicy     corev1.PersistentVolumeReclaimPolicy
-		expectedErrorText string
-	}{
-		{
-			reclaimPolicy:     corev1.PersistentVolumeReclaimDelete,
-			expectedErrorText: "",
-		},
-		{
-			reclaimPolicy:     "",
-			expectedErrorText: "storageclass 'reclaimPolicy' cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		classBuilder := buildValidClassTestBuilder(testSettings).WithReclaimPolicy(testCase.reclaimPolicy)
-		assert.Equal(t, testCase.expectedErrorText, classBuilder.errorMsg)
-
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, testCase.reclaimPolicy, *classBuilder.Definition.ReclaimPolicy)
-		}
-	}
-}
-
-func TestClassWithVolumeBindingMode(t *testing.T) {
-	testCases := []struct {
-		volumeBindingMode storageV1.VolumeBindingMode
-		expectedErrorText string
-	}{
-		{
-			volumeBindingMode: storageV1.VolumeBindingImmediate,
-			expectedErrorText: "",
-		},
-		{
-			volumeBindingMode: "",
-			expectedErrorText: "storageclass 'bindingMode' cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		classBuilder := buildValidClassTestBuilder(testSettings).WithVolumeBindingMode(testCase.volumeBindingMode)
-		assert.Equal(t, testCase.expectedErrorText, classBuilder.errorMsg)
-
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, testCase.volumeBindingMode, *classBuilder.Definition.VolumeBindingMode)
-		}
-	}
-}
-
-func TestClassWithParameter(t *testing.T) {
-	testCases := []struct {
-		parameterKey      string
-		parameterValue    string
-		expectedErrorText string
-	}{
-		{
-			parameterKey:      defaultParameterKey,
-			parameterValue:    defaultParameterValue,
-			expectedErrorText: "",
-		},
-		{
-			parameterKey:      "",
-			parameterValue:    defaultParameterValue,
-			expectedErrorText: "storageclass parameter key cannot be empty",
-		},
-		{
-			parameterKey:      defaultParameterKey,
-			parameterValue:    "",
-			expectedErrorText: "storageclass parameter value cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		classBuilder := buildValidClassTestBuilder(testSettings).WithParameter(testCase.parameterKey, testCase.parameterValue)
-		assert.Equal(t, testCase.expectedErrorText, classBuilder.errorMsg)
-
-		if testCase.expectedErrorText == "" {
-			assert.Contains(t, classBuilder.Definition.Parameters, testCase.parameterKey)
-			assert.Equal(t, classBuilder.Definition.Parameters[testCase.parameterKey], testCase.parameterValue)
-		}
-	}
-}
-
-func TestClassWithOptions(t *testing.T) {
-	testCases := []struct {
-		testBuilder       *ClassBuilder
-		option            AdditionalOptions
-		expectedErrorText string
-	}{
-		{
-			testBuilder: buildValidClassTestBuilder(buildTestClientWithDummyStorageClass()),
-			option: func(builder *ClassBuilder) (*ClassBuilder, error) {
-				builder.Definition.MountOptions = []string{"ro"}
-
-				return builder, nil
-			},
-			expectedErrorText: "",
-		},
-		{
-			testBuilder: buildValidClassTestBuilder(buildTestClientWithDummyStorageClass()),
-			option: func(builder *ClassBuilder) (*ClassBuilder, error) {
-				return builder, fmt.Errorf("error in mutation function")
-			},
-			expectedErrorText: "error in mutation function",
-		},
-		{
-			testBuilder:       buildInvalidClassTestBuilder(buildTestClientWithDummyStorageClass()),
-			option:            nil,
-			expectedErrorText: errEmptyProvisioner,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testCase.testBuilder.WithOptions(testCase.option)
-		assert.Equal(t, testCase.expectedErrorText, testCase.testBuilder.errorMsg)
-
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, []string{"ro"}, testCase.testBuilder.Definition.MountOptions)
-		}
+			assert.Equal(t, testCase.provisioner, builder.Definition.Provisioner)
+		})
 	}
 }
 
 func TestPullClass(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewClusterScopedPullTestConfig(
+		PullClass,
+		storageV1.AddToScheme,
+		storageClassGVK,
+	).ExecuteTests(t)
+
+	t.Run("pulls storageclass provisioner", func(t *testing.T) {
+		t.Parallel()
+
+		builder, err := PullClass(buildTestClientWithDummyStorageClass(), testStorageClassBuilderName)
+		require.NoError(t, err)
+		assert.Equal(t, defaultStorageClassProvisioner, builder.Definition.Provisioner)
+	})
+}
+
+func TestClassBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := newStorageClassCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
+}
+
+func TestClassWithOptions(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewWithOptionsTestConfig(newStorageClassCommonTestConfig()).ExecuteTests(t)
+}
+
+func TestClassWithReclaimPolicy(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		storageClassName    string
-		addToRuntimeObjects bool
-		client              bool
-		expectedErrorText   string
+		name          string
+		reclaimPolicy corev1.PersistentVolumeReclaimPolicy
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			storageClassName:    defaultStorageClassName,
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedErrorText:   "",
+			name:          "valid reclaim policy",
+			reclaimPolicy: corev1.PersistentVolumeReclaimDelete,
+			validBuilder:  true,
 		},
 		{
-			storageClassName:    "",
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedErrorText:   errEmptyStorageClassName,
+			name:          "empty reclaim policy",
+			reclaimPolicy: "",
+			validBuilder:  true,
+			expectedError: "storageclass 'reclaimPolicy' cannot be empty",
 		},
 		{
-			storageClassName:    defaultStorageClassName,
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedErrorText:   fmt.Sprintf("storageclass object %s does not exist", defaultStorageClassName),
-		},
-		{
-			storageClassName:    defaultStorageClassName,
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedErrorText:   "storageclass 'apiClient' cannot be empty",
+			name:          "invalid builder",
+			reclaimPolicy: corev1.PersistentVolumeReclaimRetain,
+			validBuilder:  false,
+			expectedError: errEmptyProvisioner,
 		},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testStorageClass := buildDummyStorageClass(testCase.storageClassName, defaultStorageClassProvisioner)
+			classBuilder := buildStorageClassTestBuilder(testCase.validBuilder)
+			classBuilder.WithReclaimPolicy(testCase.reclaimPolicy)
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testStorageClass)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects,
-			})
-		}
-
-		classBuilder, err := PullClass(testSettings, testCase.storageClassName)
-
-		if testCase.expectedErrorText != "" {
-			assert.EqualError(t, err, testCase.expectedErrorText)
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testStorageClass.Name, classBuilder.Definition.Name)
-		}
+			if testCase.expectedError == "" {
+				require.NoError(t, classBuilder.GetError())
+				require.NotNil(t, classBuilder.Definition.ReclaimPolicy)
+				assert.Equal(t, testCase.reclaimPolicy, *classBuilder.Definition.ReclaimPolicy)
+			} else {
+				require.EqualError(t, classBuilder.GetError(), testCase.expectedError)
+			}
+		})
 	}
 }
 
-func TestClassExists(t *testing.T) {
+func TestClassWithVolumeBindingMode(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBuilder *ClassBuilder
-		exists      bool
+		name              string
+		volumeBindingMode storageV1.VolumeBindingMode
+		validBuilder      bool
+		expectedError     string
 	}{
 		{
-			testBuilder: buildValidClassTestBuilder(buildTestClientWithDummyStorageClass()),
-			exists:      true,
+			name:              "valid volume binding mode",
+			volumeBindingMode: storageV1.VolumeBindingImmediate,
+			validBuilder:      true,
 		},
 		{
-			testBuilder: buildInvalidClassTestBuilder(buildTestClientWithDummyStorageClass()),
-			exists:      false,
+			name:              "empty volume binding mode",
+			volumeBindingMode: "",
+			validBuilder:      true,
+			expectedError:     "storageclass 'bindingMode' cannot be empty",
 		},
 		{
-			testBuilder: buildValidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
+			name:              "invalid builder",
+			volumeBindingMode: storageV1.VolumeBindingWaitForFirstConsumer,
+			validBuilder:      false,
+			expectedError:     errEmptyProvisioner,
 		},
 	}
 
 	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			classBuilder := buildStorageClassTestBuilder(testCase.validBuilder)
+			classBuilder.WithVolumeBindingMode(testCase.volumeBindingMode)
+
+			if testCase.expectedError == "" {
+				require.NoError(t, classBuilder.GetError())
+				require.NotNil(t, classBuilder.Definition.VolumeBindingMode)
+				assert.Equal(t, testCase.volumeBindingMode, *classBuilder.Definition.VolumeBindingMode)
+			} else {
+				require.EqualError(t, classBuilder.GetError(), testCase.expectedError)
+			}
+		})
 	}
 }
 
-func TestClassCreate(t *testing.T) {
+func TestClassWithParameter(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBuilder   *ClassBuilder
-		expectedError error
+		name           string
+		parameterKey   string
+		parameterValue string
+		validBuilder   bool
+		expectedError  string
 	}{
 		{
-			testBuilder:   buildValidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
+			name:           "valid parameter",
+			parameterKey:   defaultParameterKey,
+			parameterValue: defaultParameterValue,
+			validBuilder:   true,
 		},
 		{
-			testBuilder:   buildInvalidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf(errEmptyProvisioner),
+			name:           "empty parameter key",
+			parameterValue: defaultParameterValue,
+			validBuilder:   true,
+			expectedError:  "storageclass parameter key cannot be empty",
+		},
+		{
+			name:          "empty parameter value",
+			parameterKey:  defaultParameterKey,
+			validBuilder:  true,
+			expectedError: "storageclass parameter value cannot be empty",
+		},
+		{
+			name:           "invalid builder",
+			parameterKey:   defaultParameterKey,
+			parameterValue: defaultParameterValue,
+			validBuilder:   false,
+			expectedError:  errEmptyProvisioner,
 		},
 	}
 
 	for _, testCase := range testCases {
-		classBuilder, err := testCase.testBuilder.Create()
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, classBuilder.Definition, classBuilder.Object)
-		}
-	}
-}
+			classBuilder := buildStorageClassTestBuilder(testCase.validBuilder)
+			classBuilder.WithParameter(testCase.parameterKey, testCase.parameterValue)
 
-func TestClassDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder       *ClassBuilder
-		expectedErrorText string
-	}{
-		{
-			testBuilder:       buildValidClassTestBuilder(buildTestClientWithDummyStorageClass()),
-			expectedErrorText: "",
-		},
-		{
-			testBuilder:       buildValidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedErrorText: "",
-		},
-		{
-			testBuilder:       buildInvalidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedErrorText: errEmptyProvisioner,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testBuilder.Delete()
-
-		if testCase.expectedErrorText == "" {
-			assert.Nil(t, err)
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
+			if testCase.expectedError == "" {
+				require.NoError(t, classBuilder.GetError())
+				assert.Equal(t, testCase.parameterValue, classBuilder.Definition.Parameters[testCase.parameterKey])
+			} else {
+				require.EqualError(t, classBuilder.GetError(), testCase.expectedError)
+			}
+		})
 	}
 }
 
 func TestClassDeleteAndWait(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBuilder       *ClassBuilder
-		expectedErrorText string
+		name          string
+		storageExists bool
+		validBuilder  bool
+		expectedError string
 	}{
 		{
-			testBuilder:       buildValidClassTestBuilder(buildTestClientWithDummyStorageClass()),
-			expectedErrorText: "",
+			name:          "deletes existing storageclass",
+			storageExists: true,
+			validBuilder:  true,
 		},
 		{
-			testBuilder:       buildValidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedErrorText: "",
+			name:          "storageclass already absent",
+			storageExists: false,
+			validBuilder:  true,
 		},
 		{
-			testBuilder:       buildInvalidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedErrorText: errEmptyProvisioner,
+			name:          "invalid builder",
+			storageExists: true,
+			validBuilder:  false,
+			expectedError: errEmptyProvisioner,
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testBuilder.DeleteAndWait(time.Second)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Nil(t, err)
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
+			var apiClient *clients.Settings
+			if testCase.storageExists {
+				apiClient = buildTestClientWithDummyStorageClass()
+			} else {
+				apiClient = buildTestClientWithoutDummyStorageClass()
+			}
+
+			classBuilder := buildValidClassTestBuilder(apiClient)
+			if !testCase.validBuilder {
+				classBuilder = buildInvalidClassTestBuilder(apiClient)
+			}
+
+			err := classBuilder.DeleteAndWait(time.Second)
+			if testCase.expectedError == "" {
+				require.NoError(t, err)
+				assert.Nil(t, classBuilder.Object)
+			} else {
+				require.ErrorContains(t, err, testCase.expectedError)
+			}
+		})
 	}
 }
 
 func TestClassWaitUntilDeleted(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testBuilder   *ClassBuilder
+		name          string
+		storageExists bool
+		validBuilder  bool
 		expectedError error
 	}{
 		{
-			testBuilder:   buildValidClassTestBuilder(buildTestClientWithDummyStorageClass()),
+			name:          "times out while storageclass exists",
+			storageExists: true,
+			validBuilder:  true,
 			expectedError: context.DeadlineExceeded,
 		},
 		{
-			testBuilder:   buildValidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
+			name:          "storageclass already absent",
+			storageExists: false,
+			validBuilder:  true,
 		},
 		{
-			testBuilder:   buildInvalidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf(errEmptyProvisioner),
+			name:          "invalid builder",
+			storageExists: true,
+			validBuilder:  false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		err := testCase.testBuilder.WaitUntilDeleted(time.Second)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testBuilder.Object)
-		}
+			var apiClient *clients.Settings
+			if testCase.storageExists {
+				apiClient = buildTestClientWithDummyStorageClass()
+			} else {
+				apiClient = buildTestClientWithoutDummyStorageClass()
+			}
+
+			classBuilder := buildValidClassTestBuilder(apiClient)
+			if !testCase.validBuilder {
+				classBuilder = buildInvalidClassTestBuilder(apiClient)
+			}
+
+			err := classBuilder.WaitUntilDeleted(time.Second)
+
+			switch {
+			case testCase.expectedError != nil:
+				require.ErrorIs(t, err, testCase.expectedError)
+			case testCase.validBuilder:
+				require.NoError(t, err)
+			default:
+				require.ErrorContains(t, err, errEmptyProvisioner)
+			}
+		})
 	}
 }
 
-func TestClassUpdate(t *testing.T) {
-	testCases := []struct {
-		alreadyExists     bool
-		force             bool
-		expectedErrorText string
-	}{
-		{
-			alreadyExists:     false,
-			force:             false,
-			expectedErrorText: "cannot update non-existent storageclass",
-		},
-		{
-			alreadyExists:     true,
-			force:             false,
-			expectedErrorText: "",
-		},
-		{
-			alreadyExists:     false,
-			force:             true,
-			expectedErrorText: "cannot update non-existent storageclass",
-		},
-		{
-			alreadyExists:     true,
-			force:             true,
-			expectedErrorText: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		// Create the builder rather than just adding it to the client so that the proper metadata is added and
-		// the update will not fail.
-		if testCase.alreadyExists {
-			var err error
-
-			testBuilder = buildValidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-			testBuilder, err = testBuilder.Create()
-			assert.Nil(t, err)
-			assert.True(t, testBuilder.Exists())
-		}
-
-		assert.NotNil(t, testBuilder.Definition)
-		assert.Empty(t, testBuilder.Definition.MountOptions)
-
-		testBuilder.Definition.MountOptions = []string{"ro"}
-
-		classBuilder, err := testBuilder.Update(testCase.force)
-		assert.NotNil(t, testBuilder.Definition)
-
-		if testCase.expectedErrorText == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, testBuilder.Definition.Name, classBuilder.Definition.Name)
-			assert.Equal(t, testBuilder.Definition.MountOptions, classBuilder.Definition.MountOptions)
-		} else {
-			assert.EqualError(t, err, testCase.expectedErrorText)
-		}
-	}
+// newStorageClassCommonTestConfig returns the shared test configuration for StorageClass.
+func newStorageClassCommonTestConfig() testhelper.CommonTestConfig[
+	storageV1.StorageClass, ClassBuilder, *storageV1.StorageClass, *ClassBuilder,
+] {
+	return testhelper.NewCommonTestConfig[storageV1.StorageClass, ClassBuilder](
+		storageV1.AddToScheme,
+		storageClassGVK,
+		testhelper.ResourceScopeClusterScoped,
+	)
 }
 
-func TestClassValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil      bool
-		definitionNil   bool
-		apiClientNil    bool
-		builderErrorMsg string
-		expectedError   error
-	}{
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   nil,
-		},
-		{
-			builderNil:      true,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("error: received nil storageClass builder"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   true,
-			apiClientNil:    false,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("can not redefine the undefined storageClass"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    true,
-			builderErrorMsg: "",
-			expectedError:   fmt.Errorf("storageClass builder cannot have nil apiClient"),
-		},
-		{
-			builderNil:      false,
-			definitionNil:   false,
-			apiClientNil:    false,
-			builderErrorMsg: "test error",
-			expectedError:   fmt.Errorf("test error"),
-		},
+// buildStorageClassTestBuilder returns a valid or invalid ClassBuilder for modifier tests.
+func buildStorageClassTestBuilder(valid bool) *ClassBuilder {
+	apiClient := buildTestClientWithoutDummyStorageClass()
+	if valid {
+		return buildValidClassTestBuilder(apiClient)
 	}
 
-	for _, testCase := range testCases {
-		testBuilder := buildValidClassTestBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		if testCase.builderErrorMsg != "" {
-			testBuilder.errorMsg = testCase.builderErrorMsg
-		}
-
-		valid, err := testBuilder.validate()
-		if testCase.expectedError != nil {
-			assert.False(t, valid)
-			assert.Equal(t, testCase.expectedError, err)
-		} else {
-			assert.True(t, valid)
-			assert.Nil(t, err)
-		}
-	}
+	return buildInvalidClassTestBuilder(apiClient)
 }
 
 // buildDummyStorageClass returns a StorageClass with the provided name and provisioner.
@@ -548,17 +400,25 @@ func buildDummyStorageClass(name, provisioner string) *storageV1.StorageClass {
 func buildTestClientWithDummyStorageClass() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects: []runtime.Object{
-			buildDummyStorageClass(defaultStorageClassName, defaultStorageClassProvisioner),
+			buildDummyStorageClass(testStorageClassBuilderName, defaultStorageClassProvisioner),
 		},
+		SchemeAttachers: []clients.SchemeAttacher{storageV1.AddToScheme},
+	})
+}
+
+// buildTestClientWithoutDummyStorageClass returns a client with the StorageClass scheme and no objects.
+func buildTestClientWithoutDummyStorageClass() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{storageV1.AddToScheme},
 	})
 }
 
 // buildValidClassTestBuilder returns a valid ClassBuilder for testing.
 func buildValidClassTestBuilder(apiClient *clients.Settings) *ClassBuilder {
-	return NewClassBuilder(apiClient, defaultStorageClassName, defaultStorageClassProvisioner)
+	return NewClassBuilder(apiClient, testStorageClassBuilderName, defaultStorageClassProvisioner)
 }
 
 // buildInvalidClassTestBuilder returns an invalid ClassBuilder for testing.
 func buildInvalidClassTestBuilder(apiClient *clients.Settings) *ClassBuilder {
-	return NewClassBuilder(apiClient, defaultStorageClassName, "")
+	return NewClassBuilder(apiClient, testStorageClassBuilderName, "")
 }
