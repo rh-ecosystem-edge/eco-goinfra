@@ -1,17 +1,16 @@
 package assisted
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
 	conditionsv1 "github.com/openshift/custom-resource-status/conditions/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	agentInstallV1Beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/v1beta1"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -26,55 +25,37 @@ var agentTestSchemes = []clients.SchemeAttacher{
 }
 
 func TestListAgents(t *testing.T) {
-	testCases := []struct {
-		agents        []*agentBuilder
-		listOptions   []runtimeclient.ListOption
-		client        bool
-		expectedError error
-	}{
-		{
-			agents: []*agentBuilder{
-				buildValidAgentTestBuilder(buildTestClientWithDummyAgent()),
-			},
-			listOptions:   nil,
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			agents: []*agentBuilder{
-				buildValidAgentTestBuilder(buildTestClientWithDummyAgent()),
-			},
-			listOptions:   []runtimeclient.ListOption{&runtimeclient.ListOptions{LabelSelector: labels.NewSelector()}},
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			agents: []*agentBuilder{
-				buildValidAgentTestBuilder(buildTestClientWithDummyAgent()),
-			},
-			listOptions:   nil,
-			client:        false,
-			expectedError: fmt.Errorf("the apiClient is nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	testhelper.NewListTestConfig(
+		ListAgents, agentInstallV1Beta1.AddToScheme, agentGVK).ExecuteTests(t)
+}
 
-		if testCase.client {
-			testSettings = buildTestClientWithDummyAgent()
-		}
+func TestListAgentsWithOptions(t *testing.T) {
+	t.Parallel()
 
-		builders, err := ListAgents(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+	selectedAgent := buildDummyAgent(testAgentName)
+	selectedAgent.Labels = map[string]string{"selected": "true"}
+	otherAgent := buildDummyAgent("other-agent")
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.agents), len(builders))
-		}
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects:  []runtime.Object{selectedAgent, otherAgent},
+		SchemeAttachers: agentTestSchemes,
+	})
+
+	builders, err := ListAgents(testSettings, runtimeclient.MatchingLabels{"selected": "true"})
+
+	assert.NoError(t, err)
+	assert.Len(t, builders, 1)
+
+	if len(builders) == 1 {
+		assert.Equal(t, testAgentName, builders[0].Definition.Name)
 	}
 }
 
 func TestListORANEligibleAgents(t *testing.T) {
+	t.Parallel()
+
 	templateID := uuid.New().String()
 
 	testCases := []struct {
@@ -123,6 +104,8 @@ func TestListORANEligibleAgents(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			runtimeObjects := make([]runtime.Object, 0, len(testCase.agents))
 			for _, agent := range testCase.agents {
 				runtimeObjects = append(runtimeObjects, agent)
@@ -148,6 +131,8 @@ func TestListORANEligibleAgents(t *testing.T) {
 }
 
 func TestIsORANEligibleAgent(t *testing.T) {
+	t.Parallel()
+
 	templateID := uuid.New().String()
 
 	testCases := []struct {
@@ -174,6 +159,8 @@ func TestIsORANEligibleAgent(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			assert.True(t, isORANEligibleAgent(testCase.agent))
 		})
 	}
