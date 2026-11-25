@@ -1,287 +1,44 @@
 package olm
 
 import (
-	"fmt"
-
-	oplmV1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/olm/operators/v1alpha1"
-	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
+	"context"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
-)
-
-const (
-	errEmptyCatalogSourceNsname = "catalogsource 'nsname' cannot be empty"
-	resourceCatalogSource       = "catalogsource"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	oplmV1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/olm/operators/v1alpha1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // CatalogSourceBuilder provides a struct for catalogsource object
 // from the cluster and a catalogsource definition.
 type CatalogSourceBuilder struct {
-	// CatalogSource definition. Used to create
-	// CatalogSource object with minimum set of required elements.
-	Definition *oplmV1alpha1.CatalogSource
-	// Created CatalogSource object on the cluster.
-	Object *oplmV1alpha1.CatalogSource
-	// api client to interact with the cluster.
-	apiClient runtimeClient.Client
-	// errorMsg is processed before CatalogSourceBuilder object is created.
-	errorMsg string
+	common.EmbeddableBuilder[oplmV1alpha1.CatalogSource, *oplmV1alpha1.CatalogSource]
+	common.EmbeddableCreator[oplmV1alpha1.CatalogSource, CatalogSourceBuilder, *oplmV1alpha1.CatalogSource, *CatalogSourceBuilder]
+	common.EmbeddableDeleter[oplmV1alpha1.CatalogSource, *oplmV1alpha1.CatalogSource]
+	common.EmbeddableForceUpdater[
+		oplmV1alpha1.CatalogSource, CatalogSourceBuilder, *oplmV1alpha1.CatalogSource, *CatalogSourceBuilder]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *CatalogSourceBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableForceUpdater.SetBase(builder)
+}
+
+// GetGVK returns the CatalogSource GVK for this builder.
+func (builder *CatalogSourceBuilder) GetGVK() schema.GroupVersionKind {
+	return oplmV1alpha1.SchemeGroupVersion.WithKind("CatalogSource")
 }
 
 // NewCatalogSourceBuilder creates new instance of CatalogSourceBuilder.
 func NewCatalogSourceBuilder(apiClient *clients.Settings, name, nsname string) *CatalogSourceBuilder {
-	klog.V(100).Infof("Initializing new %s catalogsource structure", name)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(oplmV1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add oplmV1alpha1 scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &CatalogSourceBuilder{
-		apiClient: apiClient.Client,
-		Definition: &oplmV1alpha1.CatalogSource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the catalogsource is empty")
-
-		builder.errorMsg = "catalogsource 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The nsname of the catalogsource is empty")
-
-		builder.errorMsg = errEmptyCatalogSourceNsname
-
-		return builder
-	}
-
-	return builder
+	return common.NewNamespacedBuilder[oplmV1alpha1.CatalogSource, CatalogSourceBuilder](
+		apiClient, oplmV1alpha1.AddToScheme, name, nsname)
 }
 
 // PullCatalogSource loads an existing catalogsource into Builder struct.
-func PullCatalogSource(apiClient *clients.Settings, name, nsname string) (*CatalogSourceBuilder,
-	error) {
-	klog.V(100).Infof("Pulling existing catalogsource name %s in namespace %s", name, nsname)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil, fmt.Errorf("catalogsource 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(oplmV1alpha1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add oplmV1alpha1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &CatalogSourceBuilder{
-		apiClient: apiClient.Client,
-		Definition: &oplmV1alpha1.CatalogSource{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the catalogsource is empty")
-
-		return nil, fmt.Errorf("catalogsource 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the catalogsource is empty")
-
-		return nil, fmt.Errorf("catalogsource 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("catalogsource object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Create makes an CatalogSourceBuilder in cluster and stores the created object in struct.
-func (builder *CatalogSourceBuilder) Create() (*CatalogSourceBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating the catalogsource %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if builder.Exists() {
-		return builder, nil
-	}
-
-	err := builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, err
-	}
-
-	builder.Object = builder.Definition
-
-	return builder, nil
-}
-
-// Get returns CatalogSource object if found.
-func (builder *CatalogSourceBuilder) Get() (*oplmV1alpha1.CatalogSource, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Collecting CatalogSource object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	catalogSource := &oplmV1alpha1.CatalogSource{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(),
-		runtimeClient.ObjectKey{Name: builder.Definition.Name, Namespace: builder.Definition.Namespace},
-		catalogSource)
-	if err != nil {
-		klog.V(100).Infof(
-			"CatalogSource object %s does not exist in namespace %s",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		return nil, err
-	}
-
-	return catalogSource, nil
-}
-
-// Update renovates the existing CatalogSource object with the CatalogSource definition in builder.
-func (builder *CatalogSourceBuilder) Update(force bool) (*CatalogSourceBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the CatalogSource object %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace,
-	)
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("failed to update CatalogSource, object does not exist on cluster")
-	}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		if force {
-			klog.V(100).Infof("%v", msg.FailToUpdateNotification("CatalogSource", builder.Definition.Name, builder.Definition.Namespace))
-
-			err := builder.Delete()
-			if err != nil {
-				klog.V(100).Infof("%v", msg.FailToUpdateError("CatalogSource", builder.Definition.Name, builder.Definition.Namespace))
-
-				return nil, err
-			}
-
-			return builder.Create()
-		}
-	}
-
-	return builder, nil
-}
-
-// Exists checks whether the given catalogsource exists.
-func (builder *CatalogSourceBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if catalogSource %s exists",
-		builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Delete removes a catalogsource.
-func (builder *CatalogSourceBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting catalogsource %s in namespace %s", builder.Definition.Name,
-		builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Info("catalogsource cannot be deleted because it does not exist")
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *CatalogSourceBuilder) validate() (bool, error) {
-	resourceCRD := resourceCatalogSource
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
+func PullCatalogSource(apiClient *clients.Settings, name, nsname string) (*CatalogSourceBuilder, error) {
+	return common.PullNamespacedBuilder[oplmV1alpha1.CatalogSource, CatalogSourceBuilder](
+		context.TODO(), apiClient, oplmV1alpha1.AddToScheme, name, nsname)
 }
