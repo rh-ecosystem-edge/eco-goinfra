@@ -687,7 +687,25 @@ func WithOptions[O, B any, SO ObjectPointer[O], SB BuilderPointer[B, O, SO], AO 
 }
 
 // isInterfaceNil checks if the interface is nil. It checks both equality against nil and the reflect.Value.IsNil
-// method. This ensures that neither the interface nor its concrete value are nil.
-func isInterfaceNil(v any) bool {
-	return v == nil || reflect.ValueOf(v).IsNil()
+// method, which ensures that neither the interface nor its concrete value are nil. It also treats a [clients.Settings]
+// without an embedded runtime client as nil. Such a value is a non-nil pointer that only satisfies
+// [runtimeclient.Client] through the embedded interface, so using it would panic in promoted methods like Scheme
+// instead of reporting an error.
+func isInterfaceNil(value any) bool {
+	if value == nil {
+		return true
+	}
+
+	if settings, ok := value.(*clients.Settings); ok {
+		return settings == nil || isInterfaceNil(settings.Client)
+	}
+
+	// Not every runtimeclient.Client implementation is a pointer, so only non-nilable kinds may be checked for nil.
+	reflectValue := reflect.ValueOf(value)
+
+	if reflectValue.Kind() == reflect.Interface || reflectValue.Kind() == reflect.Pointer {
+		return reflectValue.IsNil()
+	}
+
+	return false
 }
