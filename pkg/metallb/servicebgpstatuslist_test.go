@@ -1,72 +1,51 @@
 package metallb
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/mlbtypes"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestServiceBGPStatusList(t *testing.T) {
-	testCases := []struct {
-		Definition    *mlbtypes.ServiceBGPStatus
-		statuses      []*ServiceBGPStatusBuilder
-		listOptions   []metav1.ListOptions
-		client        bool
-		expectedError error
-	}{
-		{
-			statuses: []*ServiceBGPStatusBuilder{buildValidServiceBGPStatusTestBuilder(
-				buildTestServiceBGPStatusClientWithDummyStatus(defaultServiceBGPStatusName))},
-			listOptions:   nil,
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			statuses: []*ServiceBGPStatusBuilder{buildValidServiceBGPStatusTestBuilder(
-				buildTestServiceBGPStatusClientWithDummyStatus(defaultServiceBGPStatusName))},
-			listOptions:   []metav1.ListOptions{{LabelSelector: "test"}},
-			client:        true,
-			expectedError: nil,
-		},
-		{
-			statuses: []*ServiceBGPStatusBuilder{buildValidServiceBGPStatusTestBuilder(
-				buildTestServiceBGPStatusClientWithDummyStatus(defaultServiceBGPStatusName))},
-			listOptions:   nil,
-			client:        false,
-			expectedError: fmt.Errorf("failed to list ServiceBGPStatuses, 'apiClient' parameter is empty"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
+	testhelper.NewListTestConfig(
+		ListServiceBGPStatus,
+		mlbtypes.AddToScheme,
+		serviceBGPStatusGVK,
+	).ExecuteTests(t)
+}
 
-		if testCase.client {
-			testSettings = buildTestServiceBGPStatusClientWithDummyStatus(defaultServiceBGPStatusName)
-		}
+func TestServiceBGPStatusListOptions(t *testing.T) {
+	t.Parallel()
 
-		var (
-			serviceBGPStatuses []*ServiceBGPStatusBuilder
-			err                error
+	t.Run("applies a single list option", func(t *testing.T) {
+		t.Parallel()
+
+		builders, err := ListServiceBGPStatus(
+			buildTestServiceBGPStatusClientWithDummyStatus(defaultServiceBGPStatusName),
+			client.ListOptions{LabelSelector: labels.SelectorFromSet(labels.Set{"missing": "true"})},
 		)
 
-		if len(testCase.listOptions) > 0 {
-			clientOptions := client.ListOptions{
-				Raw: &testCase.listOptions[0],
-			}
-			serviceBGPStatuses, err = ListServiceBGPStatus(testSettings, clientOptions)
-		} else {
-			serviceBGPStatuses, err = ListServiceBGPStatus(testSettings)
-		}
+		require.NoError(t, err)
+		assert.Empty(t, builders)
+	})
 
-		assert.Equal(t, testCase.expectedError, err)
+	t.Run("rejects multiple list options", func(t *testing.T) {
+		t.Parallel()
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(testCase.statuses), len(serviceBGPStatuses))
-		}
-	}
+		builders, err := ListServiceBGPStatus(
+			buildTestServiceBGPStatusClientWithDummyStatus(defaultServiceBGPStatusName),
+			client.ListOptions{},
+			client.ListOptions{},
+		)
+
+		assert.EqualError(t, err, "error: more than one ListOptions was passed")
+		assert.Nil(t, builders)
+	})
 }
