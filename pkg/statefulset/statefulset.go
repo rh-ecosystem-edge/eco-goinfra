@@ -6,11 +6,9 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -19,18 +17,26 @@ import (
 
 // Builder provides struct for statefulset object containing connection to the cluster and the statefulset definitions.
 type Builder struct {
-	// StatefulSet definition. Used to create the statefulset object.
-	Definition *appsv1.StatefulSet
-	// Created statefulset object
-	Object *appsv1.StatefulSet
-	// Used in functions that define or mutate statefulset definition. errorMsg is processed before the statefulset
-	// object is created.
-	errorMsg  string
-	apiClient *clients.Settings
+	common.EmbeddableBuilder[appsv1.StatefulSet, *appsv1.StatefulSet]
+	common.EmbeddableWithOptions[appsv1.StatefulSet, Builder, *appsv1.StatefulSet, *Builder, AdditionalOptions]
+	common.EmbeddableCreator[appsv1.StatefulSet, Builder, *appsv1.StatefulSet, *Builder]
+	common.EmbeddableDeleter[appsv1.StatefulSet, *appsv1.StatefulSet]
 }
 
 // AdditionalOptions additional options for StatefulSet object.
 type AdditionalOptions func(builder *Builder) (*Builder, error)
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.EmbeddableWithOptions.SetBase(builder)
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+}
+
+// GetGVK returns the StatefulSet GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return appsv1.SchemeGroupVersion.WithKind("StatefulSet")
+}
 
 // NewBuilder creates a new instance of Builder.
 func NewBuilder(
@@ -44,58 +50,37 @@ func NewBuilder(
 			"name: %s, namespace: %s, labels: %s, containerSpec %v",
 		name, nsname, labels, containerSpec)
 
-	builder := &Builder{
-		apiClient: apiClient,
-		Definition: &appsv1.StatefulSet{
-			Spec: appsv1.StatefulSetSpec{
-				Selector: &metav1.LabelSelector{
-					MatchLabels: labels,
-				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: labels,
-					},
-				},
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	builder.WithAdditionalContainerSpecs([]corev1.Container{*containerSpec})
-
-	if name == "" {
-		klog.V(100).Info("The name of the statefulset is empty")
-
-		builder.errorMsg = "statefulset 'name' cannot be empty"
-
+	builder := common.NewNamespacedBuilder[appsv1.StatefulSet, Builder](
+		apiClient, appsv1.AddToScheme, name, nsname)
+	if builder.GetError() != nil {
 		return builder
 	}
 
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the statefulset is empty")
-
-		builder.errorMsg = "statefulset 'namespace' cannot be empty"
-
-		return builder
-	}
+	builder.Definition.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	builder.Definition.Spec.Template.Labels = labels
 
 	if labels == nil {
 		klog.V(100).Info("There are no labels for the statefulset")
 
-		builder.errorMsg = "statefulset 'labels' cannot be empty"
+		builder.SetError(fmt.Errorf("statefulset 'labels' cannot be empty"))
 
 		return builder
 	}
 
-	return builder
+	if containerSpec == nil {
+		klog.V(100).Info("The container spec for the statefulset is nil")
+
+		builder.SetError(fmt.Errorf("statefulset 'containerSpec' cannot be nil"))
+
+		return builder
+	}
+
+	return builder.WithAdditionalContainerSpecs([]corev1.Container{*containerSpec})
 }
 
 // WithAdditionalContainerSpecs appends a list of container specs to the statefulset definition.
 func (builder *Builder) WithAdditionalContainerSpecs(specs []corev1.Container) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -105,7 +90,7 @@ func (builder *Builder) WithAdditionalContainerSpecs(specs []corev1.Container) *
 	if specs == nil {
 		klog.V(100).Info("The container specs are empty")
 
-		builder.errorMsg = "cannot accept nil or empty list as container specs"
+		builder.SetError(fmt.Errorf("cannot accept nil or empty list as container specs"))
 
 		return builder
 	}
@@ -115,33 +100,9 @@ func (builder *Builder) WithAdditionalContainerSpecs(specs []corev1.Container) *
 	return builder
 }
 
-// WithOptions creates StatefulSet with generic mutation options.
-func (builder *Builder) WithOptions(options ...AdditionalOptions) *Builder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting StatefulSet additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
 // WithPodAnnotations sets annotations on the pod template for pods managed by the statefulset.
 func (builder *Builder) WithPodAnnotations(annotations map[string]string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		klog.V(100).Info("Failed to validate StatefulSet builder")
 
 		return builder
@@ -153,7 +114,7 @@ func (builder *Builder) WithPodAnnotations(annotations map[string]string) *Build
 	if len(annotations) == 0 {
 		klog.V(100).Info("The pod annotations are empty")
 
-		builder.errorMsg = "cannot accept nil or empty annotations"
+		builder.SetError(fmt.Errorf("cannot accept nil or empty annotations"))
 
 		return builder
 	}
@@ -171,103 +132,13 @@ func (builder *Builder) WithPodAnnotations(annotations map[string]string) *Build
 
 // Pull loads an existing statefulset into Builder struct.
 func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
-	klog.V(100).Infof("Pulling existing statefulset name: %s under namespace: %s", name, nsname)
-
-	builder := Builder{
-		apiClient: apiClient,
-		Definition: &appsv1.StatefulSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		builder.errorMsg = "statefulset 'name' cannot be empty"
-
-		return nil, fmt.Errorf("statefulset 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		builder.errorMsg = "statefulset 'namespace' cannot be empty"
-
-		return nil, fmt.Errorf("statefulset 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("statefulset object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return &builder, nil
-}
-
-// Create generates a statefulset in cluster and stores the created object in struct.
-func (builder *Builder) Create() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating statefulset %s in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-	if !builder.Exists() {
-		builder.Object, err = builder.apiClient.StatefulSets(builder.Definition.Namespace).Create(
-			logging.DiscardContext(), builder.Definition, metav1.CreateOptions{})
-	}
-
-	return builder, err
-}
-
-// Exists checks whether the given statefulset exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if statefulset %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.StatefulSets(builder.Definition.Namespace).Get(
-		logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Delete a statefulset from the cluster.
-func (builder *Builder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting statefulset %s in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("Statefulset %s cannot be deleted because it does not exist", builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.StatefulSets(builder.Definition.Namespace).Delete(
-		logging.DiscardContext(), builder.Definition.Name, metav1.DeleteOptions{})
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
+	return common.PullNamespacedBuilder[appsv1.StatefulSet, Builder](
+		context.TODO(), apiClient, appsv1.AddToScheme, name, nsname)
 }
 
 // IsReady periodically checks if statefulset is in ready status.
 func (builder *Builder) IsReady(timeout time.Duration) bool {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return false
 	}
 
@@ -280,15 +151,15 @@ func (builder *Builder) IsReady(timeout time.Duration) bool {
 
 	err := wait.PollUntilContextTimeout(
 		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-			var err error
-
-			builder.Object, err = builder.apiClient.StatefulSets(builder.Definition.Namespace).Get(
-				logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
+			object, err := common.Get(ctx, builder)
 			if err != nil {
 				return false, err
 			}
 
-			if builder.Object.Status.ReadyReplicas > 0 && builder.Object.Status.Replicas == builder.Object.Status.ReadyReplicas {
+			builder.Object = object
+
+			if builder.Object.Status.ReadyReplicas > 0 &&
+				builder.Object.Status.Replicas == builder.Object.Status.ReadyReplicas {
 				return true, nil
 			}
 
@@ -301,36 +172,4 @@ func (builder *Builder) IsReady(timeout time.Duration) bool {
 // GetGVR returns pod's GroupVersionResource which could be used for Clean function.
 func GetGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "StatefulSet"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
