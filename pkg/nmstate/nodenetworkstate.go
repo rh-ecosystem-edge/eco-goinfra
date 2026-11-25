@@ -1,6 +1,7 @@
 package nmstate
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -9,13 +10,10 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 
 	nmstateV1beta1 "github.com/nmstate/kubernetes-nmstate/api/v1beta1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 const (
@@ -25,6 +23,8 @@ const (
 )
 
 var (
+	nodeNetworkStateGVK = nmstateV1beta1.GroupVersion.WithKind("NodeNetworkState")
+
 	// allowedInterfaceTypes represents all allowed types for interface.
 	allowedInterfaceTypes = []string{interfaceTypeEthernet, interfaceTypeBond, "ovs-bridge", unknown,
 		interfaceTypeVlan, "vxlan", "linux-bridge", "team", "veth"}
@@ -32,57 +32,17 @@ var (
 
 // StateBuilder provides struct for the NodeNetworkState object containing connection to the cluster.
 type StateBuilder struct {
-	// Created NodeNetworkState object on the cluster.
-	Object *nmstateV1beta1.NodeNetworkState
-	// API client to interact with the cluster.
-	apiClient goclient.Client
-	// errorMsg is processed before NodeNetworkState object is created.
-	errorMsg string
+	common.EmbeddableBuilder[nmstateV1beta1.NodeNetworkState, *nmstateV1beta1.NodeNetworkState]
 }
 
-// Exists checks whether the given NodeNetworkState exists.
-func (builder *StateBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if NodeNetworkState %s exists", builder.Object.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-	if err != nil {
-		klog.V(100).Infof("Failed to collect NodeNetworkState object due to %s", err.Error())
-	}
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Get returns NodeNetworkState object if found.
-func (builder *StateBuilder) Get() (*nmstateV1beta1.NodeNetworkState, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Collecting NodeNetworkState object %s", builder.Object.Name)
-
-	nodeNetworkState := &nmstateV1beta1.NodeNetworkState{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name: builder.Object.Name,
-	}, nodeNetworkState)
-	if err != nil {
-		klog.V(100).Infof("NodeNetworkState object %s does not exist", builder.Object.Name)
-
-		return nil, err
-	}
-
-	return nodeNetworkState, err
+// GetGVK returns the NodeNetworkState GVK for this builder.
+func (builder *StateBuilder) GetGVK() schema.GroupVersionKind {
+	return nodeNetworkStateGVK
 }
 
 // GetTotalVFs returns total-vfs under the given interface.
 func (builder *StateBuilder) GetTotalVFs(sriovInterfaceName string) (int, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := builder.validateCurrentState(); err != nil {
 		return 0, err
 	}
 
@@ -114,7 +74,7 @@ func (builder *StateBuilder) GetTotalVFs(sriovInterfaceName string) (int, error)
 
 // GetInterfaceAltnames returns non-empty alternative interface names for the given interface from current state.
 func (builder *StateBuilder) GetInterfaceAltnames(interfaceName string) ([]string, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := builder.validateCurrentState(); err != nil {
 		return nil, err
 	}
 
@@ -152,7 +112,7 @@ func (builder *StateBuilder) GetInterfaceAltnames(interfaceName string) ([]strin
 
 // GetInterfaceMACAddress returns the mac-address field for the interface from NodeNetworkState current state.
 func (builder *StateBuilder) GetInterfaceMACAddress(interfaceName string) (string, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := builder.validateCurrentState(); err != nil {
 		return "", err
 	}
 
@@ -187,7 +147,7 @@ func (builder *StateBuilder) GetInterfaceMACAddress(interfaceName string) (strin
 
 // GetInterfacePCIAddress returns the pci-address field for the interface from NodeNetworkState current state.
 func (builder *StateBuilder) GetInterfacePCIAddress(interfaceName string) (string, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := builder.validateCurrentState(); err != nil {
 		return "", err
 	}
 
@@ -222,7 +182,7 @@ func (builder *StateBuilder) GetInterfacePCIAddress(interfaceName string) (strin
 
 // GetInterfaceType returns Interface with the given interface name and given type.
 func (builder *StateBuilder) GetInterfaceType(interfaceName, interfaceType string) (NetworkInterface, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := builder.validateCurrentState(); err != nil {
 		return NetworkInterface{}, err
 	}
 
@@ -261,7 +221,7 @@ func (builder *StateBuilder) GetInterfaceType(interfaceName, interfaceType strin
 
 // GetSriovVfs returns all configured VFs  under the given SR-IOV interface.
 func (builder *StateBuilder) GetSriovVfs(sriovInterfaceName string) ([]Vf, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := builder.validateCurrentState(); err != nil {
 		return nil, err
 	}
 
@@ -294,71 +254,19 @@ func (builder *StateBuilder) GetSriovVfs(sriovInterfaceName string) ([]Vf, error
 
 // PullNodeNetworkState retrieves an existing NodeNetworkState object from the cluster.
 func PullNodeNetworkState(apiClient *clients.Settings, name string) (*StateBuilder, error) {
-	klog.V(100).Infof("Pulling NodeNetworkState object name:%s", name)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient cannot be nil")
-
-		return nil, fmt.Errorf("the apiClient cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(nmstateV1beta1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add nmstate v1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	stateBuilder := &StateBuilder{
-		apiClient: apiClient.Client,
-		Object: &nmstateV1beta1.NodeNetworkState{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the NodeNetworkState is empty")
-
-		return nil, fmt.Errorf("nodeNetworkState 'name' cannot be empty")
-	}
-
-	if !stateBuilder.Exists() {
-		return nil, fmt.Errorf("nodeNetworkState object %s does not exist", name)
-	}
-
-	return stateBuilder, nil
+	return common.PullClusterScopedBuilder[nmstateV1beta1.NodeNetworkState, StateBuilder](
+		context.TODO(), apiClient, nmstateV1beta1.AddToScheme, name)
 }
 
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *StateBuilder) validate() (bool, error) {
-	resourceCRD := "NodeNetworkState"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
+// validateCurrentState checks that the builder is valid and has a pulled NodeNetworkState object.
+func (builder *StateBuilder) validateCurrentState() error {
+	if err := common.Validate(builder); err != nil {
+		return err
 	}
 
 	if builder.Object == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
+		return fmt.Errorf("NodeNetworkState object is undefined")
 	}
 
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
+	return nil
 }
