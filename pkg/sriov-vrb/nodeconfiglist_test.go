@@ -1,84 +1,75 @@
 package sriovvrb
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
+	sriovvrbtypes "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/fec/vrbtypes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestVrbNodeConfigList(t *testing.T) {
-	testCases := []struct {
-		apiclient     bool
-		nsname        string
-		options       []client.ListOptions
-		expectedError error
-	}{
-		{
-			apiclient:     true,
-			nsname:        defaultNodeConfigNamespace,
-			options:       []client.ListOptions{},
-			expectedError: nil,
-		},
-		{
-			apiclient: true,
-			nsname:    defaultNodeConfigNamespace,
-			options: []client.ListOptions{
-				{
-					LabelSelector: nil,
-					FieldSelector: nil,
-				},
-			},
-			expectedError: nil,
-		},
-		{
-			apiclient: true,
-			nsname:    defaultNodeConfigNamespace,
-			options: []client.ListOptions{
-				{
-					LabelSelector: nil,
-					FieldSelector: nil,
-				},
-				{
-					LabelSelector: nil,
-					FieldSelector: nil,
-				},
-			},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-		},
-		{
-			apiclient:     false,
-			nsname:        defaultNodeConfigNamespace,
-			options:       []client.ListOptions{},
-			expectedError: fmt.Errorf("failed to list SriovVrbNodeConfig, 'apiClient' parameter is empty"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.apiclient {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  buildDummyNodeConfigList(),
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		testBuilderList, err := ListNodeConfig(testSettings, testCase.nsname, testCase.options...)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, len(buildDummyNodeConfigList()), len(testBuilderList))
-		}
-	}
+	testhelper.NewNamespacedListTestConfig(
+		ListNodeConfig,
+		sriovvrbtypes.AddToScheme,
+		nodeConfigGVK,
+	).ExecuteTests(t)
 }
 
-func buildDummyNodeConfigList() []runtime.Object {
-	return []runtime.Object{
-		buildDummyNodeConfig("worker-0", "test-ns"),
-		buildDummyNodeConfig("worker-1", "test-ns"),
+func TestVrbNodeConfigListWithOptions(t *testing.T) {
+	t.Parallel()
+
+	selector := labels.SelectorFromSet(labels.Set{"selected": "true"})
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects: []runtime.Object{
+			buildNodeConfigWithLabels("selected", defaultNodeConfigNamespace, map[string]string{"selected": "true"}),
+			buildNodeConfigWithLabels("other-namespace", "other-ns", map[string]string{"selected": "true"}),
+			buildNodeConfigWithLabels("unselected", defaultNodeConfigNamespace, nil),
+		},
+		SchemeAttachers: []clients.SchemeAttacher{sriovvrbtypes.AddToScheme},
+	})
+
+	builders, err := ListNodeConfig(
+		testSettings,
+		defaultNodeConfigNamespace,
+		client.ListOptions{Namespace: "ignored", LabelSelector: selector},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, builders, 1)
+	assert.Equal(t, "selected", builders[0].Definition.Name)
+}
+
+func TestVrbNodeConfigListRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
+
+	testSettings := buildNodeConfigTestClient()
+	builders, err := ListNodeConfig(
+		testSettings,
+		defaultNodeConfigNamespace,
+		client.ListOptions{},
+		client.ListOptions{},
+	)
+
+	require.Nil(t, builders)
+	assert.EqualError(t, err, "error: more than one ListOptions was passed")
+}
+
+// buildNodeConfigWithLabels returns a SriovVrbNodeConfig with the provided metadata.
+func buildNodeConfigWithLabels(name, namespace string, nodeLabels map[string]string) *sriovvrbtypes.SriovVrbNodeConfig {
+	return &sriovvrbtypes.SriovVrbNodeConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    nodeLabels,
+		},
 	}
 }
