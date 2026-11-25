@@ -5,523 +5,395 @@ import (
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/kmm/v1beta1"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"github.com/stretchr/testify/require"
 )
 
 var (
-	testSchemesBootModuleConfig = []clients.SchemeAttacher{
-		v1beta1.AddToScheme,
-	}
+	bootModuleConfigGVK = v1beta1.GroupVersion.WithKind("BootModuleConfig")
+
 	defaultBootModuleConfigName      = "testbootmoduleconfig"
 	defaultBootModuleConfigNamespace = "testns"
 )
 
 func TestNewBootModuleConfigBuilder(t *testing.T) {
-	testCases := []struct {
-		name        string
-		namespace   string
-		expectedErr string
-		client      bool
-	}{
-		{
-			name:        defaultBootModuleConfigName,
-			namespace:   defaultBootModuleConfigNamespace,
-			expectedErr: "",
-			client:      true,
-		},
-		{
-			name:        defaultBootModuleConfigName,
-			namespace:   defaultBootModuleConfigNamespace,
-			expectedErr: "",
-			client:      false,
-		},
-		{
-			name:        defaultBootModuleConfigName,
-			namespace:   "",
-			expectedErr: errEmptyBootModuleNamespace,
-			client:      true,
-		},
-		{
-			name:        "",
-			namespace:   defaultBootModuleConfigNamespace,
-			expectedErr: "bootmoduleconfig 'name' cannot be empty",
-			client:      true,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemesBootModuleConfig})
-		}
-
-		testBuilder := NewBootModuleConfigBuilder(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.expectedErr == "" {
-			if testCase.client {
-				assert.NotNil(t, testBuilder)
-				assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-				assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-			} else {
-				assert.Nil(t, testBuilder)
-			}
-		} else {
-			assert.Equal(t, testCase.expectedErr, testBuilder.errorMsg)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewBootModuleConfigBuilder,
+		v1beta1.AddToScheme,
+		bootModuleConfigGVK,
+	).ExecuteTests(t)
 }
 
 func TestBootModuleConfigPull(t *testing.T) {
-	testCases := []struct {
-		name                string
-		namespace           string
-		expectedError       error
-		addToRuntimeObjects bool
-		client              bool
-	}{
-		{
-			name:                "test",
-			namespace:           "testns",
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "testns",
-			expectedError:       fmt.Errorf("bootmoduleconfig 'name' cannot be empty"),
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "test",
-			namespace:           "",
-			expectedError:       fmt.Errorf(errEmptyBootModuleNamespace),
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "test",
-			namespace:           "testns",
-			expectedError:       fmt.Errorf("bootmoduleconfig object test does not exist in namespace testns"),
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-		{
-			name:                "test",
-			namespace:           "testns",
-			expectedError:       fmt.Errorf("bootmoduleconfig 'apiClient' cannot be empty"),
-			addToRuntimeObjects: false,
-			client:              false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, generateBootModuleConfig(testCase.name, testCase.namespace))
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemesBootModuleConfig,
-			})
-		}
-
-		testBuilder, err := PullBootModuleConfig(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.NotNil(t, testBuilder)
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullBootModuleConfig,
+		v1beta1.AddToScheme,
+		bootModuleConfigGVK,
+	).ExecuteTests(t)
 }
 
-func TestBootModuleConfigGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *BootModuleConfigBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyBootModuleNamespace),
-		},
-		{
-			testBuilder:   buildValidBootModuleConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("bootmoduleconfigs.kmm.sigs.x-k8s.io \"testbootmoduleconfig\" not found"),
-		},
-	}
+func TestBootModuleConfigBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		bootmoduleconfig, err := testCase.testBuilder.Get()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.NotNil(t, bootmoduleconfig)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestBootModuleConfigExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder    *BootModuleConfigBuilder
-		expectedStatus bool
-	}{
-		{
-			testBuilder:    buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testBuilder:    buildInValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedStatus: false,
-		},
-		{
-			testBuilder:    buildValidBootModuleConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.expectedStatus, exists)
-	}
-}
-
-func TestBootModuleConfigCreate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *BootModuleConfigBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyBootModuleNamespace),
-		},
-	}
-
-	for _, testCase := range testCases {
-		bootmoduleconfig, err := testCase.testBuilder.Create()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.NotNil(t, bootmoduleconfig)
-			assert.NotNil(t, bootmoduleconfig.Object)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestBootModuleConfigDelete(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *BootModuleConfigBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   buildInValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyBootModuleNamespace),
-		},
-		{
-			testBuilder:   buildValidBootModuleConfigBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		bootmoduleconfig, err := testCase.testBuilder.Delete()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.NotNil(t, bootmoduleconfig)
-			assert.Nil(t, bootmoduleconfig.Object)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestBootModuleConfigUpdate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *BootModuleConfigBuilder
-		expectedError string
-		newKernelName string
-	}{
-		{
-			testBuilder:   buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: "",
-			newKernelName: "newkernelmodule",
-		},
-		{
-			testBuilder:   buildInValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: errEmptyBootModuleNamespace,
-			newKernelName: "newkernelmodule",
-		},
-	}
-
-	for _, testCase := range testCases {
-		// For valid test case, fetch the existing object first
-		if testCase.expectedError == "" {
-			obj, err := testCase.testBuilder.Get()
-			assert.Nil(t, err)
-			assert.NotNil(t, obj)
-			testCase.testBuilder.Definition = obj
-
-			assert.Equal(t, "test-module", testCase.testBuilder.Definition.Spec.KernelModuleName)
-			testCase.testBuilder.Definition.Spec.KernelModuleName = testCase.newKernelName
-		} else {
-			testCase.testBuilder.Definition.Spec.KernelModuleName = testCase.newKernelName
-		}
-
-		bootmoduleconfig, err := testCase.testBuilder.Update()
-
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.NotNil(t, bootmoduleconfig)
-			assert.Equal(t, testCase.newKernelName, bootmoduleconfig.Definition.Spec.KernelModuleName)
-		} else {
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), testCase.expectedError)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(bootModuleConfigCommonTestConfig())).
+		With(testhelper.NewExistsTestConfig(bootModuleConfigCommonTestConfig())).
+		With(testhelper.NewCreateTestConfig(bootModuleConfigCommonTestConfig())).
+		With(testhelper.NewDeleteReturnerTestConfig(bootModuleConfigCommonTestConfig())).
+		With(testhelper.NewUpdateTestConfig(bootModuleConfigCommonTestConfig())).
+		Run(t)
 }
 
 func TestBootModuleConfigWithOptions(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *BootModuleConfigBuilder
-		expectedError error
-		options       BootModuleConfigAdditionalOptions
-	}{
-		{
-			testBuilder:   buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: nil,
-			options: func(builder *BootModuleConfigBuilder) (*BootModuleConfigBuilder, error) {
-				builder.Definition.Spec.WorkerImage = "test-worker-image"
+	t.Parallel()
 
-				return builder, nil
-			},
-		},
-		{
-			testBuilder:   buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject()),
-			expectedError: fmt.Errorf("error adding additional option"),
-			options: func(builder *BootModuleConfigBuilder) (*BootModuleConfigBuilder, error) {
-				return builder, fmt.Errorf("error adding additional option")
-			},
-		},
-	}
+	testhelper.NewWithOptionsTestConfig[
+		v1beta1.BootModuleConfig,
+		BootModuleConfigBuilder,
+		*v1beta1.BootModuleConfig,
+		*BootModuleConfigBuilder,
+		BootModuleConfigAdditionalOptions,
+	](bootModuleConfigCommonTestConfig()).ExecuteTests(t)
+}
 
-	for _, testCase := range testCases {
-		testBuilder := testCase.testBuilder.WithOptions(testCase.options)
+func TestBootModuleConfigWithOptionsAppliesResourceOption(t *testing.T) {
+	t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.NotNil(t, testBuilder)
-			assert.Equal(t, "", testBuilder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), testBuilder.errorMsg)
-		}
-	}
+	testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClient())
+	testBuilder = testBuilder.WithOptions(func(builder *BootModuleConfigBuilder) (*BootModuleConfigBuilder, error) {
+		builder.Definition.Spec.WorkerImage = "test-worker-image"
+
+		return builder, nil
+	})
+
+	require.NoError(t, testBuilder.GetError())
+	assert.Equal(t, "test-worker-image", testBuilder.Definition.Spec.WorkerImage)
 }
 
 func TestBootModuleConfigWithMachineConfigName(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		mcName        string
-		expectedError string
+		name          string
+		value         string
+		valid         bool
+		expectedError error
 	}{
 		{
-			mcName:        "test-machine-config",
-			expectedError: "",
+			name:  "sets machine config name",
+			value: "test-machine-config",
+			valid: true,
 		},
 		{
-			mcName:        "",
-			expectedError: "bootmoduleconfig 'machineConfigName' cannot be empty",
+			name:          "empty machine config name",
+			value:         "",
+			valid:         true,
+			expectedError: fmt.Errorf("bootmoduleconfig 'machineConfigName' cannot be empty"),
+		},
+		{
+			name:  "invalid builder",
+			value: "test-machine-config",
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
-		testBuilder.WithMachineConfigName(testCase.mcName)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.mcName, testBuilder.Definition.Spec.MachineConfigName)
-			assert.Equal(t, "", testBuilder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-		}
+			testBuilder := buildBootModuleConfigBuilderForTestCase(testCase.valid)
+			testBuilder = testBuilder.WithMachineConfigName(testCase.value)
+
+			assertModifierResult(t, testBuilder, testCase.valid, testCase.expectedError,
+				testBuilder.Definition.Spec.MachineConfigName, testCase.value)
+		})
 	}
 }
 
 func TestBootModuleConfigWithMachineConfigPoolName(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		mcpName       string
-		expectedError string
+		name          string
+		value         string
+		valid         bool
+		expectedError error
 	}{
 		{
-			mcpName:       "worker",
-			expectedError: "",
+			name:  "sets machine config pool name",
+			value: "worker",
+			valid: true,
 		},
 		{
-			mcpName:       "",
-			expectedError: "bootmoduleconfig 'machineConfigPoolName' cannot be empty",
+			name:          "empty machine config pool name",
+			value:         "",
+			valid:         true,
+			expectedError: fmt.Errorf("bootmoduleconfig 'machineConfigPoolName' cannot be empty"),
+		},
+		{
+			name:  "invalid builder",
+			value: "worker",
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
-		testBuilder.WithMachineConfigPoolName(testCase.mcpName)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.mcpName, testBuilder.Definition.Spec.MachineConfigPoolName)
-			assert.Equal(t, "", testBuilder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-		}
+			testBuilder := buildBootModuleConfigBuilderForTestCase(testCase.valid)
+			testBuilder = testBuilder.WithMachineConfigPoolName(testCase.value)
+
+			assertModifierResult(t, testBuilder, testCase.valid, testCase.expectedError,
+				testBuilder.Definition.Spec.MachineConfigPoolName, testCase.value)
+		})
 	}
 }
 
 func TestBootModuleConfigWithKernelModuleImage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		image         string
-		expectedError string
+		name          string
+		value         string
+		valid         bool
+		expectedError error
 	}{
 		{
-			image:         "registry.example.com/driver:v1.0",
-			expectedError: "",
+			name:  "sets kernel module image",
+			value: "registry.example.com/driver:v1.0",
+			valid: true,
 		},
 		{
-			image:         "",
-			expectedError: "bootmoduleconfig 'kernelModuleImage' cannot be empty",
+			name:          "empty kernel module image",
+			value:         "",
+			valid:         true,
+			expectedError: fmt.Errorf("bootmoduleconfig 'kernelModuleImage' cannot be empty"),
+		},
+		{
+			name:  "invalid builder",
+			value: "registry.example.com/driver:v1.0",
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
-		testBuilder.WithKernelModuleImage(testCase.image)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.image, testBuilder.Definition.Spec.KernelModuleImage)
-			assert.Equal(t, "", testBuilder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-		}
+			testBuilder := buildBootModuleConfigBuilderForTestCase(testCase.valid)
+			testBuilder = testBuilder.WithKernelModuleImage(testCase.value)
+
+			assertModifierResult(t, testBuilder, testCase.valid, testCase.expectedError,
+				testBuilder.Definition.Spec.KernelModuleImage, testCase.value)
+		})
 	}
 }
 
 func TestBootModuleConfigWithKernelModuleName(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		moduleName    string
-		expectedError string
+		name          string
+		value         string
+		valid         bool
+		expectedError error
 	}{
 		{
-			moduleName:    "my_driver",
-			expectedError: "",
+			name:  "sets kernel module name",
+			value: "my_driver",
+			valid: true,
 		},
 		{
-			moduleName:    "",
-			expectedError: "bootmoduleconfig 'kernelModuleName' cannot be empty",
+			name:          "empty kernel module name",
+			value:         "",
+			valid:         true,
+			expectedError: fmt.Errorf("bootmoduleconfig 'kernelModuleName' cannot be empty"),
+		},
+		{
+			name:  "invalid builder",
+			value: "my_driver",
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
-		testBuilder.WithKernelModuleName(testCase.moduleName)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.moduleName, testBuilder.Definition.Spec.KernelModuleName)
-			assert.Equal(t, "", testBuilder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-		}
+			testBuilder := buildBootModuleConfigBuilderForTestCase(testCase.valid)
+			testBuilder = testBuilder.WithKernelModuleName(testCase.value)
+
+			assertModifierResult(t, testBuilder, testCase.valid, testCase.expectedError,
+				testBuilder.Definition.Spec.KernelModuleName, testCase.value)
+		})
 	}
 }
 
 func TestBootModuleConfigWithInTreeModulesToRemove(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		modules []string
+		name  string
+		value []string
+		valid bool
 	}{
 		{
-			modules: []string{"old_driver", "legacy_module"},
+			name:  "sets modules",
+			value: []string{"old_driver", "legacy_module"},
+			valid: true,
 		},
 		{
-			modules: []string{},
+			name:  "sets empty modules",
+			value: []string{},
+			valid: true,
 		},
 		{
-			modules: nil,
+			name:  "sets nil modules",
+			value: nil,
+			valid: true,
+		},
+		{
+			name:  "invalid builder",
+			value: []string{"old_driver"},
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
-		testBuilder.WithInTreeModulesToRemove(testCase.modules)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.modules, testBuilder.Definition.Spec.InTreeModulesToRemove)
-		assert.Equal(t, "", testBuilder.errorMsg)
+			testBuilder := buildBootModuleConfigBuilderForTestCase(testCase.valid)
+			testBuilder = testBuilder.WithInTreeModulesToRemove(testCase.value)
+
+			assertModifierResult(t, testBuilder, testCase.valid, nil,
+				testBuilder.Definition.Spec.InTreeModulesToRemove, testCase.value)
+		})
 	}
 }
 
 func TestBootModuleConfigWithFirmwareFilesPath(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		path string
+		name  string
+		value string
+		valid bool
 	}{
 		{
-			path: "/lib/firmware",
+			name:  "sets firmware files path",
+			value: "/lib/firmware",
+			valid: true,
 		},
 		{
-			path: "",
+			name:  "sets empty firmware files path",
+			value: "",
+			valid: true,
+		},
+		{
+			name:  "invalid builder",
+			value: "/lib/firmware",
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
-		testBuilder.WithFirmwareFilesPath(testCase.path)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.path, testBuilder.Definition.Spec.FirmwareFilesPath)
-		assert.Equal(t, "", testBuilder.errorMsg)
+			testBuilder := buildBootModuleConfigBuilderForTestCase(testCase.valid)
+			testBuilder = testBuilder.WithFirmwareFilesPath(testCase.value)
+
+			assertModifierResult(t, testBuilder, testCase.valid, nil,
+				testBuilder.Definition.Spec.FirmwareFilesPath, testCase.value)
+		})
 	}
 }
 
 func TestBootModuleConfigWithWorkerImage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		image string
+		name  string
+		value string
+		valid bool
 	}{
 		{
-			image: "registry.example.com/kmm-worker:v1.0",
+			name:  "sets worker image",
+			value: "registry.example.com/kmm-worker:v1.0",
+			valid: true,
 		},
 		{
-			image: "",
+			name:  "sets empty worker image",
+			value: "",
+			valid: true,
+		},
+		{
+			name:  "invalid builder",
+			value: "registry.example.com/kmm-worker:v1.0",
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClientWithDummyObject())
-		testBuilder.WithWorkerImage(testCase.image)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.image, testBuilder.Definition.Spec.WorkerImage)
-		assert.Equal(t, "", testBuilder.errorMsg)
+			testBuilder := buildBootModuleConfigBuilderForTestCase(testCase.valid)
+			testBuilder = testBuilder.WithWorkerImage(testCase.value)
+
+			assertModifierResult(t, testBuilder, testCase.valid, nil,
+				testBuilder.Definition.Spec.WorkerImage, testCase.value)
+		})
+	}
+}
+
+// bootModuleConfigCommonTestConfig creates the shared test configuration for the BootModuleConfig builder.
+func bootModuleConfigCommonTestConfig() testhelper.CommonTestConfig[
+	v1beta1.BootModuleConfig,
+	BootModuleConfigBuilder,
+	*v1beta1.BootModuleConfig,
+	*BootModuleConfigBuilder,
+] {
+	return testhelper.NewCommonTestConfig[
+		v1beta1.BootModuleConfig,
+		BootModuleConfigBuilder,
+	](v1beta1.AddToScheme, bootModuleConfigGVK, testhelper.ResourceScopeNamespaced)
+}
+
+// buildBootModuleConfigBuilderForTestCase returns a valid or invalid builder for modifier tests.
+func buildBootModuleConfigBuilderForTestCase(valid bool) *BootModuleConfigBuilder {
+	if valid {
+		return buildValidBootModuleConfigBuilder(buildBootModuleConfigTestClient())
+	}
+
+	return buildInValidBootModuleConfigBuilder(buildBootModuleConfigTestClient())
+}
+
+// assertModifierResult checks the error and field value after a modifier is applied.
+func assertModifierResult[T any](
+	t *testing.T, testBuilder *BootModuleConfigBuilder, valid bool, expectedError error, actualValue T, expectedValue T) {
+	t.Helper()
+
+	if !valid {
+		require.Error(t, testBuilder.GetError())
+		assert.True(t, commonerrors.IsBuilderNamespaceEmpty(testBuilder.GetError()))
+
+		return
+	}
+
+	assert.Equal(t, expectedError, testBuilder.GetError())
+
+	if expectedError == nil {
+		assert.Equal(t, expectedValue, actualValue)
 	}
 }
 
@@ -543,33 +415,9 @@ func buildInValidBootModuleConfigBuilder(apiClient *clients.Settings) *BootModul
 	)
 }
 
-// buildBootModuleConfigTestClientWithDummyObject returns a test client with a dummy BootModuleConfig object.
-func buildBootModuleConfigTestClientWithDummyObject() *clients.Settings {
+// buildBootModuleConfigTestClient returns a test client with the BootModuleConfig scheme attached.
+func buildBootModuleConfigTestClient() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyBootModuleConfig(),
-		SchemeAttachers: testSchemesBootModuleConfig,
+		SchemeAttachers: []clients.SchemeAttacher{v1beta1.AddToScheme},
 	})
-}
-
-// buildDummyBootModuleConfig returns a slice of runtime.Object with a dummy BootModuleConfig.
-func buildDummyBootModuleConfig() []runtime.Object {
-	return []runtime.Object{
-		generateBootModuleConfig(defaultBootModuleConfigName, defaultBootModuleConfigNamespace),
-	}
-}
-
-// generateBootModuleConfig returns a BootModuleConfig object with the given name and namespace.
-func generateBootModuleConfig(name, nsname string) *v1beta1.BootModuleConfig {
-	return &v1beta1.BootModuleConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: nsname,
-		},
-		Spec: v1beta1.BootModuleConfigSpec{
-			MachineConfigName:     "test-machine-config",
-			MachineConfigPoolName: "test-pool",
-			KernelModuleImage:     "test-image:latest",
-			KernelModuleName:      "test-module",
-		},
-	}
 }
