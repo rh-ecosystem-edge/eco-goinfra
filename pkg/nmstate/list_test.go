@@ -4,139 +4,112 @@ import (
 	"fmt"
 	"testing"
 
+	nmstateV1 "github.com/nmstate/kubernetes-nmstate/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestListPolicy(t *testing.T) {
-	testCases := []struct {
-		testPolicy    []*PolicyBuilder
-		listOptions   []client.ListOptions
-		runtimeObject bool
-		expectedError error
-		client        bool
-	}{
-		{
-			testPolicy:    []*PolicyBuilder{buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())},
-			expectedError: nil,
-			client:        true,
-			runtimeObject: true,
-		},
-		{
-			testPolicy:    []*PolicyBuilder{buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())},
-			expectedError: fmt.Errorf("failed to list sriov networks, 'apiClient' parameter is empty"),
-			client:        false,
-			runtimeObject: true,
-		},
-		{
-			testPolicy:    []*PolicyBuilder{buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())},
-			listOptions:   []client.ListOptions{{Continue: "test"}},
-			client:        true,
-			runtimeObject: true,
-		},
-		{
-			testPolicy:    []*PolicyBuilder{buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())},
-			listOptions:   []client.ListOptions{{Continue: "test"}, {Namespace: "test"}},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
-			runtimeObject: true,
-		},
-		{
-			testPolicy:    []*PolicyBuilder{},
-			expectedError: nil,
-			client:        true,
-			runtimeObject: false,
-		},
-	}
-	for _, testCase := range testCases {
-		var (
-			testSettings   *clients.Settings
-			runtimeObjects []runtime.Object
-		)
+	t.Parallel()
 
-		if testCase.runtimeObject {
-			runtimeObjects = buildDummyPolicyObject()
-		}
+	testhelper.NewListTestConfig(ListPolicy, nmstateV1.AddToScheme, policyGVK).ExecuteTests(t)
+}
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: v1TestSchemes,
-			})
-		}
+func TestListPolicyRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		netBuilders, err := ListPolicy(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
+	testSettings := clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{nmstateV1.AddToScheme},
+	})
 
-		if testCase.expectedError == nil && len(testCase.listOptions) == 0 {
-			assert.Equal(t, len(netBuilders), len(testCase.testPolicy))
-		}
-	}
+	builders, err := ListPolicy(testSettings, client.ListOptions{}, client.ListOptions{})
+
+	assert.EqualError(t, err, "error: more than one ListOptions was passed")
+	assert.Empty(t, builders)
 }
 
 func TestCleanAllNMStatePolicies(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testPolicy    []*PolicyBuilder
-		listOptions   []client.ListOptions
-		runtimeObject bool
-		expectedError error
-		client        bool
+		name                 string
+		listOptions          []client.ListOptions
+		runtimeObject        bool
+		client               bool
+		expectedError        error
+		expectAPIClientError bool
 	}{
 		{
-			testPolicy:    []*PolicyBuilder{buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())},
-			expectedError: nil,
+			name:          "deletes existing resources",
+			runtimeObject: true,
 			client:        true,
-			runtimeObject: true,
 		},
 		{
-			testPolicy:    []*PolicyBuilder{buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())},
-			expectedError: fmt.Errorf("failed to list sriov networks, 'apiClient' parameter is empty"),
-			client:        false,
-			runtimeObject: true,
+			name:                 "nil client",
+			runtimeObject:        true,
+			expectAPIClientError: true,
 		},
 		{
-			testPolicy:    []*PolicyBuilder{buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())},
+			name:          "single list option",
 			listOptions:   []client.ListOptions{{Continue: "test"}},
-			client:        true,
 			runtimeObject: true,
+			client:        true,
 		},
 		{
-			testPolicy:    []*PolicyBuilder{buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())},
+			name:          "multiple list options",
 			listOptions:   []client.ListOptions{{Continue: "test"}, {Namespace: "test"}},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
 			runtimeObject: true,
+			client:        true,
+			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
 		},
 		{
-			testPolicy:    []*PolicyBuilder{},
-			expectedError: nil,
-			client:        true,
-			runtimeObject: false,
+			name:   "no resources",
+			client: true,
 		},
 	}
+
 	for _, testCase := range testCases {
-		var (
-			testSettings   *clients.Settings
-			runtimeObjects []runtime.Object
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.runtimeObject {
-			runtimeObjects = buildDummyPolicyObject()
-		}
+			var (
+				testSettings   *clients.Settings
+				runtimeObjects []runtime.Object
+			)
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: v1TestSchemes,
-			})
-		}
+			if testCase.runtimeObject {
+				runtimeObjects = buildDummyPolicyObject()
+			}
 
-		err := CleanAllNMStatePolicies(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
-		netBuilders, err := ListPolicy(testSettings, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
-		assert.Equal(t, len(netBuilders), 0)
+			if testCase.client {
+				testSettings = clients.GetTestClients(clients.TestClientParams{
+					K8sMockObjects:  runtimeObjects,
+					SchemeAttachers: v1TestSchemes,
+				})
+			}
+
+			err := CleanAllNMStatePolicies(testSettings, testCase.listOptions...)
+			if testCase.expectAPIClientError {
+				require.Error(t, err)
+				assert.True(t, commonerrors.IsAPIClientNil(err), "expected a nil API client error, got %v", err)
+
+				return
+			}
+
+			assert.Equal(t, testCase.expectedError, err)
+
+			if testCase.expectedError != nil {
+				return
+			}
+
+			builders, err := ListPolicy(testSettings, testCase.listOptions...)
+			assert.NoError(t, err)
+			assert.Empty(t, builders)
+		})
 	}
 }
