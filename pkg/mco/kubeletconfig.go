@@ -1,204 +1,67 @@
 package mco
 
 import (
+	"context"
 	"fmt"
-
-	"k8s.io/apimachinery/pkg/runtime"
 
 	mcv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
-	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	errEmptyKubeletConfigName = "kubeletconfig 'name' cannot be empty"
-	errEmptyKey               = "'key' cannot be empty"
-)
+const errEmptyKey = "'key' cannot be empty"
+
+var kubeletConfigGVK = mcv1.GroupVersion.WithKind("KubeletConfig")
 
 // KubeletConfigBuilder provides struct for KubeletConfig Object which contains connection to cluster
 // and KubeletConfig definitions.
 type KubeletConfigBuilder struct {
-	// KubeletConfig definition. Used to create KubeletConfig object with minimum set of required elements.
-	Definition *mcv1.KubeletConfig
-	// Created KubeletConfig object on the cluster.
-	Object *mcv1.KubeletConfig
-	// api client to interact with the cluster.
-	apiClient runtimeclient.Client
-	// errorMsg is processed before KubeletConfig object is created.
-	errorMsg string
+	common.EmbeddableBuilder[mcv1.KubeletConfig, *mcv1.KubeletConfig]
+	common.EmbeddableWithOptions[
+		mcv1.KubeletConfig, KubeletConfigBuilder, *mcv1.KubeletConfig, *KubeletConfigBuilder, AdditionalOptions]
+	common.EmbeddableCreator[mcv1.KubeletConfig, KubeletConfigBuilder, *mcv1.KubeletConfig, *KubeletConfigBuilder]
+	common.EmbeddableDeleter[mcv1.KubeletConfig, *mcv1.KubeletConfig]
 }
 
 // AdditionalOptions for kubeletconfig object.
 type AdditionalOptions func(builder *KubeletConfigBuilder) (*KubeletConfigBuilder, error)
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *KubeletConfigBuilder) AttachMixins() {
+	builder.EmbeddableWithOptions.SetBase(builder)
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+}
+
+// GetGVK returns the KubeletConfig GVK for this builder.
+func (builder *KubeletConfigBuilder) GetGVK() schema.GroupVersionKind {
+	return kubeletConfigGVK
+}
 
 // NewKubeletConfigBuilder provides struct for KubeletConfig object which contains connection to cluster
 // and KubeletConfig definition.
 func NewKubeletConfigBuilder(apiClient *clients.Settings, name string) *KubeletConfigBuilder {
 	klog.V(100).Infof("Initializing new KubeletConfigBuilder structure with the name: %s", name)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient of the KubeletConfig is nil")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(mcv1.Install)
-	if err != nil {
-		klog.V(100).Info("Failed to add machineconfig v1 scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &KubeletConfigBuilder{
-		apiClient: apiClient,
-		Definition: &mcv1.KubeletConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the KubeletConfig is empty")
-
-		builder.errorMsg = errEmptyKubeletConfigName
-
-		return builder
-	}
-
-	return builder
+	return common.NewClusterScopedBuilder[mcv1.KubeletConfig, KubeletConfigBuilder](apiClient, mcv1.Install, name)
 }
 
 // PullKubeletConfig fetches existing kubeletconfig from cluster.
 func PullKubeletConfig(apiClient *clients.Settings, name string) (*KubeletConfigBuilder, error) {
 	klog.V(100).Infof("Pulling existing kubeletconfig name %s from cluster", name)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient of the KubeletConfig is nil")
-
-		return nil, fmt.Errorf("kubeletconfig 'apiClient' cannot be nil")
-	}
-
-	err := apiClient.AttachScheme(mcv1.Install)
-	if err != nil {
-		klog.V(100).Info("Failed to add machineconfig v1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &KubeletConfigBuilder{
-		apiClient: apiClient,
-		Definition: &mcv1.KubeletConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the kubeletconfig is empty")
-
-		return nil, fmt.Errorf(errEmptyKubeletConfigName)
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("kubeletconfig object %s does not exist", name)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Get returns the KubeletConfig object if found.
-func (builder *KubeletConfigBuilder) Get() (*mcv1.KubeletConfig, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting KubeletConfig object %s", builder.Definition.Name)
-
-	kubeletConfig := &mcv1.KubeletConfig{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), runtimeclient.ObjectKey{Name: builder.Definition.Name}, kubeletConfig)
-	if err != nil {
-		klog.V(100).Infof("KubeletConfig object %s does not exist", builder.Definition.Name)
-
-		return nil, err
-	}
-
-	return kubeletConfig, nil
-}
-
-// Create generates a kubeletconfig in the cluster and stores the created object in struct.
-func (builder *KubeletConfigBuilder) Create() (*KubeletConfigBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating KubeletConfig %s", builder.Definition.Name)
-
-	var err error
-	if !builder.Exists() {
-		err := builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err == nil {
-			builder.Object = builder.Definition
-		}
-	}
-
-	return builder, err
-}
-
-// Delete removes the kubeletconfig.
-func (builder *KubeletConfigBuilder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting the kubeletconfig object %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("KubeletConfig %s cannot be deleted because it does not exist", builder.Definition.Name)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Object)
-	if err != nil {
-		return fmt.Errorf("cannot delete kubeletconfig: %w", err)
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
-// Exists checks whether the given kubeletconfig exists.
-func (builder *KubeletConfigBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if the kubeletconfig object %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
+	return common.PullClusterScopedBuilder[mcv1.KubeletConfig, KubeletConfigBuilder](
+		context.TODO(), apiClient, mcv1.Install, name)
 }
 
 // WithMCPoolSelector redefines kubeletconfig definition with the given machineConfigPoolSelector field.
 func (builder *KubeletConfigBuilder) WithMCPoolSelector(key, value string) *KubeletConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -207,7 +70,7 @@ func (builder *KubeletConfigBuilder) WithMCPoolSelector(key, value string) *Kube
 	if key == "" {
 		klog.V(100).Info("The key cannot be empty")
 
-		builder.errorMsg = errEmptyKey
+		builder.SetError(fmt.Errorf(errEmptyKey))
 
 		return builder
 	}
@@ -227,7 +90,7 @@ func (builder *KubeletConfigBuilder) WithMCPoolSelector(key, value string) *Kube
 
 // WithSystemReserved redefines kubeletconfig definition with the given systemreserved fields.
 func (builder *KubeletConfigBuilder) WithSystemReserved(cpu, memory string) *KubeletConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -237,7 +100,7 @@ func (builder *KubeletConfigBuilder) WithSystemReserved(cpu, memory string) *Kub
 	if cpu == "" {
 		klog.V(100).Info("The cpu cannot be empty")
 
-		builder.errorMsg = "'cpu' cannot be empty"
+		builder.SetError(fmt.Errorf("'cpu' cannot be empty"))
 
 		return builder
 	}
@@ -245,7 +108,7 @@ func (builder *KubeletConfigBuilder) WithSystemReserved(cpu, memory string) *Kub
 	if memory == "" {
 		klog.V(100).Info("The memory cannot be empty")
 
-		builder.errorMsg = "'memory' cannot be empty"
+		builder.SetError(fmt.Errorf("'memory' cannot be empty"))
 
 		return builder
 	}
@@ -264,58 +127,4 @@ func (builder *KubeletConfigBuilder) WithSystemReserved(cpu, memory string) *Kub
 	builder.Definition.Spec.KubeletConfig.Object = systemReservedKubeletConfiguration
 
 	return builder
-}
-
-// WithOptions creates the kubeletconfig with generic mutation options.
-func (builder *KubeletConfigBuilder) WithOptions(options ...AdditionalOptions) *KubeletConfigBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting kubeletconfig additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
-func (builder *KubeletConfigBuilder) validate() (bool, error) {
-	resourceCRD := "KubeletConfig"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
