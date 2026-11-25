@@ -1,12 +1,14 @@
 package metallb
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	mlbtypes "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/metallb/mlboperator"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -16,386 +18,308 @@ var (
 	mlbTestSchemes = []clients.SchemeAttacher{
 		mlbtypes.AddToScheme,
 	}
+	metalLbGVK                 = mlbtypes.GroupVersion.WithKind("MetalLB")
 	defaultMetalLbName         = "metallbio"
 	defaultMetalLbNsName       = "test-namespace"
 	defaultMetalLbNodeSelector = map[string]string{"test": "test"}
 )
 
-func TestMetalLbPull(t *testing.T) {
-	generateMetalLb := func(name, namespace string) *mlbtypes.MetalLB {
-		return &mlbtypes.MetalLB{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: mlbtypes.MetalLBSpec{},
-		}
-	}
-
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                "metallbio",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf(errEmptyMetallbName),
-			client:              true,
-		},
-		{
-			name:                "metallbio",
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("metallb 'nsname' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "metallbio",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: false,
-			expectedError:       fmt.Errorf("metallb object metallbio does not exist in namespace test-namespace"),
-			client:              true,
-		},
-		{
-			name:                "metallbio",
-			namespace:           "test-namespace",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("metallb 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testMetalLb := generateMetalLb(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testMetalLb)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: mlbTestSchemes,
-			})
-		}
-
-		builderResult, err := Pull(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, builderResult.Object.Name)
-			assert.Equal(t, testCase.namespace, builderResult.Object.Namespace)
-		}
-	}
-}
-
 func TestMetalLbNewBuilder(t *testing.T) {
-	generateMetalLb := NewBuilder
+	t.Parallel()
+
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
+
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *Builder {
+				return NewBuilder(apiClient, name, nsname, defaultMetalLbNodeSelector)
+			},
+			mlbtypes.AddToScheme,
+			metalLbGVK,
+		).ExecuteTests(t)
+	})
 
 	testCases := []struct {
 		name          string
-		namespace     string
-		label         map[string]string
-		expectedError string
-	}{
-		{
-			name:          "metallbio",
-			namespace:     "test-namespace",
-			label:         map[string]string{"test": "test"},
-			expectedError: "",
-		},
-		{
-			name:          "",
-			namespace:     "test-namespace",
-			label:         map[string]string{"test": "test"},
-			expectedError: errEmptyMetallbName,
-		},
-		{
-			name:          "metallbio",
-			namespace:     "",
-			label:         map[string]string{"test": "test"},
-			expectedError: "metallb 'nsname' cannot be empty",
-		},
-		{
-			name:          "metallbio",
-			namespace:     "test-namespace",
-			label:         map[string]string{},
-			expectedError: "metallb 'nodeSelector' cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			SchemeAttachers: mlbTestSchemes,
-		})
-		testMetalLbBuilder := generateMetalLb(testSettings, testCase.name, testCase.namespace, testCase.label)
-		assert.Equal(t, testCase.expectedError, testMetalLbBuilder.errorMsg)
-		assert.NotNil(t, testMetalLbBuilder.Definition)
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.name, testMetalLbBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testMetalLbBuilder.Definition.Namespace)
-		}
-	}
-}
-
-func TestMetalLbExist(t *testing.T) {
-	testCases := []struct {
-		testMetalLb    *Builder
-		expectedStatus bool
-	}{
-		{
-			testMetalLb:    buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedStatus: true,
-		},
-		{
-			testMetalLb:    buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.testMetalLb.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
-
-func TestMetalLbGet(t *testing.T) {
-	testCases := []struct {
-		testMetalLb   *Builder
-		expectedError error
-	}{
-		{
-			testMetalLb:   buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testMetalLb:   buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyMetallbName),
-		},
-	}
-
-	for _, testCase := range testCases {
-		metalLb, err := testCase.testMetalLb.Get()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, metalLb.Name, testCase.testMetalLb.Definition.Name)
-		}
-	}
-}
-
-func TestMetalLbCreate(t *testing.T) {
-	testCases := []struct {
-		testMetalLb   *Builder
-		expectedError error
-	}{
-		{
-			testMetalLb:   buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testMetalLb:   buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyMetallbName),
-		},
-	}
-
-	for _, testCase := range testCases {
-		testMetalLbBuilder, err := testCase.testMetalLb.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testMetalLbBuilder.Definition.Name, testMetalLbBuilder.Object.Name)
-		}
-	}
-}
-
-func TestMetalLbDelete(t *testing.T) {
-	testCases := []struct {
-		testMetalLb   *Builder
-		expectedError error
-	}{
-		{
-			testMetalLb:   buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: nil,
-		},
-		{
-			testMetalLb:   buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyMetallbName),
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testMetalLb.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testMetalLb.Object)
-		}
-	}
-}
-
-func TestMetalLbUpdate(t *testing.T) {
-	testCases := []struct {
-		testMetalLb   *Builder
-		expectedError error
+		builderName   string
 		nodeSelector  map[string]string
+		assertBuilder func(t *testing.T, builder *Builder)
 	}{
 		{
-			testMetalLb:   buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: nil,
-			nodeSelector:  map[string]string{"test2": "test2"},
+			name:         "valid node selector",
+			builderName:  defaultMetalLbName,
+			nodeSelector: defaultMetalLbNodeSelector,
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				require.NoError(t, builder.GetError())
+				assert.Equal(t, defaultMetalLbNodeSelector, builder.Definition.Spec.SpeakerNodeSelector)
+			},
 		},
 		{
-			testMetalLb:   buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: fmt.Errorf(errEmptyMetallbName),
-			nodeSelector:  map[string]string{"test2": "test2"},
+			name:         "empty node selector returns error",
+			builderName:  defaultMetalLbName,
+			nodeSelector: map[string]string{},
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				assert.EqualError(t, builder.GetError(), "metallb 'nodeSelector' cannot be empty")
+			},
+		},
+		{
+			name:         "nil node selector returns error",
+			builderName:  defaultMetalLbName,
+			nodeSelector: nil,
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				assert.EqualError(t, builder.GetError(), "metallb 'nodeSelector' cannot be empty")
+			},
+		},
+		{
+			name:         "common validation happens before node selector validation",
+			builderName:  "",
+			nodeSelector: nil,
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		assert.Equal(t, defaultMetalLbNodeSelector, testCase.testMetalLb.Definition.Spec.SpeakerNodeSelector)
-		assert.Nil(t, nil, testCase.testMetalLb.Object)
-		testCase.testMetalLb.WithSpeakerNodeSelector(testCase.nodeSelector)
-		_, err := testCase.testMetalLb.Update(false)
-		assert.Equal(t, testCase.expectedError, err)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.nodeSelector, testCase.testMetalLb.Definition.Spec.SpeakerNodeSelector)
-		}
+			testSettings := clients.GetTestClients(clients.TestClientParams{
+				SchemeAttachers: mlbTestSchemes,
+			})
+			testBuilder := NewBuilder(
+				testSettings, testCase.builderName, defaultMetalLbNsName, testCase.nodeSelector)
+
+			require.NotNil(t, testBuilder)
+			testCase.assertBuilder(t, testBuilder)
+		})
 	}
+}
+
+func TestMetalLbPull(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedPullTestConfig(
+		Pull, mlbtypes.AddToScheme, metalLbGVK,
+	).ExecuteTests(t)
+}
+
+func TestMetalLbBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[mlbtypes.MetalLB, Builder](
+		mlbtypes.AddToScheme,
+		metalLbGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
+}
+
+func TestMetalLbWithOptions(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := testhelper.NewCommonTestConfig[mlbtypes.MetalLB, Builder](
+		mlbtypes.AddToScheme,
+		metalLbGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
+
+	testhelper.NewWithOptionsTestConfig(commonTestConfig).ExecuteTests(t)
 }
 
 func TestMetalLbRemoveLabel(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testMetalLb   *Builder
+		name          string
+		valid         bool
 		key           string
-		expectedError string
+		assertBuilder func(t *testing.T, builder *Builder)
 	}{
 		{
-			testMetalLb:   buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: "",
-			key:           "test",
+			name:  "removes existing key",
+			valid: true,
+			key:   "test",
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				require.NoError(t, builder.GetError())
+				assert.Empty(t, builder.Definition.Spec.SpeakerNodeSelector)
+			},
 		},
 		{
-			testMetalLb:   buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: "error to remove empty key from metalLbIo",
-			key:           "",
+			name:  "empty key returns error",
+			valid: true,
+			key:   "",
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				assert.EqualError(t, builder.GetError(), "error to remove empty key from metalLbIo")
+			},
 		},
 		{
-			testMetalLb:   buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: errEmptyMetallbName,
-			key:           "",
+			name:  "invalid builder short circuits",
+			valid: false,
+			key:   "test",
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		assert.Equal(t, defaultMetalLbNodeSelector, testCase.testMetalLb.Definition.Spec.SpeakerNodeSelector)
-		assert.Nil(t, nil, testCase.testMetalLb.Object)
-		metalLbBuilder := testCase.testMetalLb.RemoveLabel(testCase.key)
-		assert.Equal(t, testCase.expectedError, metalLbBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, map[string]string{}, metalLbBuilder.Definition.Spec.SpeakerNodeSelector)
-		}
+			testSettings := buildMetalLbTestClientWithDummyObject()
+			testBuilder := buildBuilderForModifierTest(testSettings, testCase.valid)
+			testBuilder.RemoveLabel(testCase.key)
+
+			testCase.assertBuilder(t, testBuilder)
+		})
 	}
 }
 
 func TestMetalLbWithSpeakerNodeSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testMetalLb         *Builder
-		speakerNodeSelector map[string]string
-		expectedError       string
+		name          string
+		valid         bool
+		nodeSelector  map[string]string
+		assertBuilder func(t *testing.T, builder *Builder)
 	}{
 		{
-			testMetalLb:         buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError:       "",
-			speakerNodeSelector: map[string]string{"node": "nodes"},
+			name:         "sets speaker node selector",
+			valid:        true,
+			nodeSelector: map[string]string{"node": "nodes"},
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				require.NoError(t, builder.GetError())
+				assert.Equal(t, map[string]string{"node": "nodes"}, builder.Definition.Spec.SpeakerNodeSelector)
+			},
 		},
 		{
-			testMetalLb:         buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError:       "can not accept empty label and redefine metallb NodeSelector",
-			speakerNodeSelector: map[string]string{},
+			name:         "empty selector returns error",
+			valid:        true,
+			nodeSelector: map[string]string{},
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				assert.EqualError(
+					t, builder.GetError(), "can not accept empty label and redefine metallb NodeSelector")
+			},
 		},
 		{
-			testMetalLb:         buildInValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError:       errEmptyMetallbName,
-			speakerNodeSelector: map[string]string{"node": "nodes"},
+			name:         "invalid builder short circuits",
+			valid:        false,
+			nodeSelector: map[string]string{"node": "nodes"},
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		assert.Equal(t, defaultMetalLbNodeSelector, testCase.testMetalLb.Definition.Spec.SpeakerNodeSelector)
-		metalLbBuilder := testCase.testMetalLb.WithSpeakerNodeSelector(testCase.speakerNodeSelector)
-		assert.Equal(t, testCase.expectedError, metalLbBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, metalLbBuilder.Definition.Spec.SpeakerNodeSelector, testCase.speakerNodeSelector)
-		}
+			testSettings := buildMetalLbTestClientWithDummyObject()
+			testBuilder := buildBuilderForModifierTest(testSettings, testCase.valid)
+			testBuilder.WithSpeakerNodeSelector(testCase.nodeSelector)
+
+			testCase.assertBuilder(t, testBuilder)
+		})
 	}
-}
-
-func TestMetalLbWithOptions(t *testing.T) {
-	testSettings := buildMetalLbTestClientWithDummyObject()
-	testBuilder := buildValidMetalLbBuilder(testSettings).WithOptions(
-		func(builder *Builder) (*Builder, error) {
-			return builder, nil
-		})
-
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidMetalLbBuilder(testSettings).WithOptions(
-		func(builder *Builder) (*Builder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
 }
 
 func TestMetalLbWithFRRConfigAlwaysBlock(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testMetalLb   *Builder
+		name          string
+		valid         bool
 		prefixes      []string
-		expectedError string
+		assertBuilder func(t *testing.T, builder *Builder)
 	}{
 		{
-			testMetalLb:   buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: "",
-			prefixes:      []string{"192.168.1.0/24"},
+			name:     "sets always block prefixes",
+			valid:    true,
+			prefixes: []string{"192.168.1.0/24"},
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				require.NoError(t, builder.GetError())
+				require.NotNil(t, builder.Definition.Spec.FRRK8SConfig)
+				assert.Equal(t, []string{"192.168.1.0/24"}, builder.Definition.Spec.FRRK8SConfig.AlwaysBlock)
+			},
 		},
 		{
-			testMetalLb:   buildValidMetalLbBuilder(buildMetalLbTestClientWithDummyObject()),
-			expectedError: "the prefix 192.168.1. is not a valid CIDR",
-			prefixes:      []string{"192.168.1."},
+			name:     "empty prefixes returns error",
+			valid:    true,
+			prefixes: nil,
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				assert.EqualError(
+					t, builder.GetError(), "can not accept empty prefix list for the metallb alwaysBlock mode")
+			},
+		},
+		{
+			name:     "invalid CIDR returns error",
+			valid:    true,
+			prefixes: []string{"192.168.1."},
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				assert.EqualError(t, builder.GetError(), "the prefix 192.168.1. is not a valid CIDR")
+			},
+		},
+		{
+			name:     "invalid builder short circuits",
+			valid:    false,
+			prefixes: []string{"192.168.1.0/24"},
+			assertBuilder: func(t *testing.T, builder *Builder) {
+				t.Helper()
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
-		assert.Equal(t, defaultMetalLbNodeSelector, testCase.testMetalLb.Definition.Spec.SpeakerNodeSelector)
-		metalLbBuilder := testCase.testMetalLb.WithFRRConfigAlwaysBlock(testCase.prefixes)
-		assert.Equal(t, testCase.expectedError, metalLbBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			testSettings := buildMetalLbTestClientWithDummyObject()
+			testBuilder := buildBuilderForModifierTest(testSettings, testCase.valid)
+			testBuilder.WithFRRConfigAlwaysBlock(testCase.prefixes)
+
+			testCase.assertBuilder(t, testBuilder)
+		})
 	}
 }
 
 func TestGetMetalLbIoGVR(t *testing.T) {
-	assert.Equal(t, GetMetalLbIoGVR(),
-		schema.GroupVersionResource{
-			Group: APIGroup, Version: APIVersion, Resource: "metallbs",
-		})
+	t.Parallel()
+
+	assert.Equal(t, GetMetalLbIoGVR(), schema.GroupVersionResource{
+		Group: APIGroup, Version: APIVersion, Resource: "metallbs",
+	})
+}
+
+func buildBuilderForModifierTest(apiClient *clients.Settings, valid bool) *Builder {
+	if valid {
+		return buildValidMetalLbBuilder(apiClient)
+	}
+
+	return buildInValidMetalLbBuilder(apiClient)
 }
 
 func buildValidMetalLbBuilder(apiClient *clients.Settings) *Builder {
@@ -404,8 +328,7 @@ func buildValidMetalLbBuilder(apiClient *clients.Settings) *Builder {
 }
 
 func buildInValidMetalLbBuilder(apiClient *clients.Settings) *Builder {
-	return NewBuilder(
-		apiClient, "", defaultMetalLbNsName, defaultMetalLbNodeSelector)
+	return NewBuilder(apiClient, "", defaultMetalLbNsName, defaultMetalLbNodeSelector)
 }
 
 func buildMetalLbTestClientWithDummyObject() *clients.Settings {
