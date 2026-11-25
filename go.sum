@@ -463,8 +463,8 @@ github.com/openshift/local-storage-operator v0.0.0-20261002135716-3e6582a04c6b h
 github.com/openshift/local-storage-operator v0.0.0-20261002135716-3e6582a04c6b/go.mod h1:iGxu6N8oJGvU2BHEM7mFE4m6/Brf9VVP0oP6g2dapAE=
 github.com/openshift/ptp-operator v0.0.0-20261023023103-cbe73c6129a9 h1:j33lcOXarhm//+kMIKT6GtwMxanxQp/RqaE8azXUURY=
 github.com/openshift/ptp-operator v0.0.0-20261023023103-cbe73c6129a9/go.mod h1:MlgstLNLgOBuVFCRKJWquh8Fgb8fnFH1n5r2AUWa9oI=
-github.com/openshift/sriov-network-operator v0.0.0-20260923181747-4d6a7b26cbe2 h1:3PMX9vfZEZFkyMZ90tQF7XO0lLioKIOSIYsZPYIBqNs=
-github.com/openshift/sriov-network-operator v0.0.0-20260923181747-4d6a7b26cbe2/go.mod h1:KLVy06f6h02foLxEmttATrcb1LwadbbvwpB88FzniHI=
+github.com/openshift/sriov-network-operator v0.0.0-20261110110630-2dc04db94a9d h1:kNpgt9rX2dz2cYVFhEF35SLNmQUSROVy3FBXcmE5irc=
+github.com/openshift/sriov-network-operator v0.0.0-20261110110630-2dc04db94a9d/go.mod h1:HAOngKRADTv/0x72rR6guHEwqwEP/e92QU2mpcYjSFk=
 github.com/ovn-kubernetes/ovn-kubernetes/go-controller v0.0.0-20261105142609-aff0217cc4cc h1:dZIKCtEe7CrIEry4G2izLPuGIur/s0EOWRAC7KmbS9o=
 github.com/ovn-kubernetes/ovn-kubernetes/go-controller v0.0.0-20261105142609-aff0217cc4cc/go.mod h1:j0cG+ngJKCJnIgm3WNkEwRXO1nZ4Upt/4J3ptLE67m8=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
