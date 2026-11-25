@@ -1,40 +1,50 @@
 package kmm
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	moduleV1Beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/kmm/v1beta1"
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	errEmptyModuleNamespace       = "module 'namespace' cannot be empty"
 	errNilContainer               = "invalid 'container' argument can not be nil"
 	canNotRedefineModuleWithEmpty = "can not redefine module with empty ServiceAccount"
 )
 
+var moduleGVK = moduleV1Beta1.GroupVersion.WithKind("Module")
+
 // ModuleBuilder provides struct for the module object containing connection to
 // the cluster and the module definitions.
 type ModuleBuilder struct {
-	// Module definition. Used to create a Module object.
-	Definition *moduleV1Beta1.Module
-	// Created Module object.
-	Object *moduleV1Beta1.Module
-	// Used in functions that define or mutate Module definition. errorMsg is processed before the Module
-	// object is created.
-	apiClient goclient.Client
-	errorMsg  string
+	common.EmbeddableBuilder[moduleV1Beta1.Module, *moduleV1Beta1.Module]
+	common.EmbeddableCreator[moduleV1Beta1.Module, ModuleBuilder, *moduleV1Beta1.Module, *ModuleBuilder]
+	common.EmbeddableDeleteReturner[moduleV1Beta1.Module, ModuleBuilder, *moduleV1Beta1.Module, *ModuleBuilder]
+	common.EmbeddableUpdater[moduleV1Beta1.Module, ModuleBuilder, *moduleV1Beta1.Module, *ModuleBuilder]
+	common.EmbeddableWithOptions[
+		moduleV1Beta1.Module, ModuleBuilder, *moduleV1Beta1.Module, *ModuleBuilder, ModuleAdditionalOptions]
 }
 
 // ModuleAdditionalOptions additional options for module object.
 type ModuleAdditionalOptions func(builder *ModuleBuilder) (*ModuleBuilder, error)
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *ModuleBuilder) AttachMixins() {
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleteReturner.SetBase(builder)
+	builder.EmbeddableUpdater.SetBase(builder)
+	builder.EmbeddableWithOptions.SetBase(builder)
+}
+
+// GetGVK returns the Module GVK for this builder.
+func (builder *ModuleBuilder) GetGVK() schema.GroupVersionKind {
+	return moduleGVK
+}
 
 // NewModuleBuilder creates a new instance of ModuleBuilder.
 func NewModuleBuilder(
@@ -42,51 +52,13 @@ func NewModuleBuilder(
 	klog.V(100).Infof(
 		"Initializing new Module structure with following params: %s, %s", name, nsname)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil
-	}
-
-	err := apiClient.AttachScheme(moduleV1Beta1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add module v1beta1 scheme to client schemes")
-
-		return nil
-	}
-
-	builder := &ModuleBuilder{
-		apiClient: apiClient.Client,
-		Definition: &moduleV1Beta1.Module{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the Module is empty")
-
-		builder.errorMsg = "module 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the module is empty")
-
-		builder.errorMsg = errEmptyModuleNamespace
-
-		return builder
-	}
-
-	return builder
+	return common.NewNamespacedBuilder[moduleV1Beta1.Module, ModuleBuilder](
+		apiClient, moduleV1Beta1.AddToScheme, name, nsname)
 }
 
 // WithNodeSelector adds the specified NodeSelector to the Module.
 func (builder *ModuleBuilder) WithNodeSelector(nodeSelector map[string]string) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -97,7 +69,8 @@ func (builder *ModuleBuilder) WithNodeSelector(nodeSelector map[string]string) *
 	if len(nodeSelector) == 0 {
 		klog.V(100).Info("Can not redefine Module with empty nodeSelector map")
 
-		builder.errorMsg = "Module 'nodeSelector' cannot be empty map"
+		//nolint:staticcheck // Preserve the package-specific error string.
+		builder.SetError(fmt.Errorf("Module 'nodeSelector' cannot be empty map"))
 
 		return builder
 	}
@@ -109,7 +82,7 @@ func (builder *ModuleBuilder) WithNodeSelector(nodeSelector map[string]string) *
 
 // WithLoadServiceAccount adds the specified Load ServiceAccount to the Module.
 func (builder *ModuleBuilder) WithLoadServiceAccount(srvAccountName string) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -122,7 +95,7 @@ func (builder *ModuleBuilder) WithLoadServiceAccount(srvAccountName string) *Mod
 
 // WithDevicePluginServiceAccount adds the specified Device Plugin ServiceAccount to the Module.
 func (builder *ModuleBuilder) WithDevicePluginServiceAccount(srvAccountName string) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -135,12 +108,12 @@ func (builder *ModuleBuilder) WithDevicePluginServiceAccount(srvAccountName stri
 
 // WithImageRepoSecret adds the specific ImageRepoSecret to the Module.
 func (builder *ModuleBuilder) WithImageRepoSecret(imageRepoSecret string) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if imageRepoSecret == "" {
-		builder.errorMsg = "can not redefine module with empty imageRepoSecret"
+		builder.SetError(fmt.Errorf("can not redefine module with empty imageRepoSecret"))
 
 		return builder
 	}
@@ -155,7 +128,7 @@ func (builder *ModuleBuilder) WithImageRepoSecret(imageRepoSecret string) *Modul
 // (SA token, CA files) will not be auto-mounted into the device plugin pod.
 func (builder *ModuleBuilder) WithDevicePluginAutomountServiceAccountToken(
 	automount bool) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -174,18 +147,18 @@ func (builder *ModuleBuilder) WithDevicePluginAutomountServiceAccountToken(
 
 // WithDevicePluginVolume adds the specified DevicePlugin volume to the Module.
 func (builder *ModuleBuilder) WithDevicePluginVolume(name string, configMapName string) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if name == "" {
-		builder.errorMsg = "cannot redefine with empty volume 'name'"
+		builder.SetError(fmt.Errorf("cannot redefine with empty volume 'name'"))
 
 		return builder
 	}
 
 	if configMapName == "" {
-		builder.errorMsg = "cannot redefine with empty 'configMapName'"
+		builder.SetError(fmt.Errorf("cannot redefine with empty 'configMapName'"))
 
 		return builder
 	}
@@ -210,24 +183,24 @@ func (builder *ModuleBuilder) WithDevicePluginVolume(name string, configMapName 
 // WithToleration adds the specified toleration to the Module.
 func (builder *ModuleBuilder) WithToleration(key, operator, value, effect string,
 	seconds *int64) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if key == "" {
-		builder.errorMsg = "cannot redefine with empty 'key' value"
+		builder.SetError(fmt.Errorf("cannot redefine with empty 'key' value"))
 
 		return builder
 	}
 
 	if operator == "" {
-		builder.errorMsg = "cannot redefine with empty 'operator' value"
+		builder.SetError(fmt.Errorf("cannot redefine with empty 'operator' value"))
 
 		return builder
 	}
 
 	if effect == "" {
-		builder.errorMsg = "cannot redefine with empty 'effect' value"
+		builder.SetError(fmt.Errorf("cannot redefine with empty 'effect' value"))
 
 		return builder
 	}
@@ -250,12 +223,12 @@ func (builder *ModuleBuilder) WithToleration(key, operator, value, effect string
 // WithModuleLoaderContainer adds the specified ModuleLoader container to the Module.
 func (builder *ModuleBuilder) WithModuleLoaderContainer(
 	container *moduleV1Beta1.ModuleLoaderContainerSpec) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if container == nil {
-		builder.errorMsg = errNilContainer
+		builder.SetError(fmt.Errorf(errNilContainer))
 
 		return builder
 	}
@@ -272,12 +245,12 @@ func (builder *ModuleBuilder) WithModuleLoaderContainer(
 // WithDevicePluginContainer adds the specified DevicePlugin container to the Module.
 func (builder *ModuleBuilder) WithDevicePluginContainer(
 	container *moduleV1Beta1.DevicePluginContainerSpec) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if container == nil {
-		builder.errorMsg = errNilContainer
+		builder.SetError(fmt.Errorf(errNilContainer))
 
 		return builder
 	}
@@ -295,7 +268,7 @@ func (builder *ModuleBuilder) WithDevicePluginContainer(
 // Setting this to a different value than the current status will trigger re-verification of the module image.
 // If the image is missing, a rebuild is triggered. If the image exists, no rebuild occurs.
 func (builder *ModuleBuilder) WithImageRebuildTriggerGeneration(generation int) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -310,7 +283,7 @@ func (builder *ModuleBuilder) WithImageRebuildTriggerGeneration(generation int) 
 
 // WithDRA sets the entire DRA spec on the Module.
 func (builder *ModuleBuilder) WithDRA(dra *moduleV1Beta1.DRASpec) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -319,7 +292,7 @@ func (builder *ModuleBuilder) WithDRA(dra *moduleV1Beta1.DRASpec) *ModuleBuilder
 		builder.Definition.Name, builder.Definition.Namespace)
 
 	if dra == nil {
-		builder.errorMsg = "invalid 'dra' argument cannot be nil"
+		builder.SetError(fmt.Errorf("invalid 'dra' argument cannot be nil"))
 
 		return builder
 	}
@@ -332,12 +305,12 @@ func (builder *ModuleBuilder) WithDRA(dra *moduleV1Beta1.DRASpec) *ModuleBuilder
 // WithDRAContainer sets the DRA container on the Module.
 func (builder *ModuleBuilder) WithDRAContainer(
 	container *moduleV1Beta1.CommonContainerSpec) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if container == nil {
-		builder.errorMsg = errNilContainer
+		builder.SetError(fmt.Errorf(errNilContainer))
 
 		return builder
 	}
@@ -354,12 +327,12 @@ func (builder *ModuleBuilder) WithDRAContainer(
 // WithDRAInitContainer sets the DRA init container on the Module.
 func (builder *ModuleBuilder) WithDRAInitContainer(
 	container *moduleV1Beta1.CommonContainerSpec) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if container == nil {
-		builder.errorMsg = errNilContainer
+		builder.SetError(fmt.Errorf(errNilContainer))
 
 		return builder
 	}
@@ -375,7 +348,7 @@ func (builder *ModuleBuilder) WithDRAInitContainer(
 
 // WithDRAServiceAccount sets the DRA ServiceAccount on the Module.
 func (builder *ModuleBuilder) WithDRAServiceAccount(srvAccountName string) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -388,7 +361,7 @@ func (builder *ModuleBuilder) WithDRAServiceAccount(srvAccountName string) *Modu
 
 // WithDRADriverName sets the DRA driver name on the Module.
 func (builder *ModuleBuilder) WithDRADriverName(driverName string) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -397,7 +370,7 @@ func (builder *ModuleBuilder) WithDRADriverName(driverName string) *ModuleBuilde
 		builder.Definition.Name, builder.Definition.Namespace, driverName)
 
 	if driverName == "" {
-		builder.errorMsg = "cannot set empty DRA driverName"
+		builder.SetError(fmt.Errorf("cannot set empty DRA driverName"))
 
 		return builder
 	}
@@ -414,7 +387,7 @@ func (builder *ModuleBuilder) WithDRADriverName(driverName string) *ModuleBuilde
 // WithDRADeviceClass appends a DeviceClass to the Module's DRA spec.
 func (builder *ModuleBuilder) WithDRADeviceClass(
 	deviceClass moduleV1Beta1.DeviceClassSpec) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -423,7 +396,7 @@ func (builder *ModuleBuilder) WithDRADeviceClass(
 		deviceClass.Name, builder.Definition.Name, builder.Definition.Namespace)
 
 	if deviceClass.Name == "" {
-		builder.errorMsg = "cannot append DeviceClass with empty name"
+		builder.SetError(fmt.Errorf("cannot append DeviceClass with empty name"))
 
 		return builder
 	}
@@ -440,18 +413,18 @@ func (builder *ModuleBuilder) WithDRADeviceClass(
 
 // WithDRAVolume adds a ConfigMap-backed volume to the Module's DRA spec.
 func (builder *ModuleBuilder) WithDRAVolume(name string, configMapName string) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if name == "" {
-		builder.errorMsg = "cannot add DRA volume with empty 'name'"
+		builder.SetError(fmt.Errorf("cannot add DRA volume with empty 'name'"))
 
 		return builder
 	}
 
 	if configMapName == "" {
-		builder.errorMsg = "cannot add DRA volume with empty 'configMapName'"
+		builder.SetError(fmt.Errorf("cannot add DRA volume with empty 'configMapName'"))
 
 		return builder
 	}
@@ -476,18 +449,18 @@ func (builder *ModuleBuilder) WithDRAVolume(name string, configMapName string) *
 // WithDRAHostPathVolume adds a hostPath volume to the Module's DRA spec.
 func (builder *ModuleBuilder) WithDRAHostPathVolume(
 	name, path string, pathType *corev1.HostPathType) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if name == "" {
-		builder.errorMsg = "cannot add DRA hostPath volume with empty 'name'"
+		builder.SetError(fmt.Errorf("cannot add DRA hostPath volume with empty 'name'"))
 
 		return builder
 	}
 
 	if path == "" {
-		builder.errorMsg = "cannot add DRA hostPath volume with empty 'path'"
+		builder.SetError(fmt.Errorf("cannot add DRA hostPath volume with empty 'path'"))
 
 		return builder
 	}
@@ -512,7 +485,7 @@ func (builder *ModuleBuilder) WithDRAHostPathVolume(
 // WithDRAAutomountServiceAccountToken sets the AutomountServiceAccountToken on the DRA spec.
 func (builder *ModuleBuilder) WithDRAAutomountServiceAccountToken(
 	automount bool) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -531,7 +504,7 @@ func (builder *ModuleBuilder) WithDRAAutomountServiceAccountToken(
 
 // BuildModuleSpec returns module spec.
 func (builder *ModuleBuilder) BuildModuleSpec() (moduleV1Beta1.ModuleSpec, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return moduleV1Beta1.ModuleSpec{}, err
 	}
 
@@ -541,189 +514,21 @@ func (builder *ModuleBuilder) BuildModuleSpec() (moduleV1Beta1.ModuleSpec, error
 	return builder.Definition.Spec, nil
 }
 
-// WithOptions creates Module with generic mutation options.
-func (builder *ModuleBuilder) WithOptions(options ...ModuleAdditionalOptions) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting Module additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
 // Pull pulls existing module from cluster.
 func Pull(apiClient *clients.Settings, name, nsname string) (*ModuleBuilder, error) {
 	klog.V(100).Infof("Pulling existing module name %s under namespace %s from cluster", name, nsname)
 
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("module 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(moduleV1Beta1.AddToScheme)
-	if err != nil {
-		klog.V(100).Info("Failed to add module v1beta1 scheme to client schemes")
-
-		return nil, err
-	}
-
-	builder := &ModuleBuilder{
-		apiClient: apiClient.Client,
-		Definition: &moduleV1Beta1.Module{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the module is empty")
-
-		return nil, fmt.Errorf("module 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the module is empty")
-
-		return nil, fmt.Errorf(errEmptyModuleNamespace)
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("module object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Create builds module in the cluster and stores object in struct.
-func (builder *ModuleBuilder) Create() (*ModuleBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating module %s in namespace %s",
-		builder.Definition.Name,
-		builder.Definition.Namespace)
-
-	var err error
-	if !builder.Exists() {
-		err = builder.apiClient.Create(logging.DiscardContext(), builder.Definition)
-		if err == nil {
-			builder.Object = builder.Definition
-		}
-	}
-
-	return builder, err
-}
-
-// Update modifies the existing module in the cluster.
-func (builder *ModuleBuilder) Update() (*ModuleBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating module %s in namespace %s",
-		builder.Definition.Name,
-		builder.Definition.Namespace)
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err == nil {
-		builder.Object = builder.Definition
-	}
-
-	return builder, err
-}
-
-// Exists checks whether the given module exists.
-func (builder *ModuleBuilder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if module %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Delete removes the module.
-func (builder *ModuleBuilder) Delete() (*ModuleBuilder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Deleting module %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Info("module cannot be deleted because it does not exist")
-
-		builder.Object = nil
-
-		return builder, nil
-	}
-
-	err := builder.apiClient.Delete(logging.DiscardContext(), builder.Definition)
-	if err != nil {
-		return builder, err
-	}
-
-	builder.Object = nil
-
-	return builder, nil
-}
-
-// Get fetches the defined module from the cluster.
-func (builder *ModuleBuilder) Get() (*moduleV1Beta1.Module, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting module %s from namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	module := &moduleV1Beta1.Module{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name:      builder.Definition.Name,
-		Namespace: builder.Definition.Namespace,
-	}, module)
-	if err != nil {
-		return nil, err
-	}
-
-	return module, nil
+	return common.PullNamespacedBuilder[moduleV1Beta1.Module, ModuleBuilder](
+		context.TODO(), apiClient, moduleV1Beta1.AddToScheme, name, nsname)
 }
 
 func (builder *ModuleBuilder) withServiceAccount(srvAccountName string, accountType string) *ModuleBuilder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if srvAccountName == "" {
-		builder.errorMsg = canNotRedefineModuleWithEmpty
+		builder.SetError(fmt.Errorf(canNotRedefineModuleWithEmpty))
 
 		return builder
 	}
@@ -748,42 +553,11 @@ func (builder *ModuleBuilder) withServiceAccount(srvAccountName string, accountT
 
 		builder.Definition.Spec.DRA.ServiceAccountName = srvAccountName
 	default:
-		builder.errorMsg = "invalid account type parameter. Supported parameters are: 'module', 'device', 'dra'"
+		builder.SetError(fmt.Errorf(
+			"invalid account type parameter. Supported parameters are: 'module', 'device', 'dra'"))
 
 		return builder
 	}
 
 	return builder
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *ModuleBuilder) validate() (bool, error) {
-	resourceCRD := "Module"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
