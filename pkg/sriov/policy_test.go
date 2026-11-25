@@ -1,12 +1,13 @@
 package sriov
 
 import (
-	"fmt"
 	"testing"
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -21,480 +22,424 @@ var (
 )
 
 //nolint:funlen
-func TestPullPolicy(t *testing.T) {
-	generatePolicy := func(name, namespace string) *srIovV1.SriovNetworkNodePolicy {
-		return &srIovV1.SriovNetworkNodePolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
+func TestNewPolicyBuilder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
+
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *PolicyBuilder {
+				return NewPolicyBuilder(
+					apiClient,
+					name,
+					nsname,
+					defaultPolicyResName,
+					defaultPolicyVFNum,
+					defaultPolicyNICs,
+					defaultPolicyNodeSelector,
+				)
 			},
-			Spec: srIovV1.SriovNetworkNodePolicySpec{},
-		}
-	}
+			srIovV1.AddToScheme,
+			policyGVK,
+		).ExecuteTests(t)
+	})
 
 	testCases := []struct {
-		networkName         string
-		networkNamespace    string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-		client              bool
+		name          string
+		resourceName  string
+		vfsNumber     int
+		nicNames      []string
+		nodeSelector  map[string]string
+		expectedError string
 	}{
 		{
-			networkName:         "test1",
-			networkNamespace:    "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			client:              true,
+			name:         "valid policy",
+			resourceName: defaultPolicyResName,
+			vfsNumber:    defaultPolicyVFNum,
+			nicNames:     defaultPolicyNICs,
+			nodeSelector: defaultPolicyNodeSelector,
 		},
 		{
-			networkName:         "test2",
-			networkNamespace:    "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "sriovnetworknodepolicy object test2 does not exist in namespace test-namespace",
-			client:              true,
+			name:          "empty resource name",
+			resourceName:  "",
+			vfsNumber:     defaultPolicyVFNum,
+			nicNames:      defaultPolicyNICs,
+			nodeSelector:  defaultPolicyNodeSelector,
+			expectedError: "SriovNetworkNodePolicy 'resName' cannot be empty",
 		},
 		{
-			networkName:         "",
-			networkNamespace:    "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "sriovnetworknodepolicy 'name' cannot be empty",
-			client:              true,
+			name:          "empty NIC names",
+			resourceName:  defaultPolicyResName,
+			vfsNumber:     defaultPolicyVFNum,
+			nicNames:      nil,
+			nodeSelector:  defaultPolicyNodeSelector,
+			expectedError: "SriovNetworkNodePolicy 'nicNames' cannot be empty list",
 		},
 		{
-			networkName:         "test3",
-			networkNamespace:    "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "sriovnetworknodepolicy 'namespace' cannot be empty",
-			client:              true,
+			name:          "empty node selector",
+			resourceName:  defaultPolicyResName,
+			vfsNumber:     defaultPolicyVFNum,
+			nicNames:      defaultPolicyNICs,
+			nodeSelector:  nil,
+			expectedError: "SriovNetworkNodePolicy 'nodeSelector' cannot be empty map",
 		},
 		{
-			networkName:         "test3",
-			networkNamespace:    "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "sriovnetworknodepolicy 'apiClient' cannot be empty",
-			client:              false,
+			name:          "zero VFs",
+			resourceName:  defaultPolicyResName,
+			vfsNumber:     0,
+			nicNames:      defaultPolicyNICs,
+			nodeSelector:  defaultPolicyNodeSelector,
+			expectedError: "SriovNetworkNodePolicy 'vfsNumber' cannot be zero of negative",
 		},
 	}
 
 	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		var testSettings *clients.Settings
+			builder := NewPolicyBuilder(
+				buildTestClientWithDummyPolicyObject(),
+				defaultPolicyName,
+				defaultPolicyNsName,
+				testCase.resourceName,
+				testCase.vfsNumber,
+				testCase.nicNames,
+				testCase.nodeSelector,
+			)
 
-		testPolicy := generatePolicy(testCase.networkName, testCase.networkNamespace)
+			require.NotNil(t, builder)
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testPolicy)
-		}
+			if testCase.expectedError != "" {
+				require.EqualError(t, builder.GetError(), testCase.expectedError)
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		// Test the Pull method
-		builderResult, err := PullPolicy(testSettings, testPolicy.Name, testPolicy.Namespace)
-
-		// Check the error
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			// Check the error message
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
+				return
 			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testPolicy.Name, builderResult.Object.Name)
-			assert.Equal(t, testPolicy.Namespace, builderResult.Object.Namespace)
-		}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.nodeSelector, builder.Definition.Spec.NodeSelector)
+			assert.Equal(t, testCase.vfsNumber, builder.Definition.Spec.NumVfs)
+			assert.Equal(t, testCase.resourceName, builder.Definition.Spec.ResourceName)
+			assert.Equal(t, testCase.nicNames, builder.Definition.Spec.NicSelector.PfNames)
+			assert.Equal(t, 1, builder.Definition.Spec.Priority)
+		})
 	}
 }
 
-func TestNewPolicyBuilder(t *testing.T) {
-	generatePolicyBuilder := NewPolicyBuilder
+func TestPullPolicy(t *testing.T) {
+	t.Parallel()
 
-	testCases := []struct {
-		policyName        string
-		policyNamespace   string
-		resName           string
-		vfsNumber         int
-		nicNames          []string
-		nodeSelector      map[string]string
-		expectedErrorText string
-		client            bool
-	}{
-		{
-			policyName:        "test1",
-			policyNamespace:   "test-namespace",
-			resName:           "sriovPolicy",
-			vfsNumber:         1,
-			nodeSelector:      map[string]string{"node": "selector"},
-			nicNames:          []string{"eth0"},
-			expectedErrorText: "",
-		},
-		{
-			policyName:        "",
-			policyNamespace:   "test-namespace",
-			resName:           "sriovPolicy",
-			vfsNumber:         1,
-			nodeSelector:      map[string]string{"node": "selector"},
-			nicNames:          []string{"eth0"},
-			expectedErrorText: "SriovNetworkNodePolicy 'name' cannot be empty",
-		},
-		{
-			policyName:        "test1",
-			policyNamespace:   "",
-			resName:           "sriovPolicy",
-			vfsNumber:         1,
-			nodeSelector:      map[string]string{"node": "selector"},
-			nicNames:          []string{"eth0"},
-			expectedErrorText: "SriovNetworkNodePolicy 'nsname' cannot be empty",
-		},
-		{
-			policyName:        "test1",
-			policyNamespace:   "test-namespace",
-			resName:           "",
-			vfsNumber:         1,
-			nodeSelector:      map[string]string{"node": "selector"},
-			nicNames:          []string{"eth0"},
-			expectedErrorText: "SriovNetworkNodePolicy 'resName' cannot be empty",
-		},
-		{
-			policyName:        "test1",
-			policyNamespace:   "test-namespace",
-			resName:           "sriovPolicy",
-			vfsNumber:         -1,
-			nodeSelector:      map[string]string{"node": "selector"},
-			nicNames:          []string{"eth0"},
-			expectedErrorText: "SriovNetworkNodePolicy 'vfsNumber' cannot be zero of negative",
-		},
-		{
-			policyName:        "test1",
-			policyNamespace:   "test-namespace",
-			resName:           "sriovPolicy",
-			vfsNumber:         1,
-			nodeSelector:      map[string]string{},
-			nicNames:          []string{"eth0"},
-			expectedErrorText: "SriovNetworkNodePolicy 'nodeSelector' cannot be empty map",
-		},
-		{
-			policyName:        "test1",
-			policyNamespace:   "test-namespace",
-			resName:           "sriovPolicy",
-			vfsNumber:         1,
-			nodeSelector:      map[string]string{"node": "selector"},
-			nicNames:          []string{},
-			expectedErrorText: "SriovNetworkNodePolicy 'nicNames' cannot be empty list",
-		},
-	}
-	for _, testCase := range testCases {
-		testSettings := clients.GetTestClients(clients.TestClientParams{})
-		testPolicyStructure := generatePolicyBuilder(
-			testSettings,
-			testCase.policyName,
-			testCase.policyNamespace,
-			testCase.resName,
-			testCase.vfsNumber,
-			testCase.nicNames,
-			testCase.nodeSelector)
-		assert.NotNil(t, testPolicyStructure)
-		assert.Equal(t, testCase.expectedErrorText, testPolicyStructure.errorMsg)
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullPolicy,
+		srIovV1.AddToScheme,
+		policyGVK,
+	).ExecuteTests(t)
+}
+
+func TestPolicyBuilderMethods(t *testing.T) {
+	t.Parallel()
+
+	commonTestConfig := newPolicyCommonTestConfig()
+
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestPolicyWithDevType(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		devType           string
-		expectedErrorText string
+		name           string
+		devType        string
+		invalidBuilder bool
+		expectedError  string
 	}{
-		{
-			devType:           "vfio-pci",
-			expectedErrorText: "",
-		},
-		{
-			devType:           "netdevice",
-			expectedErrorText: "",
-		},
-		{
-			devType:           "",
-			expectedErrorText: errInvalidDeviceType,
-		},
-		{
-			devType:           "invalid",
-			expectedErrorText: errInvalidDeviceType,
-		},
+		{name: "vfio-pci", devType: "vfio-pci"},
+		{name: "netdevice", devType: "netdevice"},
+		{name: "invalid device type", devType: "invalid", expectedError: errInvalidDeviceType},
+		{name: "invalid builder", devType: "vfio-pci", invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyPolicyObject()
-		netBuilder := buildValidSriovPolicyTestBuilder(testSettings).WithDevType(testCase.devType)
-		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, netBuilder.Definition.Spec.DeviceType, testCase.devType)
-		}
+			builder := buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			if testCase.invalidBuilder {
+				builder = buildInvalidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			}
+
+			result := builder.WithDevType(testCase.devType)
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				require.Error(t, result.GetError())
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.devType, result.Definition.Spec.DeviceType)
+		})
 	}
 }
 
-func TestPolicyVFRange(t *testing.T) {
+func TestPolicyWithVFRange(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		firstVF           int
-		lastVF            int
-		expectedErrorText string
+		name           string
+		firstVF        int
+		lastVF         int
+		invalidBuilder bool
+		expectedError  string
+		expectedPFs    []string
 	}{
+		{name: "full range", firstVF: 0, lastVF: 63, expectedPFs: []string{"eth1#0-63"}},
+		{name: "partial range", firstVF: 1, lastVF: 7, expectedPFs: []string{"eth1#1-7"}},
 		{
-			firstVF:           0,
-			lastVF:            63,
-			expectedErrorText: "",
+			name:          "negative first VF",
+			firstVF:       -1,
+			lastVF:        1,
+			expectedError: "firstPF or lastVF can not be less than 0",
+			expectedPFs:   defaultPolicyNICs,
 		},
 		{
-			firstVF:           0,
-			lastVF:            65,
-			expectedErrorText: "lastVF can not be greater than 63",
+			name:          "first VF greater than last VF",
+			firstVF:       5,
+			lastVF:        2,
+			expectedError: "firstPF argument can not be greater than lastPF",
+			expectedPFs:   defaultPolicyNICs,
 		},
 		{
-			firstVF:           65,
-			lastVF:            1,
-			expectedErrorText: "firstPF argument can not be greater than lastPF",
+			name:          "last VF too large",
+			firstVF:       0,
+			lastVF:        64,
+			expectedError: "lastVF can not be greater than 63",
+			expectedPFs:   defaultPolicyNICs,
 		},
-		{
-			firstVF:           -2,
-			lastVF:            0,
-			expectedErrorText: "firstPF or lastVF can not be less than 0",
-		},
+		{name: "invalid builder", firstVF: 0, lastVF: 1, invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyPolicyObject()
-		netBuilder := buildValidSriovPolicyTestBuilder(testSettings).WithVFRange(testCase.firstVF, testCase.lastVF)
-		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, fmt.Sprintf("%s#%d-%d", "eth1", testCase.firstVF, testCase.lastVF),
-				netBuilder.Definition.Spec.NicSelector.PfNames[0])
-		}
+			builder := buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			if testCase.invalidBuilder {
+				builder = buildInvalidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			}
+
+			result := builder.WithVFRange(testCase.firstVF, testCase.lastVF)
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				require.Error(t, result.GetError())
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+			} else {
+				require.NoError(t, result.GetError())
+			}
+
+			assert.Equal(t, testCase.expectedPFs, result.Definition.Spec.NicSelector.PfNames)
+		})
 	}
 }
 
 func TestPolicyWithMTU(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		mtu               int
-		expectedErrorText string
+		name           string
+		mtu            int
+		invalidBuilder bool
+		expectedError  string
 	}{
-		{
-			mtu:               1500,
-			expectedErrorText: "",
-		},
-		{
-			mtu:               0,
-			expectedErrorText: "invalid mtu size 0 allowed mtu should be in range 1...9192",
-		},
-		{
-			mtu:               -1,
-			expectedErrorText: "invalid mtu size -1 allowed mtu should be in range 1...9192",
-		},
-		{
-			mtu:               20000,
-			expectedErrorText: "invalid mtu size 20000 allowed mtu should be in range 1...9192",
-		},
+		{name: "minimum MTU", mtu: 1},
+		{name: "typical MTU", mtu: 1500},
+		{name: "maximum MTU", mtu: 9192},
+		{name: "zero MTU", mtu: 0, expectedError: "invalid mtu size 0 allowed mtu should be in range 1...9192"},
+		{name: "large MTU", mtu: 9193, expectedError: "invalid mtu size 9193 allowed mtu should be in range 1...9192"},
+		{name: "invalid builder", mtu: 1500, invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyPolicyObject()
-		netBuilder := buildValidSriovPolicyTestBuilder(testSettings).WithMTU(testCase.mtu)
-		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedErrorText == "" {
-			assert.Equal(t, testCase.mtu, netBuilder.Definition.Spec.Mtu)
-		}
+			builder := buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			if testCase.invalidBuilder {
+				builder = buildInvalidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			}
+
+			result := builder.WithMTU(testCase.mtu)
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				require.Error(t, result.GetError())
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.mtu, result.Definition.Spec.Mtu)
+		})
 	}
 }
 
 func TestPolicyWithRDMA(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		rdma              bool
-		expectedErrorText string
+		name           string
+		rdma           bool
+		invalidBuilder bool
 	}{
-		{
-			rdma: true,
-		},
-		{
-			rdma: false,
-		},
+		{name: "enable RDMA", rdma: true},
+		{name: "disable RDMA", rdma: false},
+		{name: "invalid builder", rdma: true, invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyPolicyObject()
-		netBuilder := buildValidSriovPolicyTestBuilder(testSettings).WithRDMA(testCase.rdma)
-		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
-		assert.Equal(t, testCase.rdma, netBuilder.Definition.Spec.IsRdma)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			if testCase.invalidBuilder {
+				builder = buildInvalidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			}
+
+			result := builder.WithRDMA(testCase.rdma)
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				require.Error(t, result.GetError())
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.rdma, result.Definition.Spec.IsRdma)
+		})
 	}
 }
 
-func TestPolicyVhostNet(t *testing.T) {
+func TestPolicyWithVhostNet(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		vhostNet          bool
-		expectedErrorText string
+		name           string
+		vhostNet       bool
+		invalidBuilder bool
 	}{
-		{
-			vhostNet: true,
-		},
-		{
-			vhostNet: false,
-		},
+		{name: "enable vhost-net", vhostNet: true},
+		{name: "disable vhost-net", vhostNet: false},
+		{name: "invalid builder", vhostNet: true, invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyPolicyObject()
-		netBuilder := buildValidSriovPolicyTestBuilder(testSettings).WithVhostNet(testCase.vhostNet)
-		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
-		assert.Equal(t, testCase.vhostNet, netBuilder.Definition.Spec.NeedVhostNet)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			if testCase.invalidBuilder {
+				builder = buildInvalidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			}
+
+			result := builder.WithVhostNet(testCase.vhostNet)
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				require.Error(t, result.GetError())
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.vhostNet, result.Definition.Spec.NeedVhostNet)
+		})
 	}
 }
 
 func TestPolicyWithExternallyManaged(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name              string
 		externallyManaged bool
-		expectedErrorText string
+		invalidBuilder    bool
 	}{
-		{
-			externallyManaged: true,
-		},
-		{
-			externallyManaged: false,
-		},
+		{name: "enable externally managed", externallyManaged: true},
+		{name: "disable externally managed", externallyManaged: false},
+		{name: "invalid builder", externallyManaged: true, invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testSettings := buildTestClientWithDummyPolicyObject()
-		netBuilder := buildValidSriovPolicyTestBuilder(testSettings).WithExternallyManaged(testCase.externallyManaged)
-		assert.Equal(t, testCase.expectedErrorText, netBuilder.errorMsg)
-		assert.Equal(t, testCase.externallyManaged, netBuilder.Definition.Spec.ExternallyManaged)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := buildValidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			if testCase.invalidBuilder {
+				builder = buildInvalidPolicyTestBuilder(buildTestClientWithDummyPolicyObject())
+			}
+
+			result := builder.WithExternallyManaged(testCase.externallyManaged)
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				require.Error(t, result.GetError())
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.externallyManaged, result.Definition.Spec.ExternallyManaged)
+		})
 	}
 }
 
 func TestPolicyWithOptions(t *testing.T) {
-	testSettings := buildTestClientWithDummyObject()
-	testBuilder := buildValidSriovPolicyTestBuilder(testSettings).WithOptions(
-		func(builder *PolicyBuilder) (*PolicyBuilder, error) {
-			return builder, nil
-		})
+	t.Parallel()
 
-	assert.Equal(t, "", testBuilder.errorMsg)
-	testBuilder = buildValidSriovPolicyTestBuilder(testSettings).WithOptions(
-		func(builder *PolicyBuilder) (*PolicyBuilder, error) {
-			return builder, fmt.Errorf("error")
-		})
-	assert.Equal(t, "error", testBuilder.errorMsg)
+	testhelper.NewWithOptionsTestConfig(newPolicyCommonTestConfig()).ExecuteTests(t)
 }
 
-func TestPolicyGet(t *testing.T) {
-	testCases := []struct {
-		policyBuilder *PolicyBuilder
-		expectedError error
-	}{
-		{
-			policyBuilder: buildValidSriovPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError: nil,
-		},
-		{
-			policyBuilder: buildInvalidSriovPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError: fmt.Errorf("SriovNetworkNodePolicy 'nsname' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		policy, err := testCase.policyBuilder.Get()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, policy.Name, testCase.policyBuilder.Definition.Name)
-		}
-	}
+func newPolicyCommonTestConfig() testhelper.CommonTestConfig[
+	srIovV1.SriovNetworkNodePolicy,
+	PolicyBuilder,
+	*srIovV1.SriovNetworkNodePolicy,
+	*PolicyBuilder,
+] {
+	return testhelper.NewCommonTestConfig[srIovV1.SriovNetworkNodePolicy, PolicyBuilder](
+		srIovV1.AddToScheme,
+		policyGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 }
 
-func TestPolicyCreate(t *testing.T) {
-	testCases := []struct {
-		testPolicy    *PolicyBuilder
-		expectedError error
-	}{
-		{
-			testPolicy:    buildValidSriovPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError: nil,
-		},
-		{
-			testPolicy:    buildInvalidSriovPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError: fmt.Errorf("SriovNetworkNodePolicy 'nsname' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		netBuilder, err := testCase.testPolicy.Create()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, netBuilder.Definition, netBuilder.Object)
-		}
-	}
-}
-
-func TestPolicyDelete(t *testing.T) {
-	testCases := []struct {
-		testPolicy    *PolicyBuilder
-		expectedError error
-	}{
-		{
-			testPolicy:    buildValidSriovPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError: nil,
-		},
-		{
-			testPolicy:    buildInvalidSriovPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedError: fmt.Errorf("SriovNetworkNodePolicy 'nsname' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testPolicy.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testPolicy.Object)
-		}
-	}
-}
-
-func TestPolicyExist(t *testing.T) {
-	testCases := []struct {
-		testPolicy     *PolicyBuilder
-		expectedStatus bool
-	}{
-		{
-			testPolicy:     buildValidSriovPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedStatus: true,
-		},
-		{
-			testPolicy:     buildInvalidSriovPolicyTestBuilder(buildTestClientWithDummyPolicyObject()),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testPolicy.Exists()
-		assert.Equal(t, testCase.expectedStatus, exists)
-	}
-}
-
-// buildValidSriovPolicyTestBuilder returns a valid PolicyBuilder for testing purposes.
-func buildValidSriovPolicyTestBuilder(apiClient *clients.Settings) *PolicyBuilder {
+// buildValidPolicyTestBuilder returns a valid PolicyBuilder for testing purposes.
+func buildValidPolicyTestBuilder(apiClient *clients.Settings) *PolicyBuilder {
 	return NewPolicyBuilder(
 		apiClient,
 		defaultPolicyName,
@@ -505,18 +450,19 @@ func buildValidSriovPolicyTestBuilder(apiClient *clients.Settings) *PolicyBuilde
 		defaultPolicyNodeSelector)
 }
 
-// buildInvalidSriovPolicyTestBuilder returns an invalid PolicyBuilder for testing purposes.
-func buildInvalidSriovPolicyTestBuilder(apiClient *clients.Settings) *PolicyBuilder {
+// buildInvalidPolicyTestBuilder returns a PolicyBuilder with an invalid resource name for testing purposes.
+func buildInvalidPolicyTestBuilder(apiClient *clients.Settings) *PolicyBuilder {
 	return NewPolicyBuilder(
 		apiClient,
 		defaultPolicyName,
+		defaultPolicyNsName,
 		"",
-		defaultPolicyResName,
 		defaultPolicyVFNum,
 		defaultPolicyNICs,
 		defaultPolicyNodeSelector)
 }
 
+// buildTestClientWithDummyPolicyObject returns a test client containing a dummy SriovNetworkNodePolicy.
 func buildTestClientWithDummyPolicyObject() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  buildDummySrIovPolicyObject(),
@@ -524,10 +470,12 @@ func buildTestClientWithDummyPolicyObject() *clients.Settings {
 	})
 }
 
+// buildDummySrIovPolicyObject returns the runtime objects for a default SriovNetworkNodePolicy.
 func buildDummySrIovPolicyObject() []runtime.Object {
-	return append([]runtime.Object{}, buildDummySrIovPolicy(defaultNetName, defaultNetNsName))
+	return append([]runtime.Object{}, buildDummySrIovPolicy(defaultPolicyName, defaultPolicyNsName))
 }
 
+// buildDummySrIovPolicy returns a SriovNetworkNodePolicy with the supplied name and namespace.
 func buildDummySrIovPolicy(name, namespace string) *srIovV1.SriovNetworkNodePolicy {
 	return &srIovV1.SriovNetworkNodePolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -535,7 +483,7 @@ func buildDummySrIovPolicy(name, namespace string) *srIovV1.SriovNetworkNodePoli
 			Namespace: namespace,
 		},
 		Spec: srIovV1.SriovNetworkNodePolicySpec{
-			ResourceName: defaultNetResName,
+			ResourceName: defaultPolicyResName,
 			NodeSelector: defaultPolicyNodeSelector,
 			NumVfs:       defaultPolicyVFNum,
 			NicSelector: srIovV1.SriovNetworkNicSelector{

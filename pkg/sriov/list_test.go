@@ -6,6 +6,8 @@ import (
 
 	srIovV1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -215,79 +217,25 @@ func TestListNetworkNodeState(t *testing.T) {
 }
 
 func TestListPolicy(t *testing.T) {
-	testCases := []struct {
-		testNetworkNodeStates []*srIovV1.SriovNetworkNodePolicy
-		listOptions           []client.ListOptions
-		nsName                string
-		client                bool
-		expectedError         error
-	}{
-		{
-			testNetworkNodeStates: []*srIovV1.SriovNetworkNodePolicy{
-				buildDummySrIovPolicy("test", "testnamespace"),
-				buildDummySrIovPolicy("test1", "testnamespace")},
-			nsName: "testnamespace",
-			client: true,
-		},
-		{
-			testNetworkNodeStates: []*srIovV1.SriovNetworkNodePolicy{
-				buildDummySrIovPolicy("test", "testnamespace"),
-				buildDummySrIovPolicy("test1", "testnamespace")},
-			expectedError: fmt.Errorf("failed to list SriovNetworkNodePolicies, 'nsname' parameter is empty"),
-			client:        true,
-			nsName:        "",
-		},
-		{
-			testNetworkNodeStates: []*srIovV1.SriovNetworkNodePolicy{
-				buildDummySrIovPolicy("test", "testnamespace"),
-				buildDummySrIovPolicy("test1", "testnamespace")},
-			nsName:      "testnamespace",
-			listOptions: []client.ListOptions{{Continue: "false"}},
-			client:      true,
-		},
-		{
-			testNetworkNodeStates: []*srIovV1.SriovNetworkNodePolicy{
-				buildDummySrIovPolicy("test", "testnamespace"),
-				buildDummySrIovPolicy("test1", "testnamespace")},
-			nsName:        "testnamespace",
-			listOptions:   []client.ListOptions{{Namespace: "testnamespace"}, {Continue: "true"}},
-			expectedError: fmt.Errorf("error: more than one ListOptions was passed"),
-			client:        true,
-		},
-		{
-			testNetworkNodeStates: []*srIovV1.SriovNetworkNodePolicy{
-				buildDummySrIovPolicy("test", "testnamespace"),
-				buildDummySrIovPolicy("test1", "testnamespace")},
-			nsName:        "testnamespace",
-			expectedError: fmt.Errorf("failed to list SriovNetworkNodePolicies, 'apiClient' parameter is empty"),
-			client:        false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			testSettings   *clients.Settings
-			runtimeObjects []runtime.Object
-		)
+	testhelper.NewNamespacedListTestConfig(
+		ListPolicy,
+		srIovV1.AddToScheme,
+		policyGVK,
+	).ExecuteTests(t)
+}
 
-		for _, networkNodeState := range testCase.testNetworkNodeStates {
-			runtimeObjects = append(runtimeObjects, networkNodeState)
-		}
+func TestListPolicyRejectsMultipleOptions(t *testing.T) {
+	t.Parallel()
 
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		builders, err := ListPolicy(testSettings, testCase.nsName, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, len(testCase.testNetworkNodeStates), len(builders))
-		}
-	}
+	_, err := ListPolicy(
+		buildTestClientWithDummyPolicyObject(),
+		defaultPolicyNsName,
+		client.ListOptions{Namespace: defaultPolicyNsName},
+		client.ListOptions{Continue: "true"},
+	)
+	assert.EqualError(t, err, "error: more than one ListOptions was passed")
 }
 
 func TestCleanAllNetworkNodePolicies(t *testing.T) {
@@ -297,6 +245,7 @@ func TestCleanAllNetworkNodePolicies(t *testing.T) {
 		nsName            string
 		client            bool
 		expectedError     error
+		nilClientError    bool
 	}{
 		{
 			testNetworkPolicy: []*srIovV1.SriovNetworkNodePolicy{
@@ -334,9 +283,9 @@ func TestCleanAllNetworkNodePolicies(t *testing.T) {
 			testNetworkPolicy: []*srIovV1.SriovNetworkNodePolicy{
 				buildDummySrIovPolicy("test", "testnamespace"),
 				buildDummySrIovPolicy("test1", "testnamespace")},
-			nsName:        "testnamespace",
-			expectedError: fmt.Errorf("failed to list SriovNetworkNodePolicies, 'apiClient' parameter is empty"),
-			client:        false,
+			nsName:         "testnamespace",
+			client:         false,
+			nilClientError: true,
 		},
 	}
 	for _, testCase := range testCases {
@@ -356,9 +305,14 @@ func TestCleanAllNetworkNodePolicies(t *testing.T) {
 		}
 
 		err := CleanAllNetworkNodePolicies(testSettings, testCase.nsName, testCase.listOptions...)
-		assert.Equal(t, testCase.expectedError, err)
 
-		if testCase.expectedError == nil {
+		if testCase.nilClientError {
+			assert.True(t, commonerrors.IsAPIClientNil(err))
+		} else {
+			assert.Equal(t, testCase.expectedError, err)
+		}
+
+		if testCase.expectedError == nil && !testCase.nilClientError {
 			netBuilders, err := ListPolicy(testSettings, testCase.nsName)
 			assert.Nil(t, err)
 			assert.Zero(t, len(netBuilders))
