@@ -1,12 +1,14 @@
 package neuron
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/neuron/v1beta1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -20,523 +22,661 @@ var (
 	defaultDriversImage          = "public.ecr.aws/os-partners/neuron-openshift/neuron-kernel-module:2.25.4.0"
 	defaultDriverVersion         = "2.24.7.0"
 	defaultDevicePluginImage     = "public.ecr.aws/neuron/neuron-device-plugin:2.29.16.0"
+	defaultDRADriverImage        = "public.ecr.aws/neuron/neuron-dra-driver:1.0.0"
 )
 
 func TestNewBuilder(t *testing.T) {
 	t.Parallel()
 
-	t.Run("valid config with client", func(t *testing.T) {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
-		testBuilder := NewBuilder(testSettings, defaultDeviceConfigName, defaultDeviceConfigNamespace,
-			defaultDriversImage, defaultDriverVersion, defaultDevicePluginImage)
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
 
-		assert.NotNil(t, testBuilder)
-		assert.Equal(t, defaultDeviceConfigName, testBuilder.Definition.Name)
-		assert.Equal(t, defaultDeviceConfigNamespace, testBuilder.Definition.Namespace)
-		assert.Equal(t, defaultDriversImage, testBuilder.Definition.Spec.DriversImage)
-		assert.Equal(t, defaultDriverVersion, testBuilder.Definition.Spec.DriverVersion)
-		assert.Equal(t, defaultDevicePluginImage, testBuilder.Definition.Spec.DevicePluginImage)
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, namespace string) *Builder {
+				return NewBuilder(
+					apiClient, name, namespace, defaultDriversImage, defaultDriverVersion, defaultDevicePluginImage)
+			},
+			v1beta1.AddToScheme,
+			deviceConfigGVK,
+		).ExecuteTests(t)
 	})
 
-	t.Run("nil client", func(t *testing.T) {
-		testBuilder := NewBuilder(nil, defaultDeviceConfigName, defaultDeviceConfigNamespace,
-			defaultDriversImage, defaultDriverVersion, defaultDevicePluginImage)
-		assert.Nil(t, testBuilder)
-	})
+	testCases := []struct {
+		name              string
+		driversImage      string
+		driverVersion     string
+		devicePluginImage string
+		expectedError     string
+	}{
+		{
+			name:              "valid images",
+			driversImage:      defaultDriversImage,
+			driverVersion:     defaultDriverVersion,
+			devicePluginImage: defaultDevicePluginImage,
+		},
+		{
+			name:              "empty driversImage",
+			driverVersion:     defaultDriverVersion,
+			devicePluginImage: defaultDevicePluginImage,
+			expectedError:     errDriversImageEmpty,
+		},
+		{
+			name:              "empty driverVersion",
+			driversImage:      defaultDriversImage,
+			devicePluginImage: defaultDevicePluginImage,
+			expectedError:     errDriverVersionEmpty,
+		},
+		{
+			name:          "empty devicePluginImage",
+			driversImage:  defaultDriversImage,
+			driverVersion: defaultDriverVersion,
+			expectedError: errDevicePluginImageEmpty,
+		},
+	}
 
-	t.Run("empty name", func(t *testing.T) {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
-		testBuilder := NewBuilder(testSettings, "", defaultDeviceConfigNamespace,
-			defaultDriversImage, defaultDriverVersion, defaultDevicePluginImage)
-		assert.Equal(t, "DeviceConfig 'name' cannot be empty", testBuilder.errorMsg)
-	})
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-	t.Run("empty namespace", func(t *testing.T) {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
-		testBuilder := NewBuilder(testSettings, defaultDeviceConfigName, "",
-			defaultDriversImage, defaultDriverVersion, defaultDevicePluginImage)
-		assert.Equal(t, "DeviceConfig 'namespace' cannot be empty", testBuilder.errorMsg)
-	})
+			builder := NewBuilder(
+				buildTestClientWithDeviceConfigScheme(),
+				defaultDeviceConfigName,
+				defaultDeviceConfigNamespace,
+				testCase.driversImage,
+				testCase.driverVersion,
+				testCase.devicePluginImage,
+			)
 
-	t.Run("empty driversImage", func(t *testing.T) {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
-		testBuilder := NewBuilder(testSettings, defaultDeviceConfigName, defaultDeviceConfigNamespace,
-			"", defaultDriverVersion, defaultDevicePluginImage)
-		assert.Equal(t, "DeviceConfig 'driversImage' cannot be empty", testBuilder.errorMsg)
-	})
+			if testCase.expectedError != "" {
+				require.EqualError(t, builder.GetError(), testCase.expectedError)
 
-	t.Run("empty driverVersion", func(t *testing.T) {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
-		testBuilder := NewBuilder(testSettings, defaultDeviceConfigName, defaultDeviceConfigNamespace,
-			defaultDriversImage, "", defaultDevicePluginImage)
-		assert.Equal(t, "DeviceConfig 'driverVersion' cannot be empty", testBuilder.errorMsg)
-	})
+				return
+			}
 
-	t.Run("empty devicePluginImage", func(t *testing.T) {
-		testSettings := clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
-		testBuilder := NewBuilder(testSettings, defaultDeviceConfigName, defaultDeviceConfigNamespace,
-			defaultDriversImage, defaultDriverVersion, "")
-		assert.Equal(t, "DeviceConfig 'devicePluginImage' cannot be empty", testBuilder.errorMsg)
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.driversImage, builder.Definition.Spec.DriversImage)
+			assert.Equal(t, testCase.driverVersion, builder.Definition.Spec.DriverVersion)
+			assert.Equal(t, testCase.devicePluginImage, builder.Definition.Spec.DevicePluginImage)
+		})
+	}
+}
+
+func TestNewBuilderVariants(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		newBuilder func(apiClient *clients.Settings, name, namespace string) *Builder
+	}{
+		{
+			name: "in-cluster build",
+			newBuilder: func(apiClient *clients.Settings, name, namespace string) *Builder {
+				return NewBuilderWithInClusterBuild(
+					apiClient, name, namespace, defaultDriverVersion, defaultDevicePluginImage)
+			},
+		},
+		{
+			name: "DRA",
+			newBuilder: func(apiClient *clients.Settings, name, namespace string) *Builder {
+				return NewBuilderWithDRA(
+					apiClient, name, namespace, defaultDriversImage, defaultDriverVersion, defaultDRADriverImage)
+			},
+		},
+		{
+			name: "DRA in-cluster build",
+			newBuilder: func(apiClient *clients.Settings, name, namespace string) *Builder {
+				return NewBuilderWithInClusterBuildDRA(
+					apiClient, name, namespace, defaultDriverVersion, defaultDRADriverImage)
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			testhelper.NewNamespacedBuilderTestConfig(
+				testCase.newBuilder, v1beta1.AddToScheme, deviceConfigGVK).ExecuteTests(t)
+		})
+	}
+}
+
+type newBuilderValidationTestCase struct {
+	name          string
+	build         func(apiClient *clients.Settings) *Builder
+	expectedSpec  v1beta1.DeviceConfigSpec
+	expectedError string
+}
+
+// runNewBuilderValidationTests executes the package-specific constructor validation cases.
+func runNewBuilderValidationTests(t *testing.T, testCases []newBuilderValidationTestCase) {
+	t.Helper()
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := testCase.build(buildTestClientWithDeviceConfigScheme())
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, builder.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.expectedSpec, builder.Definition.Spec)
+		})
+	}
+}
+
+func TestNewBuilderWithInClusterBuildValidation(t *testing.T) {
+	t.Parallel()
+
+	runNewBuilderValidationTests(t, []newBuilderValidationTestCase{
+		{
+			name: "valid",
+			build: func(apiClient *clients.Settings) *Builder {
+				return NewBuilderWithInClusterBuild(
+					apiClient,
+					defaultDeviceConfigName,
+					defaultDeviceConfigNamespace,
+					defaultDriverVersion,
+					defaultDevicePluginImage,
+				)
+			},
+			expectedSpec: v1beta1.DeviceConfigSpec{
+				DriverVersion:     defaultDriverVersion,
+				DevicePluginImage: defaultDevicePluginImage,
+			},
+		},
+		{
+			name: "empty driverVersion",
+			build: func(apiClient *clients.Settings) *Builder {
+				return NewBuilderWithInClusterBuild(
+					apiClient, defaultDeviceConfigName, defaultDeviceConfigNamespace, "", defaultDevicePluginImage)
+			},
+			expectedError: errDriverVersionEmpty,
+		},
+		{
+			name: "empty devicePluginImage",
+			build: func(apiClient *clients.Settings) *Builder {
+				return NewBuilderWithInClusterBuild(
+					apiClient, defaultDeviceConfigName, defaultDeviceConfigNamespace, defaultDriverVersion, "")
+			},
+			expectedError: errDevicePluginImageEmpty,
+		},
+	})
+}
+
+func TestNewBuilderWithDRAValidation(t *testing.T) {
+	t.Parallel()
+
+	runNewBuilderValidationTests(t, []newBuilderValidationTestCase{
+		{
+			name: "valid",
+			build: func(apiClient *clients.Settings) *Builder {
+				return NewBuilderWithDRA(
+					apiClient,
+					defaultDeviceConfigName,
+					defaultDeviceConfigNamespace,
+					defaultDriversImage,
+					defaultDriverVersion,
+					defaultDRADriverImage,
+				)
+			},
+			expectedSpec: v1beta1.DeviceConfigSpec{
+				DriversImage:   defaultDriversImage,
+				DriverVersion:  defaultDriverVersion,
+				DRADriverImage: defaultDRADriverImage,
+			},
+		},
+		{
+			name: "empty driversImage",
+			build: func(apiClient *clients.Settings) *Builder {
+				return NewBuilderWithDRA(
+					apiClient,
+					defaultDeviceConfigName,
+					defaultDeviceConfigNamespace,
+					"",
+					defaultDriverVersion,
+					defaultDRADriverImage,
+				)
+			},
+			expectedError: errDriversImageEmpty,
+		},
+		{
+			name: "empty driverVersion",
+			build: func(apiClient *clients.Settings) *Builder {
+				return NewBuilderWithDRA(
+					apiClient,
+					defaultDeviceConfigName,
+					defaultDeviceConfigNamespace,
+					defaultDriversImage,
+					"",
+					defaultDRADriverImage,
+				)
+			},
+			expectedError: errDriverVersionEmpty,
+		},
+		{
+			name: "empty draDriverImage",
+			build: func(apiClient *clients.Settings) *Builder {
+				return NewBuilderWithDRA(
+					apiClient,
+					defaultDeviceConfigName,
+					defaultDeviceConfigNamespace,
+					defaultDriversImage,
+					defaultDriverVersion,
+					"",
+				)
+			},
+			expectedError: errDRADriverImageEmpty,
+		},
+	})
+}
+
+func TestNewBuilderWithInClusterBuildDRAValidation(t *testing.T) {
+	t.Parallel()
+
+	runNewBuilderValidationTests(t, []newBuilderValidationTestCase{
+		{
+			name: "valid",
+			build: func(apiClient *clients.Settings) *Builder {
+				return NewBuilderWithInClusterBuildDRA(
+					apiClient,
+					defaultDeviceConfigName,
+					defaultDeviceConfigNamespace,
+					defaultDriverVersion,
+					defaultDRADriverImage,
+				)
+			},
+			expectedSpec: v1beta1.DeviceConfigSpec{
+				DriverVersion:  defaultDriverVersion,
+				DRADriverImage: defaultDRADriverImage,
+			},
+		},
+		{
+			name: "empty driverVersion",
+			build: func(apiClient *clients.Settings) *Builder {
+				return NewBuilderWithInClusterBuildDRA(
+					apiClient, defaultDeviceConfigName, defaultDeviceConfigNamespace, "", defaultDRADriverImage)
+			},
+			expectedError: errDriverVersionEmpty,
+		},
+		{
+			name: "empty draDriverImage",
+			build: func(apiClient *clients.Settings) *Builder {
+				return NewBuilderWithInClusterBuildDRA(
+					apiClient, defaultDeviceConfigName, defaultDeviceConfigNamespace, defaultDriverVersion, "")
+			},
+			expectedError: errDRADriverImageEmpty,
+		},
 	})
 }
 
 func TestPull(t *testing.T) {
-	testCases := []struct {
-		name                string
-		namespace           string
-		expectedError       error
-		addToRuntimeObjects bool
-		client              bool
-	}{
-		{
-			name:                "neuron",
-			namespace:           "ai-operator-on-aws",
-			expectedError:       nil,
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           "ai-operator-on-aws",
-			expectedError:       fmt.Errorf("deviceConfig 'name' cannot be empty"),
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "neuron",
-			namespace:           "",
-			expectedError:       fmt.Errorf("deviceConfig 'namespace' cannot be empty"),
-			addToRuntimeObjects: true,
-			client:              true,
-		},
-		{
-			name:                "neuron",
-			namespace:           "ai-operator-on-aws",
-			expectedError:       fmt.Errorf("deviceConfig object neuron does not exist in namespace ai-operator-on-aws"),
-			addToRuntimeObjects: false,
-			client:              true,
-		},
-		{
-			name:                "neuron",
-			namespace:           "ai-operator-on-aws",
-			expectedError:       fmt.Errorf("deviceConfig 'apiClient' cannot be nil"),
-			addToRuntimeObjects: false,
-			client:              false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		testDeviceConfig := buildDummyDeviceConfig(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testDeviceConfig)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		testBuilder, err := Pull(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.NotNil(t, testBuilder)
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		Pull, v1beta1.AddToScheme, deviceConfigGVK).ExecuteTests(t)
 }
 
-func TestDeviceConfigGet(t *testing.T) {
-	testCases := []struct {
-		testDeviceConfig *Builder
-		expectedError    error
-	}{
-		{
-			testDeviceConfig: buildValidDeviceConfigBuilder(buildTestClientWithDummyObject()),
-			expectedError:    nil,
-		},
-		{
-			testDeviceConfig: buildInvalidDeviceConfigBuilder(buildTestClientWithDummyObject()),
-			expectedError:    fmt.Errorf("DeviceConfig 'name' cannot be empty"),
-		},
-		{
-			testDeviceConfig: buildValidDeviceConfigBuilder(clients.GetTestClients(clients.TestClientParams{
-				SchemeAttachers: testSchemes,
-			})),
-			expectedError: fmt.Errorf("deviceconfigs.k8s.aws \"neuron\" not found"),
-		},
-	}
+func TestDeviceConfigBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		deviceConfig, err := testCase.testDeviceConfig.Get()
+	commonTestConfig := testhelper.NewCommonTestConfig[v1beta1.DeviceConfig, Builder](
+		v1beta1.AddToScheme,
+		deviceConfigGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.NotNil(t, deviceConfig)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestDeviceConfigExists(t *testing.T) {
-	testCases := []struct {
-		testDeviceConfig *Builder
-		expectedStatus   bool
-	}{
-		{
-			testDeviceConfig: buildValidDeviceConfigBuilder(buildTestClientWithDummyObject()),
-			expectedStatus:   true,
-		},
-		{
-			testDeviceConfig: buildInvalidDeviceConfigBuilder(buildTestClientWithDummyObject()),
-			expectedStatus:   false,
-		},
-		{
-			testDeviceConfig: buildValidDeviceConfigBuilder(clients.GetTestClients(clients.TestClientParams{
-				SchemeAttachers: testSchemes,
-			})),
-			expectedStatus: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testDeviceConfig.Exists()
-		assert.Equal(t, testCase.expectedStatus, exists)
-	}
-}
-
-func TestDeviceConfigCreate(t *testing.T) {
-	testCases := []struct {
-		testDeviceConfig *Builder
-		expectedError    error
-	}{
-		{
-			testDeviceConfig: buildValidDeviceConfigBuilder(clients.GetTestClients(clients.TestClientParams{
-				SchemeAttachers: testSchemes,
-			})),
-			expectedError: nil,
-		},
-		{
-			testDeviceConfig: buildInvalidDeviceConfigBuilder(clients.GetTestClients(clients.TestClientParams{
-				SchemeAttachers: testSchemes,
-			})),
-			expectedError: fmt.Errorf("DeviceConfig 'name' cannot be empty"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		deviceConfigBuilder, err := testCase.testDeviceConfig.Create()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.NotNil(t, deviceConfigBuilder)
-			assert.Equal(t, deviceConfigBuilder.Definition, deviceConfigBuilder.Object)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestDeviceConfigDelete(t *testing.T) {
-	testCases := []struct {
-		testDeviceConfig *Builder
-		expectedError    error
-	}{
-		{
-			testDeviceConfig: buildValidDeviceConfigBuilder(buildTestClientWithDummyObject()),
-			expectedError:    nil,
-		},
-		{
-			testDeviceConfig: buildInvalidDeviceConfigBuilder(buildTestClientWithDummyObject()),
-			expectedError:    fmt.Errorf("DeviceConfig 'name' cannot be empty"),
-		},
-		{
-			testDeviceConfig: buildValidDeviceConfigBuilder(clients.GetTestClients(clients.TestClientParams{
-				SchemeAttachers: testSchemes,
-			})),
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testDeviceConfig.Delete()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.Nil(t, testCase.testDeviceConfig.Object)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestDeviceConfigUpdate(t *testing.T) {
-	testCases := []struct {
-		testDeviceConfig *Builder
-		expectedError    error
-		driverVersion    string
-	}{
-		{
-			testDeviceConfig: buildValidDeviceConfigBuilder(buildTestClientWithDummyObject()),
-			expectedError:    nil,
-			driverVersion:    "2.25.0.0",
-		},
-		{
-			testDeviceConfig: buildInvalidDeviceConfigBuilder(buildTestClientWithDummyObject()),
-			expectedError:    fmt.Errorf("DeviceConfig 'name' cannot be empty"),
-			driverVersion:    "2.25.0.0",
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.NotNil(t, testCase.testDeviceConfig.Definition)
-		assert.Equal(t, defaultDriverVersion, testCase.testDeviceConfig.Definition.Spec.DriverVersion)
-
-		testCase.testDeviceConfig.Definition.Spec.DriverVersion = testCase.driverVersion
-		testCase.testDeviceConfig.Definition.ResourceVersion = "999"
-
-		_, err := testCase.testDeviceConfig.Update(false)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.driverVersion, testCase.testDeviceConfig.Definition.Spec.DriverVersion)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestDeviceConfigWithSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		testSelector  map[string]string
+		valid         bool
 		expectedError string
 	}{
 		{
-			testSelector:  map[string]string{"feature.node.kubernetes.io/aws-neuron": "true"},
-			expectedError: "",
+			name:         "valid selector",
+			testSelector: map[string]string{"feature.node.kubernetes.io/aws-neuron": "true"},
+			valid:        true,
 		},
 		{
+			name:          "empty selector",
 			testSelector:  map[string]string{},
-			expectedError: "DeviceConfig 'selector' cannot be empty map",
+			valid:         true,
+			expectedError: errSelectorEmpty,
+		},
+		{
+			name:         "invalid builder",
+			testSelector: map[string]string{"feature.node.kubernetes.io/aws-neuron": "true"},
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
-		result := testBuilder.WithSelector(testCase.testSelector)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
+			builder := buildDeviceConfigBuilderForTest(testCase.valid)
+			result := builder.WithSelector(testCase.testSelector)
+
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
 			assert.Equal(t, testCase.testSelector, result.Definition.Spec.Selector)
-		} else {
-			assert.Equal(t, testCase.expectedError, result.errorMsg)
-		}
+		})
 	}
 }
 
 func TestDeviceConfigWithScheduler(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name           string
 		schedulerImage string
 		extensionImage string
+		valid          bool
 		expectedError  string
 	}{
 		{
+			name:           "valid scheduler",
 			schedulerImage: "public.ecr.aws/eks-distro/kubernetes/kube-scheduler:v1.32.9-eks-1-32-24",
 			extensionImage: "public.ecr.aws/neuron/neuron-scheduler:2.29.16.0",
-			expectedError:  "",
+			valid:          true,
 		},
 		{
-			schedulerImage: "",
+			name:           "empty schedulerImage",
 			extensionImage: "public.ecr.aws/neuron/neuron-scheduler:2.29.16.0",
-			expectedError:  "DeviceConfig 'schedulerImage' cannot be empty",
+			valid:          true,
+			expectedError:  errSchedulerImageEmpty,
 		},
 		{
+			name:           "empty extensionImage",
 			schedulerImage: "public.ecr.aws/eks-distro/kubernetes/kube-scheduler:v1.32.9-eks-1-32-24",
-			extensionImage: "",
-			expectedError:  "DeviceConfig 'extensionImage' cannot be empty",
+			valid:          true,
+			expectedError:  errExtensionImageEmpty,
+		},
+		{
+			name:           "invalid builder",
+			schedulerImage: "public.ecr.aws/eks-distro/kubernetes/kube-scheduler:v1.32.9-eks-1-32-24",
+			extensionImage: "public.ecr.aws/neuron/neuron-scheduler:2.29.16.0",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
-		result := testBuilder.WithScheduler(testCase.schedulerImage, testCase.extensionImage)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
+			builder := buildDeviceConfigBuilderForTest(testCase.valid)
+			result := builder.WithScheduler(testCase.schedulerImage, testCase.extensionImage)
+
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
 			assert.Equal(t, testCase.schedulerImage, result.Definition.Spec.CustomSchedulerImage)
 			assert.Equal(t, testCase.extensionImage, result.Definition.Spec.SchedulerExtensionImage)
-		} else {
-			assert.Equal(t, testCase.expectedError, result.errorMsg)
-		}
+		})
 	}
 }
 
 func TestDeviceConfigWithImageRepoSecret(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		secretName    string
+		valid         bool
 		expectedError string
 	}{
 		{
-			secretName:    "my-secret",
-			expectedError: "",
+			name:       "valid secret",
+			secretName: "my-secret",
+			valid:      true,
 		},
 		{
-			secretName:    "",
-			expectedError: "DeviceConfig 'imageRepoSecret' name cannot be empty",
+			name:          "empty secret",
+			valid:         true,
+			expectedError: errImageRepoSecretEmpty,
+		},
+		{
+			name:       "invalid builder",
+			secretName: "my-secret",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
-		result := testBuilder.WithImageRepoSecret(testCase.secretName)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result.Definition.Spec.ImageRepoSecret)
+			builder := buildDeviceConfigBuilderForTest(testCase.valid)
+			result := builder.WithImageRepoSecret(testCase.secretName)
+
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.ImageRepoSecret)
 			assert.Equal(t, testCase.secretName, result.Definition.Spec.ImageRepoSecret.Name)
-		} else {
-			assert.Equal(t, testCase.expectedError, result.errorMsg)
-		}
+		})
 	}
 }
 
 func TestDeviceConfigWithDriverVersion(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		driverVersion string
+		valid         bool
 		expectedError string
 	}{
 		{
+			name:          "valid driver version",
 			driverVersion: "2.25.0.0",
-			expectedError: "",
+			valid:         true,
 		},
 		{
-			driverVersion: "",
-			expectedError: "DeviceConfig 'driverVersion' cannot be empty",
+			name:          "empty driver version",
+			valid:         true,
+			expectedError: errDriverVersionEmpty,
+		},
+		{
+			name:          "invalid builder",
+			driverVersion: "2.25.0.0",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
-		result := testBuilder.WithDriverVersion(testCase.driverVersion)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
+			builder := buildDeviceConfigBuilderForTest(testCase.valid)
+			result := builder.WithDriverVersion(testCase.driverVersion)
+
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
 			assert.Equal(t, testCase.driverVersion, result.Definition.Spec.DriverVersion)
-		} else {
-			assert.Equal(t, testCase.expectedError, result.errorMsg)
-		}
+		})
 	}
 }
 
 func TestDeviceConfigWithNodeMetricsImage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name             string
 		nodeMetricsImage string
+		valid            bool
 		expectedError    string
 	}{
 		{
+			name:             "valid node metrics image",
 			nodeMetricsImage: "public.ecr.aws/neuron/neuron-monitor:1.3.0",
-			expectedError:    "",
+			valid:            true,
 		},
 		{
-			nodeMetricsImage: "",
-			expectedError:    "DeviceConfig 'nodeMetricsImage' cannot be empty",
+			name:          "empty node metrics image",
+			valid:         true,
+			expectedError: errNodeMetricsImageEmpty,
+		},
+		{
+			name:             "invalid builder",
+			nodeMetricsImage: "public.ecr.aws/neuron/neuron-monitor:1.3.0",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
-		result := testBuilder.WithNodeMetricsImage(testCase.nodeMetricsImage)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
+			builder := buildDeviceConfigBuilderForTest(testCase.valid)
+			result := builder.WithNodeMetricsImage(testCase.nodeMetricsImage)
+
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
 			assert.Equal(t, testCase.nodeMetricsImage, result.Definition.Spec.NodeMetricsImage)
-		} else {
-			assert.Equal(t, testCase.expectedError, result.errorMsg)
-		}
+		})
 	}
 }
 
 func TestDeviceConfigWithOptions(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *Builder
-		options       AdditionalOptions
-		expectedError string
-	}{
-		{
-			testBuilder: buildValidDeviceConfigBuilder(buildTestClientWithDummyObject()),
-			options: func(builder *Builder) (*Builder, error) {
-				builder.Definition.Spec.DriverVersion = "2.26.0.0"
+	t.Parallel()
 
-				return builder, nil
-			},
-			expectedError: "",
-		},
-		{
-			testBuilder: buildValidDeviceConfigBuilder(buildTestClientWithDummyObject()),
-			options: func(builder *Builder) (*Builder, error) {
-				return builder, fmt.Errorf("error in mutation function")
-			},
-			expectedError: "error in mutation function",
-		},
-	}
-
-	for _, testCase := range testCases {
-		result := testCase.testBuilder.WithOptions(testCase.options)
-
-		if testCase.expectedError == "" {
-			assert.Empty(t, result.errorMsg)
-		} else {
-			assert.Equal(t, testCase.expectedError, result.errorMsg)
-		}
-	}
+	testhelper.NewWithOptionsTestConfig(
+		testhelper.NewCommonTestConfig[v1beta1.DeviceConfig, Builder](
+			v1beta1.AddToScheme,
+			deviceConfigGVK,
+			testhelper.ResourceScopeNamespaced,
+		)).ExecuteTests(t)
 }
 
 func TestDeviceConfigWithDRADriverImage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name           string
 		draDriverImage string
+		valid          bool
 		expectedError  string
 	}{
 		{
-			draDriverImage: "public.ecr.aws/neuron/neuron-dra-driver:1.0.0",
-			expectedError:  "",
+			name:           "valid DRA driver image",
+			draDriverImage: defaultDRADriverImage,
+			valid:          true,
 		},
 		{
-			draDriverImage: "",
-			expectedError:  errDRADriverImageEmpty,
+			name:          "empty DRA driver image",
+			valid:         true,
+			expectedError: errDRADriverImageEmpty,
+		},
+		{
+			name:           "invalid builder",
+			draDriverImage: defaultDRADriverImage,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
-		result := testBuilder.WithDRADriverImage(testCase.draDriverImage)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
+			builder := buildDeviceConfigBuilderForTest(testCase.valid)
+			result := builder.WithDRADriverImage(testCase.draDriverImage)
+
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(result.GetError()))
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
 			assert.Equal(t, testCase.draDriverImage, result.Definition.Spec.DRADriverImage)
-		} else {
-			assert.Equal(t, testCase.expectedError, result.errorMsg)
-		}
+		})
 	}
 }
 
-func TestDeviceConfigWithDRADriverImageInvalidBuilder(t *testing.T) {
-	testBuilder := buildInvalidDeviceConfigBuilder(buildTestClientWithDummyObject())
-	origErr := testBuilder.errorMsg
-
-	result := testBuilder.WithDRADriverImage("public.ecr.aws/neuron/neuron-dra-driver:1.0.0")
-	assert.Equal(t, origErr, result.errorMsg)
-}
-
 func TestDeviceConfigWithDeviceClasses(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
 		deviceClasses []v1beta1.DeviceClassSpec
+		valid         bool
 		expectedError string
 	}{
 		{
@@ -544,40 +684,51 @@ func TestDeviceConfigWithDeviceClasses(t *testing.T) {
 			deviceClasses: []v1beta1.DeviceClassSpec{
 				{Name: "neuron-device"},
 			},
-			expectedError: "",
+			valid: true,
 		},
 		{
 			name:          "empty device classes",
 			deviceClasses: []v1beta1.DeviceClassSpec{},
+			valid:         true,
 			expectedError: errDeviceClassesEmpty,
 		},
 		{
 			name:          "nil device classes",
-			deviceClasses: nil,
+			valid:         true,
 			expectedError: errDeviceClassesEmpty,
+		},
+		{
+			name: "invalid builder",
+			deviceClasses: []v1beta1.DeviceClassSpec{
+				{Name: "neuron-device"},
+			},
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			testBuilder := buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
-			result := testBuilder.WithDeviceClasses(testCase.deviceClasses)
+			t.Parallel()
 
-			if testCase.expectedError == "" {
-				assert.Equal(t, testCase.deviceClasses, result.Definition.Spec.DeviceClasses)
-			} else {
-				assert.Equal(t, testCase.expectedError, result.errorMsg)
+			builder := buildDeviceConfigBuilderForTest(testCase.valid)
+			result := builder.WithDeviceClasses(testCase.deviceClasses)
+
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNamespaceEmpty(result.GetError()))
+
+				return
 			}
+
+			if testCase.expectedError != "" {
+				require.EqualError(t, result.GetError(), testCase.expectedError)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.deviceClasses, result.Definition.Spec.DeviceClasses)
 		})
 	}
-}
-
-func TestDeviceConfigWithDeviceClassesInvalidBuilder(t *testing.T) {
-	testBuilder := buildInvalidDeviceConfigBuilder(buildTestClientWithDummyObject())
-	origErr := testBuilder.errorMsg
-
-	result := testBuilder.WithDeviceClasses([]v1beta1.DeviceClassSpec{{Name: "test"}})
-	assert.Equal(t, origErr, result.errorMsg)
 }
 
 // buildDummyDeviceConfig returns a DeviceConfig with the provided name and namespace.
@@ -595,6 +746,11 @@ func buildDummyDeviceConfig(name, namespace string) *v1beta1.DeviceConfig {
 	}
 }
 
+// buildTestClientWithDeviceConfigScheme returns a client with the DeviceConfig scheme attached.
+func buildTestClientWithDeviceConfigScheme() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{SchemeAttachers: testSchemes})
+}
+
 // buildTestClientWithDummyObject returns a client with a mock DeviceConfig object.
 func buildTestClientWithDummyObject() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
@@ -603,6 +759,15 @@ func buildTestClientWithDummyObject() *clients.Settings {
 		},
 		SchemeAttachers: testSchemes,
 	})
+}
+
+// buildDeviceConfigBuilderForTest returns either a valid or invalid DeviceConfig builder.
+func buildDeviceConfigBuilderForTest(valid bool) *Builder {
+	if valid {
+		return buildValidDeviceConfigBuilder(buildTestClientWithDummyObject())
+	}
+
+	return buildInvalidDeviceConfigBuilder(buildTestClientWithDummyObject())
 }
 
 // buildValidDeviceConfigBuilder returns a valid Builder for testing.
@@ -621,8 +786,8 @@ func buildValidDeviceConfigBuilder(apiClient *clients.Settings) *Builder {
 func buildInvalidDeviceConfigBuilder(apiClient *clients.Settings) *Builder {
 	return NewBuilder(
 		apiClient,
+		defaultDeviceConfigName,
 		"",
-		defaultDeviceConfigNamespace,
 		defaultDriversImage,
 		defaultDriverVersion,
 		defaultDevicePluginImage,
