@@ -1,7 +1,6 @@
 package assisted
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -9,1135 +8,802 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	hiveextV1Beta1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/api/hiveextension/v1beta1"
 	hivev1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/assisted/hive/api/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
-	aciTestName      = "aci-test-name"
-	aciTestNamespace = "aci-test-namespace"
+	aciTestName              = "aci-test-name"
+	aciTestNamespace         = "aci-test-namespace"
+	aciTestClusterDeployment = "aci-test-clusterdeployment"
 )
 
-var testSchemes = []clients.SchemeAttacher{
-	hiveextV1Beta1.AddToScheme,
-}
-
 func TestNewAgentClusterInstallBuilder(t *testing.T) {
-	testCases := []struct {
-		name              string
-		namespace         string
-		clusterDeployment string
-		masterCount       int
-		workerCount       int
-		network           hiveextV1Beta1.Networking
-		client            bool
-		expectedError     string
-	}{
-		{
-			name:              aciTestName,
-			namespace:         aciTestNamespace,
-			clusterDeployment: "aci-test-clusterdeployment",
-			masterCount:       3,
-			workerCount:       2,
-			network:           dummyTestNetwork(),
-			client:            true,
-			expectedError:     "",
-		},
-		{
-			name:              "",
-			namespace:         aciTestNamespace,
-			clusterDeployment: "aci-test-clusterdeployment",
-			masterCount:       3,
-			workerCount:       2,
-			network:           dummyTestNetwork(),
-			client:            true,
-			expectedError:     "agentclusterinstall 'name' cannot be empty",
-		},
-		{
-			name:              aciTestName,
-			namespace:         "",
-			clusterDeployment: "aci-test-clusterdeployment",
-			masterCount:       3,
-			workerCount:       2,
-			network:           dummyTestNetwork(),
-			client:            true,
-			expectedError:     "agentclusterinstall 'namespace' cannot be empty",
-		},
-		{
-			name:              aciTestName,
-			namespace:         aciTestNamespace,
-			clusterDeployment: "",
-			masterCount:       3,
-			workerCount:       2,
-			network:           dummyTestNetwork(),
-			client:            true,
-			expectedError:     "agentclusterinstall 'clusterDeployment' cannot be empty",
-		},
-		{
-			name:              aciTestName,
-			namespace:         aciTestNamespace,
-			clusterDeployment: "aci-test-clusterdeployment",
-			masterCount:       3,
-			workerCount:       2,
-			network:           dummyTestNetwork(),
-			client:            false,
-			expectedError:     "",
-		},
-	}
+	t.Parallel()
 
-	for _, testcase := range testCases {
-		var testSettings *clients.Settings
-		if testcase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
+	t.Run("common namespaced builder behavior", func(t *testing.T) {
+		t.Parallel()
 
-		testBuilder := NewAgentClusterInstallBuilder(
-			testSettings, testcase.name, testcase.namespace, testcase.clusterDeployment,
-			testcase.masterCount, testcase.workerCount, testcase.network)
+		testhelper.NewNamespacedBuilderTestConfig(
+			func(apiClient *clients.Settings, name, nsname string) *AgentClusterInstallBuilder {
+				return NewAgentClusterInstallBuilder(
+					apiClient, name, nsname, aciTestClusterDeployment, 3, 2, dummyTestNetwork())
+			},
+			hiveextV1Beta1.AddToScheme,
+			agentClusterInstallGVK,
+		).ExecuteTests(t)
+	})
 
-		if testcase.client {
-			assert.NotNil(t, testBuilder)
-			assert.Equal(t, testcase.expectedError, testBuilder.errorMsg)
-			assert.Equal(t, testcase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testcase.namespace, testBuilder.Definition.Namespace)
-			assert.Equal(t, testcase.clusterDeployment, testBuilder.Definition.Spec.ClusterDeploymentRef.Name)
-			assert.Equal(t, testcase.masterCount, testBuilder.Definition.Spec.ProvisionRequirements.ControlPlaneAgents)
-			assert.Equal(t, testcase.workerCount, testBuilder.Definition.Spec.ProvisionRequirements.WorkerAgents)
-			assert.Equal(t, testcase.network, testBuilder.Definition.Spec.Networking)
-		} else {
-			assert.Nil(t, testBuilder)
-		}
-	}
+	t.Run("constructor populates spec", func(t *testing.T) {
+		t.Parallel()
+
+		network := dummyTestNetwork()
+		builder := NewAgentClusterInstallBuilder(
+			newAgentClusterInstallTestClient(nil), aciTestName, aciTestNamespace,
+			aciTestClusterDeployment, 3, 2, network)
+
+		require.NotNil(t, builder)
+		require.NoError(t, builder.GetError())
+		assert.Equal(t, aciTestName, builder.Definition.Name)
+		assert.Equal(t, aciTestNamespace, builder.Definition.Namespace)
+		assert.Equal(t, aciTestClusterDeployment, builder.Definition.Spec.ClusterDeploymentRef.Name)
+		assert.Equal(t, 3, builder.Definition.Spec.ProvisionRequirements.ControlPlaneAgents)
+		assert.Equal(t, 2, builder.Definition.Spec.ProvisionRequirements.WorkerAgents)
+		assert.Equal(t, network, builder.Definition.Spec.Networking)
+	})
+
+	t.Run("cluster deployment is required", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewAgentClusterInstallBuilder(
+			newAgentClusterInstallTestClient(nil), aciTestName, aciTestNamespace, "", 3, 2, dummyTestNetwork())
+
+		require.NotNil(t, builder)
+		assert.EqualError(t, builder.GetError(), "agentclusterinstall 'clusterDeployment' cannot be empty")
+	})
 }
 
 func TestPullAgentClusterInstall(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		client        bool
-		exists        bool
-		expectedError error
-	}{
-		{
-			name:          aciTestName,
-			namespace:     aciTestNamespace,
-			client:        true,
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			name:          "",
-			namespace:     aciTestNamespace,
-			client:        true,
-			exists:        true,
-			expectedError: errors.New("agentclusterinstall 'name' cannot be empty"),
-		},
-		{
-			name:          aciTestName,
-			namespace:     "",
-			client:        true,
-			exists:        true,
-			expectedError: errors.New("agentclusterinstall 'namespace' cannot be empty"),
-		},
-		{
-			name:          aciTestName,
-			namespace:     aciTestNamespace,
-			client:        false,
-			exists:        true,
-			expectedError: errors.New("the apiClient is nil"),
-		},
-		{
-			name:          aciTestName,
-			namespace:     aciTestNamespace,
-			client:        true,
-			exists:        false,
-			expectedError: errors.New("agentclusterinstall object aci-test-name does not exist in namespace aci-test-namespace"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentClusterInstall())
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects: runtimeObjects, SchemeAttachers: testSchemes})
-		}
-
-		testBuilder, err := PullAgentClusterInstall(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.Nil(t, testBuilder)
-		} else {
-			assert.Equal(t, testCase.name, testBuilder.Object.Name)
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testBuilder.Object.Namespace)
-			assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullAgentClusterInstall, hiveextV1Beta1.AddToScheme, agentClusterInstallGVK).ExecuteTests(t)
 }
 
-func TestAgentClusterInstallCreate(t *testing.T) {
-	testCases := []struct {
-		exists bool
-	}{
-		{
-			exists: true,
-		},
-		{
-			exists: false,
-		},
-	}
+func TestAgentClusterInstallBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+	commonTestConfig := testhelper.NewCommonTestConfig[
+		hiveextV1Beta1.AgentClusterInstall, AgentClusterInstallBuilder](
+		hiveextV1Beta1.AddToScheme,
+		agentClusterInstallGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentClusterInstall())
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		result, err := testBuilder.Create()
-		assert.Nil(t, err)
-		assert.NotNil(t, result)
-		assert.Equal(t, aciTestName, result.Definition.Name)
-		assert.Equal(t, aciTestNamespace, result.Definition.Namespace)
-	}
-}
-
-func TestAgentClusterInstallDelete(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError error
-	}{
-		{
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			exists:        false,
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentClusterInstall())
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		err := testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testBuilder.Object)
-		}
-	}
-}
-
-func TestAgentClusterInstallDeleteAndWait(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError error
-	}{
-		{
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			exists:        false,
-			expectedError: nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentClusterInstall())
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		err := testBuilder.DeleteAndWait(time.Second * 1)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testBuilder.Object)
-		}
-	}
-}
-
-func TestAgentClusterInstallGet(t *testing.T) {
-	testCases := []struct {
-		exists bool
-	}{
-		{
-			exists: true,
-		},
-		{
-			exists: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentClusterInstall())
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		aci, err := testBuilder.Get()
-		if testCase.exists {
-			assert.Nil(t, err)
-			assert.NotNil(t, aci)
-		} else {
-			assert.NotNil(t, err)
-			assert.Nil(t, aci)
-		}
-	}
-}
-
-func TestAgentClusterInstallExists(t *testing.T) {
-	testCases := []struct {
-		exists bool
-	}{
-		{
-			exists: true,
-		},
-		{
-			exists: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentClusterInstall())
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		assert.Equal(t, testCase.exists, testBuilder.Exists())
-	}
-}
-
-func TestAgentClusterInstallUpdate(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError error
-	}{
-		{
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			exists:        false,
-			expectedError: errors.New("cannot update non-existent agentclusterinstall"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateAgentClusterInstall())
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		testBuilder.Definition.Spec.ProvisionRequirements.WorkerAgents = 5
-
-		aci, err := testBuilder.Update(true)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, aci.Object.Spec.ProvisionRequirements.WorkerAgents, 5)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestAgentClusterInstallWithOptions(t *testing.T) {
-	testCases := []struct {
-		option        AgentClusterInstallAdditionalOptions
-		validator     func(*AgentClusterInstallBuilder) bool
-		expectedError string
-	}{
-		{
-			option: func(builder *AgentClusterInstallBuilder) (*AgentClusterInstallBuilder, error) {
+	t.Parallel()
+
+	testhelper.NewWithOptionsTestConfig(
+		testhelper.NewCommonTestConfig[hiveextV1Beta1.AgentClusterInstall, AgentClusterInstallBuilder](
+			hiveextV1Beta1.AddToScheme,
+			agentClusterInstallGVK,
+			testhelper.ResourceScopeNamespaced,
+		)).ExecuteTests(t)
+}
+
+func TestAgentClusterInstallWithOptionsMutations(t *testing.T) {
+	t.Parallel()
+
+	t.Run("applies package-specific options", func(t *testing.T) {
+		t.Parallel()
+
+		builder := generateAgentClusterInstallTestBuilder().WithOptions(
+			func(builder *AgentClusterInstallBuilder) (*AgentClusterInstallBuilder, error) {
 				builder.Definition.Spec.HoldInstallation = true
 
 				return builder, nil
 			},
-			validator: func(acib *AgentClusterInstallBuilder) bool {
-				return acib.Definition.Spec.HoldInstallation == true
-			},
-			expectedError: "",
-		},
-		{
-			option: func(builder *AgentClusterInstallBuilder) (*AgentClusterInstallBuilder, error) {
+			func(builder *AgentClusterInstallBuilder) (*AgentClusterInstallBuilder, error) {
 				builder.Definition.Spec.IgnitionEndpoint = &hiveextV1Beta1.IgnitionEndpoint{
 					Url: "https://some.ign.endpoint.com",
 				}
 
 				return builder, nil
 			},
-			validator: func(acib *AgentClusterInstallBuilder) bool {
-				return acib.Definition.Spec.IgnitionEndpoint.Url == "https://some.ign.endpoint.com"
-			},
-			expectedError: "",
+		)
+
+		require.NoError(t, builder.GetError())
+		assert.True(t, builder.Definition.Spec.HoldInstallation)
+		require.NotNil(t, builder.Definition.Spec.IgnitionEndpoint)
+		assert.Equal(t, "https://some.ign.endpoint.com", builder.Definition.Spec.IgnitionEndpoint.Url)
+	})
+}
+
+func TestAgentClusterInstallDeleteAndWait(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		exists bool
+		valid  bool
+	}{
+		{
+			name:   "deletes existing resource",
+			exists: true,
+			valid:  true,
 		},
 		{
-			option: func(builder *AgentClusterInstallBuilder) (*AgentClusterInstallBuilder, error) {
-				return builder, fmt.Errorf("agentclusterinstallbuilder contains error")
-			},
-			validator: func(acib *AgentClusterInstallBuilder) bool {
-				return acib.errorMsg != ""
-			},
-			expectedError: "agentclusterinstallbuilder contains error",
+			name:   "resource already absent",
+			exists: false,
+			valid:  true,
+		},
+		{
+			name:   "invalid builder",
+			exists: true,
+			valid:  false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithOptions(testCase.option)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-		assert.True(t, testCase.validator(testBuilder))
+			var objects []runtime.Object
+			if testCase.exists {
+				objects = append(objects, generateAgentClusterInstall())
+			}
+
+			var builder *AgentClusterInstallBuilder
+			if testCase.valid {
+				builder = buildTestBuilderWithFakeObjects(objects)
+			} else {
+				builder = buildInvalidAgentClusterInstallTestBuilder(objects)
+			}
+
+			err := builder.DeleteAndWait(time.Second)
+
+			if testCase.valid {
+				require.NoError(t, err)
+				assert.Nil(t, builder.Object)
+			} else {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(err))
+			}
+		})
 	}
 }
 
-func TestAgentClusterInstallWithApiVip(t *testing.T) {
+func TestAgentClusterInstallWithAPIVip(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		ip          string
-		expectError string
+		name          string
+		ip            string
+		expectedError string
 	}{
-		{
-			ip:          "192.168.1.5",
-			expectError: "",
-		},
-		{
-			ip:          "fd2e::5",
-			expectError: "",
-		},
-		{
-			ip:          "notanip",
-			expectError: errIncorrectAPIVIPFormat,
-		},
+		{name: "IPv4", ip: "192.168.1.5"},
+		{name: "IPv6", ip: "fd2e::5"},
+		{name: "invalid IP", ip: "notanip", expectedError: errIncorrectAPIVIPFormat},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithAPIVip(testCase.ip)
-		assert.Equal(t, testCase.expectError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectError == "" {
-			assert.Equal(t, testCase.ip, testBuilder.Definition.Spec.APIVIP)
-		}
+			builder := generateAgentClusterInstallTestBuilder().WithAPIVip(testCase.ip)
+
+			assertBuilderError(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				assert.Equal(t, testCase.ip, builder.Definition.Spec.APIVIP)
+			}
+		})
 	}
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithAPIVip("192.168.1.5")
+		})
+	})
 }
-func TestAgentClusterInstallWithAdditionalApiVip(t *testing.T) {
+
+func TestAgentClusterInstallWithAdditionalAPIVip(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		ip          string
-		expectError string
+		name          string
+		ip            string
+		expectedError string
 	}{
-		{
-			ip:          "192.168.1.5",
-			expectError: "",
-		},
-		{
-			ip:          "fd2e::5",
-			expectError: "",
-		},
-		{
-			ip:          "notanip",
-			expectError: errIncorrectAPIVIPFormat,
-		},
+		{name: "IPv4", ip: "192.168.1.5"},
+		{name: "IPv6", ip: "fd2e::5"},
+		{name: "invalid IP", ip: "notanip", expectedError: errIncorrectAPIVIPFormat},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithAdditionalAPIVip(testCase.ip)
-		assert.Equal(t, testCase.expectError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectError == "" {
-			assert.Contains(t, testBuilder.Definition.Spec.APIVIPs, testCase.ip)
-		}
+			builder := generateAgentClusterInstallTestBuilder().WithAdditionalAPIVip(testCase.ip)
+
+			assertBuilderError(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				assert.Contains(t, builder.Definition.Spec.APIVIPs, testCase.ip)
+			}
+		})
 	}
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithAdditionalAPIVip("192.168.1.5")
+		})
+	})
 }
 
 func TestAgentClusterInstallWithIngressVip(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		ip          string
-		expectError string
+		name          string
+		ip            string
+		expectedError string
 	}{
-		{
-			ip:          "192.168.1.10",
-			expectError: "",
-		},
-		{
-			ip:          "fd2e::10",
-			expectError: "",
-		},
-		{
-			ip:          "notanip",
-			expectError: errIncorrectIngressVIPFormat,
-		},
+		{name: "IPv4", ip: "192.168.1.10"},
+		{name: "IPv6", ip: "fd2e::10"},
+		{name: "invalid IP", ip: "notanip", expectedError: errIncorrectIngressVIPFormat},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithIngressVip(testCase.ip)
-		assert.Equal(t, testCase.expectError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectError == "" {
-			assert.Equal(t, testCase.ip, testBuilder.Definition.Spec.IngressVIP)
-		}
+			builder := generateAgentClusterInstallTestBuilder().WithIngressVip(testCase.ip)
+
+			assertBuilderError(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				assert.Equal(t, testCase.ip, builder.Definition.Spec.IngressVIP)
+			}
+		})
 	}
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithIngressVip("192.168.1.10")
+		})
+	})
 }
+
 func TestAgentClusterInstallWithAdditionalIngressVip(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		ip          string
-		expectError string
+		name          string
+		ip            string
+		expectedError string
 	}{
-		{
-			ip:          "192.168.1.10",
-			expectError: "",
-		},
-		{
-			ip:          "fd2e::10",
-			expectError: "",
-		},
-		{
-			ip:          "notanip",
-			expectError: errIncorrectIngressVIPFormat,
-		},
+		{name: "IPv4", ip: "192.168.1.10"},
+		{name: "IPv6", ip: "fd2e::10"},
+		{name: "invalid IP", ip: "notanip", expectedError: errIncorrectIngressVIPFormat},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithAdditionalIngressVip(testCase.ip)
-		assert.Equal(t, testCase.expectError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectError == "" {
-			assert.Contains(t, testBuilder.Definition.Spec.IngressVIPs, testCase.ip)
-		}
+			builder := generateAgentClusterInstallTestBuilder().WithAdditionalIngressVip(testCase.ip)
+
+			assertBuilderError(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				assert.Contains(t, builder.Definition.Spec.IngressVIPs, testCase.ip)
+			}
+		})
 	}
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithAdditionalIngressVip("192.168.1.10")
+		})
+	})
 }
+
 func TestAgentClusterInstallWithUserManagedNetworking(t *testing.T) {
-	testCases := []struct {
-		umn bool
-	}{
-		{
-			umn: true,
-		},
-		{
-			umn: false,
-		},
+	t.Parallel()
+
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("enabled %t", enabled), func(t *testing.T) {
+			t.Parallel()
+
+			builder := generateAgentClusterInstallTestBuilder().WithUserManagedNetworking(enabled)
+
+			require.NoError(t, builder.GetError())
+			require.NotNil(t, builder.Definition.Spec.Networking.UserManagedNetworking)
+			assert.Equal(t, enabled, *builder.Definition.Spec.Networking.UserManagedNetworking)
+		})
 	}
 
-	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithUserManagedNetworking(testCase.umn)
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
 
-		assert.Equal(t, testCase.umn, *testBuilder.Definition.Spec.Networking.UserManagedNetworking)
-	}
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithUserManagedNetworking(true)
+		})
+	})
 }
+
 func TestAgentClusterInstallWithPlatformType(t *testing.T) {
-	testCases := []struct {
-		platform hiveextV1Beta1.PlatformType
-	}{
-		{
-			platform: "BareMetal",
-		},
-		{
-			platform: "None",
-		},
-		{
-			platform: "VSphere",
-		},
-		{
-			platform: "Nutanix",
-		},
+	t.Parallel()
+
+	for _, platform := range []hiveextV1Beta1.PlatformType{"BareMetal", "None", "VSphere", "Nutanix"} {
+		t.Run(string(platform), func(t *testing.T) {
+			t.Parallel()
+
+			builder := generateAgentClusterInstallTestBuilder().WithPlatformType(platform)
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, platform, builder.Definition.Spec.PlatformType)
+		})
 	}
 
-	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithPlatformType(testCase.platform)
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
 
-		assert.Equal(t, testCase.platform, testBuilder.Definition.Spec.PlatformType)
-	}
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithPlatformType(hiveextV1Beta1.BareMetalPlatformType)
+		})
+	})
 }
+
 func TestAgentClusterInstallWithControlPlaneAgents(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		count         int
 		expectedError string
 	}{
-		{
-			count:         3,
-			expectedError: "",
-		},
-		{
-			count:         1,
-			expectedError: "",
-		},
-		{
-			count:         0,
-			expectedError: errInvalidControlplaneAgentCount,
-		},
-		{
-			count:         -1,
-			expectedError: errInvalidControlplaneAgentCount,
-		},
+		{name: "three agents", count: 3},
+		{name: "one agent", count: 1},
+		{name: "zero agents", count: 0, expectedError: errInvalidControlplaneAgentCount},
+		{name: "negative agents", count: -1, expectedError: errInvalidControlplaneAgentCount},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithControlPlaneAgents(testCase.count)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-		assert.Equal(t, testCase.count, testBuilder.Definition.Spec.ProvisionRequirements.ControlPlaneAgents)
+			builder := generateAgentClusterInstallTestBuilder().WithControlPlaneAgents(testCase.count)
+
+			assertBuilderError(t, builder.GetError(), testCase.expectedError)
+			assert.Equal(t, testCase.count, builder.Definition.Spec.ProvisionRequirements.ControlPlaneAgents)
+		})
 	}
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithControlPlaneAgents(3)
+		})
+	})
 }
 
 func TestAgentClusterInstallWithImageSet(t *testing.T) {
-	testCases := []struct {
-		image         string
-		expectedError string
-	}{
-		{
-			image:         "4.16",
-			expectedError: "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithImageSet(testCase.image)
+	builder := generateAgentClusterInstallTestBuilder().WithImageSet("4.16")
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-		assert.Equal(t, testCase.image, testBuilder.Definition.Spec.ImageSetRef.Name)
-	}
+	require.NoError(t, builder.GetError())
+	require.NotNil(t, builder.Definition.Spec.ImageSetRef)
+	assert.Equal(t, "4.16", builder.Definition.Spec.ImageSetRef.Name)
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithImageSet("4.16")
+		})
+	})
 }
 
 func TestAgentClusterInstallWithWorkerAgents(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		count         int
 		expectedError string
 	}{
+		{name: "three workers", count: 3},
+		{name: "one worker", count: 1},
+		{name: "zero workers", count: 0},
 		{
-			count:         3,
-			expectedError: "",
-		},
-		{
-			count:         1,
-			expectedError: "",
-		},
-		{
-			count:         0,
-			expectedError: "",
-		},
-		{
+			name:          "negative workers",
 			count:         -1,
 			expectedError: "agentclusterinstall worker agents cannot be less that 0",
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithWorkerAgents(testCase.count)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
-		assert.Equal(t, testCase.count, testBuilder.Definition.Spec.ProvisionRequirements.WorkerAgents)
+			builder := generateAgentClusterInstallTestBuilder().WithWorkerAgents(testCase.count)
+
+			assertBuilderError(t, builder.GetError(), testCase.expectedError)
+			assert.Equal(t, testCase.count, builder.Definition.Spec.ProvisionRequirements.WorkerAgents)
+		})
 	}
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithWorkerAgents(3)
+		})
+	})
 }
 
 //nolint:lll
 func TestAgentClusterInstallWithSSHPublicKey(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name   string
 		sshKey string
 	}{
 		{
+			name:   "non-empty key",
 			sshKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCaX4UsUhbLbeTGx6wob/6Y2qQzBDi2VhjFaFGugNk9zuNgPB4Um4VNa8TgRr/nrJxLWduuM0gbBgAA9719cCV6FsTq6e0TTrtFAy498vNrE1gyCp8gX2/+60NWwjeK3iglVym0WxmXhWpZCPk6EBsBQgclt6iQhVH20f60lWAD6+8I5iXCm5u63HNEzuTmJUVaVCEU62zamwwJUR+6yddnu+rIrLqw7xYuuATKMBuL+AUnB3zR08qv65Tyhf/YpyjlW/w7kCFwTsE0Xrbtumd1irF49DiY4Xb5WGPRTjrhVhzpAvtvEhfrMGGnbwnQ0P1pUTAQz8eYKSN4M0oxaGPObtjkEM4EAjBo5vyzN1xi9H/tekOQCmVDY2XOCVvIuxUPgq/8Uc3oGkoh3Eay+KSRIhQC3+kqXX889H//SmENoejIAxnETXPnVygKMaoJbh2d44RjIC5LkJsNSwcK24+hv4VU0uJjwXMPPE5YTUxcVPukATd4i22FOSiIL/ULuos=",
 		},
-		{
-			sshKey: "",
-		},
+		{name: "empty key", sshKey: ""},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithSSHPublicKey(testCase.sshKey)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, testCase.sshKey, testBuilder.Definition.Spec.SSHPublicKey)
+			builder := generateAgentClusterInstallTestBuilder().WithSSHPublicKey(testCase.sshKey)
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, testCase.sshKey, builder.Definition.Spec.SSHPublicKey)
+		})
 	}
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithSSHPublicKey("key")
+		})
+	})
 }
+
 func TestAgentClusterInstallWithNetworkType(t *testing.T) {
-	testCases := []struct {
-		network string
-	}{
-		{
-			network: "OpenShiftSDN",
-		},
-		{
-			network: "OVNKubernetes",
-		},
+	t.Parallel()
+
+	for _, networkType := range []string{"OpenShiftSDN", "OVNKubernetes"} {
+		t.Run(networkType, func(t *testing.T) {
+			t.Parallel()
+
+			builder := generateAgentClusterInstallTestBuilder().WithNetworkType(networkType)
+
+			require.NoError(t, builder.GetError())
+			assert.Equal(t, networkType, builder.Definition.Spec.Networking.NetworkType)
+		})
 	}
 
-	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithNetworkType(testCase.network)
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
 
-		assert.Equal(t, testCase.network, testBuilder.Definition.Spec.Networking.NetworkType)
-	}
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithNetworkType("OVNKubernetes")
+		})
+	})
 }
+
 func TestAgentClusterInstallWithAdditionalClusterNetwork(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		cidr          string
 		prefix        int32
 		expectedError string
 	}{
+		{name: "valid network", cidr: "10.128.0.0/14", prefix: 23},
 		{
-			cidr:          "10.128.0.0/14",
-			prefix:        23,
-			expectedError: "",
-		},
-		{
+			name:          "invalid CIDR",
 			cidr:          "10.128.0.0",
 			prefix:        23,
 			expectedError: "agentclusterinstall contains invalid clusterNetwork cidr",
 		},
-		{
-			cidr:          "10.128.0.0/14",
-			prefix:        0,
-			expectedError: errInvalidClusterNetworkPrefix,
-		},
-		{
-			cidr:          "10.128.0.0/14",
-			prefix:        -1,
-			expectedError: errInvalidClusterNetworkPrefix,
-		},
+		{name: "zero prefix", cidr: "10.128.0.0/14", prefix: 0, expectedError: errInvalidClusterNetworkPrefix},
+		{name: "negative prefix", cidr: "10.128.0.0/14", prefix: -1, expectedError: errInvalidClusterNetworkPrefix},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithAdditionalClusterNetwork(testCase.cidr, testCase.prefix)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.cidr, testBuilder.Definition.Spec.Networking.ClusterNetwork[1].CIDR)
-			assert.Equal(t, testCase.prefix, testBuilder.Definition.Spec.Networking.ClusterNetwork[1].HostPrefix)
-		}
+			builder := generateAgentClusterInstallTestBuilder().
+				WithAdditionalClusterNetwork(testCase.cidr, testCase.prefix)
+
+			assertBuilderError(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				require.Len(t, builder.Definition.Spec.Networking.ClusterNetwork, 2)
+				assert.Equal(t, testCase.cidr, builder.Definition.Spec.Networking.ClusterNetwork[1].CIDR)
+				assert.Equal(t, testCase.prefix, builder.Definition.Spec.Networking.ClusterNetwork[1].HostPrefix)
+			}
+		})
 	}
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithAdditionalClusterNetwork("10.128.0.0/14", 23)
+		})
+	})
 }
 
 func TestAgentClusterInstallWithAdditionalServiceNetwork(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		cidr          string
 		expectedError string
 	}{
-		{
-			cidr:          "172.30.0.0/16",
-			expectedError: "",
-		},
-		{
-			cidr:          "",
-			expectedError: errInvalidServiceNetworkCIDR,
-		},
-		{
-			cidr:          "172.30.0.0/162",
-			expectedError: errInvalidServiceNetworkCIDR,
-		},
+		{name: "valid network", cidr: "172.30.0.0/16"},
+		{name: "empty CIDR", cidr: "", expectedError: errInvalidServiceNetworkCIDR},
+		{name: "invalid CIDR", cidr: "172.30.0.0/162", expectedError: errInvalidServiceNetworkCIDR},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateAgentClusterInstallTestBuilder()
-		testBuilder.WithAdditionalServiceNetwork(testCase.cidr)
-		assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.expectedError == "" {
-			assert.Equal(t, testCase.cidr, testBuilder.Definition.Spec.Networking.ServiceNetwork[1])
-		}
+			builder := generateAgentClusterInstallTestBuilder().WithAdditionalServiceNetwork(testCase.cidr)
+
+			assertBuilderError(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				require.Len(t, builder.Definition.Spec.Networking.ServiceNetwork, 2)
+				assert.Equal(t, testCase.cidr, builder.Definition.Spec.Networking.ServiceNetwork[1])
+			}
+		})
 	}
+
+	t.Run("invalid builder", func(t *testing.T) {
+		t.Parallel()
+
+		assertInvalidModifierShortCircuit(t, func(builder *AgentClusterInstallBuilder) *AgentClusterInstallBuilder {
+			return builder.WithAdditionalServiceNetwork("172.30.0.0/16")
+		})
+	})
 }
+
 func TestAgentClusterInstallWaitForState(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		status hiveextV1Beta1.AgentClusterInstallStatus
-		state  string
+		name  string
+		state string
 	}{
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				DebugInfo: hiveextV1Beta1.DebugInfo{
-					State: "adding-hosts",
-				},
-			},
-			state: "adding-hosts",
-		},
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				DebugInfo: hiveextV1Beta1.DebugInfo{
-					State: "installing",
-				},
-			},
-			state: "installing",
-		},
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				DebugInfo: hiveextV1Beta1.DebugInfo{
-					State: "finalizing",
-				},
-			},
-			state: "finalizing",
-		},
+		{name: "adding hosts", state: "adding-hosts"},
+		{name: "installing", state: "installing"},
+		{name: "finalizing", state: "finalizing"},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testACI := generateAgentClusterInstall()
-		testACI.Status = testCase.status
+			aci := generateAgentClusterInstall()
+			aci.Status.DebugInfo.State = testCase.state
+			builder := buildTestBuilderWithFakeObjects([]runtime.Object{aci})
 
-		runtimeObjects = append(runtimeObjects, testACI)
+			result, err := builder.WaitForState(testCase.state, 2*time.Second)
 
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		aci, err := testBuilder.WaitForState(testCase.state, time.Second*2)
-
-		assert.Nil(t, err)
-		assert.NotNil(t, aci)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, testCase.state, result.Object.Status.DebugInfo.State)
+		})
 	}
 }
+
 func TestAgentClusterInstallWaitForStateInfo(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		status hiveextV1Beta1.AgentClusterInstallStatus
-		info   string
+		name string
+		info string
 	}{
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				DebugInfo: hiveextV1Beta1.DebugInfo{
-					StateInfo: "Cluster is installed",
-				},
-			},
-			info: "Cluster is installed",
-		},
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				DebugInfo: hiveextV1Beta1.DebugInfo{
-					StateInfo: "Cluster is finalizing",
-				},
-			},
-			info: "Cluster is finalizing",
-		},
+		{name: "installed", info: "Cluster is installed"},
+		{name: "finalizing", info: "Cluster is finalizing"},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testACI := generateAgentClusterInstall()
-		testACI.Status = testCase.status
+			aci := generateAgentClusterInstall()
+			aci.Status.DebugInfo.StateInfo = testCase.info
+			builder := buildTestBuilderWithFakeObjects([]runtime.Object{aci})
 
-		runtimeObjects = append(runtimeObjects, testACI)
+			result, err := builder.WaitForStateInfo(testCase.info, 2*time.Second)
 
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		aci, err := testBuilder.WaitForStateInfo(testCase.info, time.Second*2)
-
-		assert.Nil(t, err)
-		assert.NotNil(t, aci)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, testCase.info, result.Object.Status.DebugInfo.StateInfo)
+		})
 	}
 }
 
 func TestAgentClusterInstallWaitForConditionMessage(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		status        hiveextV1Beta1.AgentClusterInstallStatus
+		name          string
 		conditionType hivev1.ClusterInstallConditionType
 		message       string
 	}{
 		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{
-					{
-						Type:    "Stopped",
-						Status:  corev1.ConditionTrue,
-						Reason:  "InstallationCompleted",
-						Message: "The installation has stopped because it completed successfully",
-					},
-				},
-			},
+			name:          "stopped",
 			conditionType: "Stopped",
 			message:       "The installation has stopped because it completed successfully",
 		},
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{
-					{
-						Type:    "SpecSynced",
-						Status:  corev1.ConditionTrue,
-						Reason:  "SyncOK",
-						Message: "SyncOK",
-					},
-				},
-			},
-			conditionType: "SpecSynced",
-			message:       "SyncOK",
-		},
+		{name: "spec synced", conditionType: "SpecSynced", message: "SyncOK"},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testACI := generateAgentClusterInstall()
-		testACI.Status = testCase.status
+			aci := generateAgentClusterInstall()
+			aci.Status.Conditions = []hivev1.ClusterInstallCondition{{
+				Type:    testCase.conditionType,
+				Status:  corev1.ConditionTrue,
+				Reason:  "Reason",
+				Message: testCase.message,
+			}}
+			builder := buildTestBuilderWithFakeObjects([]runtime.Object{aci})
 
-		runtimeObjects = append(runtimeObjects, testACI)
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		err := testBuilder.WaitForConditionMessage(testCase.conditionType, testCase.message, time.Second*5)
-
-		assert.Nil(t, err)
+			assert.NoError(t, builder.WaitForConditionMessage(testCase.conditionType, testCase.message, 5*time.Second))
+		})
 	}
 }
+
 func TestAgentClusterInstallWaitForConditionStatus(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		status          hiveextV1Beta1.AgentClusterInstallStatus
+		name            string
 		conditionType   hivev1.ClusterInstallConditionType
 		conditionStatus corev1.ConditionStatus
 	}{
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{
-					{
-						Type:    "Stopped",
-						Status:  corev1.ConditionTrue,
-						Reason:  "InstallationCompleted",
-						Message: "The installation has stopped because it completed successfully",
-					},
-				},
-			},
-			conditionType:   "Stopped",
-			conditionStatus: corev1.ConditionTrue,
-		},
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{
-					{
-						Type:    "Failed",
-						Status:  corev1.ConditionFalse,
-						Reason:  "InstallationNotFailed",
-						Message: "The installation has not failed",
-					},
-				},
-			},
-			conditionType:   "Failed",
-			conditionStatus: corev1.ConditionFalse,
-		},
+		{name: "true condition", conditionType: "Stopped", conditionStatus: corev1.ConditionTrue},
+		{name: "false condition", conditionType: "Failed", conditionStatus: corev1.ConditionFalse},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testACI := generateAgentClusterInstall()
-		testACI.Status = testCase.status
+			aci := generateAgentClusterInstall()
+			aci.Status.Conditions = []hivev1.ClusterInstallCondition{{
+				Type:    testCase.conditionType,
+				Status:  testCase.conditionStatus,
+				Reason:  "Reason",
+				Message: "Message",
+			}}
+			builder := buildTestBuilderWithFakeObjects([]runtime.Object{aci})
 
-		runtimeObjects = append(runtimeObjects, testACI)
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		err := testBuilder.WaitForConditionStatus(testCase.conditionType, testCase.conditionStatus, time.Second*2)
-
-		assert.Nil(t, err)
+			assert.NoError(t, builder.WaitForConditionStatus(testCase.conditionType, testCase.conditionStatus, 2*time.Second))
+		})
 	}
 }
+
 func TestAgentClusterInstallWaitForConditionReason(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		status        hiveextV1Beta1.AgentClusterInstallStatus
+		name          string
 		conditionType hivev1.ClusterInstallConditionType
 		reason        string
 	}{
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{
-					{
-						Type:    "Stopped",
-						Status:  corev1.ConditionTrue,
-						Reason:  "InstallationCompleted",
-						Message: "The installation has stopped because it completed successfully",
-					},
-				},
-			},
-			conditionType: "Stopped",
-			reason:        "InstallationCompleted",
-		},
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{
-					{
-						Type:    "Failed",
-						Status:  corev1.ConditionFalse,
-						Reason:  "InstallationNotFailed",
-						Message: "The installation has not failed",
-					},
-				},
-			},
-			conditionType: "Failed",
-			reason:        "InstallationNotFailed",
-		},
+		{name: "installation completed", conditionType: "Stopped", reason: "InstallationCompleted"},
+		{name: "installation not failed", conditionType: "Failed", reason: "InstallationNotFailed"},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testACI := generateAgentClusterInstall()
-		testACI.Status = testCase.status
+			aci := generateAgentClusterInstall()
+			aci.Status.Conditions = []hivev1.ClusterInstallCondition{{
+				Type:    testCase.conditionType,
+				Status:  corev1.ConditionTrue,
+				Reason:  testCase.reason,
+				Message: "Message",
+			}}
+			builder := buildTestBuilderWithFakeObjects([]runtime.Object{aci})
 
-		runtimeObjects = append(runtimeObjects, testACI)
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		err := testBuilder.WaitForConditionReason(testCase.conditionType, testCase.reason, time.Second*2)
-
-		assert.Nil(t, err)
+			assert.NoError(t, builder.WaitForConditionReason(testCase.conditionType, testCase.reason, 2*time.Second))
+		})
 	}
 }
+
 func TestAgentClusterInstallGetEvents(t *testing.T) {
+	t.Parallel()
+
 	path, err := os.Getwd()
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
-	testCases := []struct {
-		status hiveextV1Beta1.AgentClusterInstallStatus
-	}{
-		{
-			status: hiveextV1Beta1.AgentClusterInstallStatus{
-				DebugInfo: hiveextV1Beta1.DebugInfo{
-					EventsURL: fmt.Sprintf("file://%s/testdata/aci_events.json", path),
-				},
-			},
-		},
-	}
+	transport := &http.Transport{}
+	transport.RegisterProtocol("file", http.NewFileTransport(http.Dir("/")))
+	eventsTransport = transport
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+	aci := generateAgentClusterInstall()
+	aci.Status.DebugInfo.EventsURL = fmt.Sprintf("file://%s/testdata/aci_events.json", path)
+	builder := buildTestBuilderWithFakeObjects([]runtime.Object{aci})
 
-		transport := &http.Transport{}
-		transport.RegisterProtocol("file", http.NewFileTransport(http.Dir("/")))
-		eventsTransport = transport
+	events, err := builder.GetEvents(true)
 
-		testACI := generateAgentClusterInstall()
-		testACI.Status = testCase.status
-
-		runtimeObjects = append(runtimeObjects, testACI)
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		events, err := testBuilder.GetEvents(true)
-
-		assert.Nil(t, err)
-		assert.NotNil(t, events)
-		assert.Len(t, events, 63)
-	}
+	require.NoError(t, err)
+	assert.Len(t, events, 63)
 }
 
-func TestAgentClusterInstallValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		expectedError string
-	}{
-		{
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "error: received nil AgentClusterInstall builder",
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: "can not redefine the undefined AgentClusterInstall",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: "AgentClusterInstall builder cannot have nil apiClient",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
-		},
+func assertInvalidModifierShortCircuit(
+	t *testing.T,
+	modifier func(*AgentClusterInstallBuilder) *AgentClusterInstallBuilder,
+) {
+	t.Helper()
+
+	builder := buildInvalidAgentClusterInstallTestBuilder(nil)
+	result := modifier(builder)
+
+	require.Same(t, builder, result)
+	assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+}
+
+func assertBuilderError(t *testing.T, err error, expected string) {
+	t.Helper()
+
+	if expected == "" {
+		assert.NoError(t, err)
+
+		return
 	}
 
-	for _, testCase := range testCases {
-		testBuilder := buildTestBuilderWithFakeObjects([]runtime.Object{})
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		result, err := testBuilder.validate()
-		if testCase.expectedError != "" {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.False(t, result)
-		} else {
-			assert.Nil(t, err)
-			assert.True(t, result)
-		}
-	}
+	assert.EqualError(t, err, expected)
 }
 
 func dummyTestNetwork() hiveextV1Beta1.Networking {
@@ -1150,36 +816,37 @@ func dummyTestNetwork() hiveextV1Beta1.Networking {
 	}
 }
 
-func buildTestBuilderWithFakeObjects(objects []runtime.Object) *AgentClusterInstallBuilder {
-	fakeClientScheme := runtime.NewScheme()
-
-	err := clients.SetScheme(fakeClientScheme)
-	if err != nil {
-		return nil
-	}
-
-	apiClient := clients.GetTestClients(clients.TestClientParams{
+func newAgentClusterInstallTestClient(objects []runtime.Object) *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
 		K8sMockObjects:  objects,
-		SchemeAttachers: testSchemes,
+		SchemeAttachers: []clients.SchemeAttacher{hiveextV1Beta1.AddToScheme},
 	})
+}
 
-	testBuilder := NewAgentClusterInstallBuilder(
-		apiClient,
+func buildTestBuilderWithFakeObjects(objects []runtime.Object) *AgentClusterInstallBuilder {
+	return NewAgentClusterInstallBuilder(
+		newAgentClusterInstallTestClient(objects),
 		aciTestName,
 		aciTestNamespace,
-		"aci-test-clusterdeployment",
+		aciTestClusterDeployment,
 		3,
 		2,
 		dummyTestNetwork())
+}
 
-	return testBuilder
+func buildInvalidAgentClusterInstallTestBuilder(objects []runtime.Object) *AgentClusterInstallBuilder {
+	return NewAgentClusterInstallBuilder(
+		newAgentClusterInstallTestClient(objects),
+		"",
+		aciTestNamespace,
+		aciTestClusterDeployment,
+		3,
+		2,
+		dummyTestNetwork())
 }
 
 func generateAgentClusterInstallTestBuilder() *AgentClusterInstallBuilder {
-	return &AgentClusterInstallBuilder{
-		apiClient:  clients.GetTestClients(clients.TestClientParams{}).Client,
-		Definition: generateAgentClusterInstall(),
-	}
+	return buildTestBuilderWithFakeObjects(nil)
 }
 
 func generateAgentClusterInstall() *hiveextV1Beta1.AgentClusterInstall {
@@ -1189,10 +856,8 @@ func generateAgentClusterInstall() *hiveextV1Beta1.AgentClusterInstall {
 			Namespace: aciTestNamespace,
 		},
 		Spec: hiveextV1Beta1.AgentClusterInstallSpec{
-			ClusterDeploymentRef: corev1.LocalObjectReference{
-				Name: aciTestName,
-			},
-			Networking: dummyTestNetwork(),
+			ClusterDeploymentRef: corev1.LocalObjectReference{Name: aciTestName},
+			Networking:           dummyTestNetwork(),
 			ProvisionRequirements: hiveextV1Beta1.ProvisionRequirements{
 				ControlPlaneAgents: 3,
 				WorkerAgents:       2,
