@@ -1,15 +1,15 @@
 package serviceaccount
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	corev1Typed "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -17,54 +17,43 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-const (
-	errEmptyName = "serviceaccount 'name' cannot be empty"
-)
+var serviceAccountGVK = corev1.SchemeGroupVersion.WithKind("ServiceAccount")
 
 // Builder provides struct for serviceaccount object containing connection to the cluster and the
 // serviceaccount definitions.
 type Builder struct {
-	// ServiceAccount definition. Used to create serviceaccount object.
-	Definition *corev1.ServiceAccount
-	// Created serviceaccount object.
-	Object *corev1.ServiceAccount
-	// Used in functions that defines or mutates configmap definition. errorMsg is processed before the configmap
-	// object is created.
-	errorMsg  string
-	apiClient corev1Typed.ServiceAccountInterface
+	common.EmbeddableBuilder[corev1.ServiceAccount, *corev1.ServiceAccount]
+	common.EmbeddableWithOptions[corev1.ServiceAccount, Builder, *corev1.ServiceAccount, *Builder, AdditionalOptions]
+	common.EmbeddableCreator[corev1.ServiceAccount, Builder, *corev1.ServiceAccount, *Builder]
+	common.EmbeddableDeleter[corev1.ServiceAccount, *corev1.ServiceAccount]
+
+	// serviceAccountClient is retained for the token subresource, which is not exposed by the common runtime client.
+	serviceAccountClient corev1Typed.ServiceAccountInterface
 }
 
 // AdditionalOptions additional options for ServiceAccount object.
 type AdditionalOptions func(builder *Builder) (*Builder, error)
 
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.EmbeddableWithOptions.SetBase(builder)
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+}
+
+// GetGVK returns the ServiceAccount GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return serviceAccountGVK
+}
+
 // NewBuilder creates a new instance of Builder.
 func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 	klog.V(100).Infof("Initializing new serviceaccount structure with the following params: %s, %s", name, nsname)
 
-	builder := &Builder{
-		apiClient: apiClient.ServiceAccounts(nsname),
-		Definition: &corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the serviceaccount is empty")
-
-		builder.errorMsg = errEmptyName
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the serviceaccount is empty")
-
-		builder.errorMsg = "serviceaccount 'nsname' cannot be empty"
-
-		return builder
+	builder := common.NewNamespacedBuilder[corev1.ServiceAccount, Builder](
+		apiClient, corev1.AddToScheme, name, nsname)
+	if apiClient != nil {
+		builder.serviceAccountClient = apiClient.ServiceAccounts(nsname)
 	}
 
 	return builder
@@ -74,52 +63,13 @@ func NewBuilder(apiClient *clients.Settings, name, nsname string) *Builder {
 func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
 	klog.V(100).Infof("Pulling existing serviceaccount name: %s under namespace: %s", name, nsname)
 
-	builder := &Builder{
-		apiClient: apiClient.ServiceAccounts(nsname),
-		Definition: &corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
+	builder, err := common.PullNamespacedBuilder[corev1.ServiceAccount, Builder](
+		context.TODO(), apiClient, corev1.AddToScheme, name, nsname)
+	if err != nil {
+		return nil, err
 	}
 
-	if name == "" {
-		builder.errorMsg = errEmptyName
-
-		return builder, fmt.Errorf(errEmptyName)
-	}
-
-	if nsname == "" {
-		builder.errorMsg = "serviceaccount 'namespace' cannot be empty"
-
-		return builder, fmt.Errorf("serviceaccount 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("serviceaccount object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Create makes a serviceaccount in cluster and stores the created object in struct.
-func (builder *Builder) Create() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof(
-		"Creating serviceaccount %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-	if !builder.Exists() {
-		builder.Object, err = builder.apiClient.Create(
-			logging.DiscardContext(), builder.Definition, metav1.CreateOptions{})
-	}
+	builder.serviceAccountClient = apiClient.ServiceAccounts(nsname)
 
 	return builder, err
 }
@@ -128,7 +78,7 @@ func (builder *Builder) Create() (*Builder, error) {
 // values of duration and audiences are both allowed. Note that the duration of the token returned is not guaranteed to
 // match the requested duration. Its expiration will be logged, however.
 func (builder *Builder) CreateToken(duration time.Duration, audiences ...string) (string, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return "", err
 	}
 
@@ -155,7 +105,11 @@ func (builder *Builder) CreateToken(duration time.Duration, audiences ...string)
 		},
 	}
 
-	tokenRequest, err := builder.apiClient.CreateToken(
+	if builder.serviceAccountClient == nil {
+		return "", fmt.Errorf("serviceaccount typed client is nil")
+	}
+
+	tokenRequest, err := builder.serviceAccountClient.CreateToken(
 		logging.DiscardContext(), builder.Definition.Name, tokenRequest, metav1.CreateOptions{})
 	if err != nil {
 		return "", err
@@ -167,111 +121,7 @@ func (builder *Builder) CreateToken(duration time.Duration, audiences ...string)
 	return tokenRequest.Status.Token, nil
 }
 
-// Delete removes a serviceaccount.
-func (builder *Builder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof(
-		"Deleting serviceaccount %s from namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("ServiceAccount %s namespace %s does not exist and cannot be deleted",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Delete(
-		logging.DiscardContext(), builder.Definition.Name, metav1.DeleteOptions{})
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
-// Exists checks whether the given serviceaccount exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof(
-		"Checking if serviceaccount %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.Get(
-		logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// WithOptions creates serviceAccount with generic mutation options.
-func (builder *Builder) WithOptions(options ...AdditionalOptions) *Builder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting serviceAccount additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
 // GetGVR returns service's GroupVersionResource which could be used for Clean function.
 func GetGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{Group: "", Version: "v1", Resource: "serviceaccounts"}
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "ServiceAccount"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
