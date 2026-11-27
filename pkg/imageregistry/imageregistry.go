@@ -9,133 +9,39 @@ import (
 	imageregistryv1 "github.com/openshift/api/imageregistry/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	goclient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 )
+
+var imageRegistryGVK = schema.GroupVersion{Group: APIGroup, Version: APIVersion}.WithKind(APIKind)
 
 // Builder provides a struct for imageRegistry object from the cluster and a imageRegistry definition.
 type Builder struct {
-	// imageRegistry definition, used to create the imageRegistry object.
-	Definition *imageregistryv1.Config
-	// Created imageRegistry object.
-	Object *imageregistryv1.Config
-	// api client to interact with the cluster.
-	apiClient goclient.Client
-	// Used in functions that define or mutate clusterOperator definition. errorMsg is processed before the
-	// ClusterOperator object is created.
-	errorMsg string
+	common.EmbeddableBuilder[imageregistryv1.Config, *imageregistryv1.Config]
+	common.EmbeddableUpdater[imageregistryv1.Config, Builder, *imageregistryv1.Config, *Builder]
+}
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.SetBase(builder)
+}
+
+// GetGVK returns the imageRegistry Config GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return imageRegistryGVK
 }
 
 // Pull retrieves an existing imageRegistry object from the cluster.
 func Pull(apiClient *clients.Settings, imageRegistryObjName string) (*Builder, error) {
-	klog.V(100).Infof("Pulling existing imageRegistry Config %s", imageRegistryObjName)
-
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is empty")
-
-		return nil, fmt.Errorf("imageRegistry Config 'apiClient' cannot be empty")
-	}
-
-	err := apiClient.AttachScheme(imageregistryv1.Install)
-	if err != nil {
-		klog.V(100).Infof("Failed to attach imageregistry v1 scheme: %v", err)
-
-		return nil, err
-	}
-
-	klog.V(100).Infof(
-		"Pulling imageRegistry object name: %s", imageRegistryObjName)
-
-	builder := &Builder{
-		apiClient: apiClient.Client,
-		Definition: &imageregistryv1.Config{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: imageRegistryObjName,
-			},
-		},
-	}
-
-	if imageRegistryObjName == "" {
-		klog.V(100).Info("The name of the imageRegistry is empty")
-
-		return nil, fmt.Errorf("imageRegistry 'imageRegistryObjName' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("imageRegistry object %s does not exist", imageRegistryObjName)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
-}
-
-// Get fetches existing imageRegistry from cluster.
-func (builder *Builder) Get() (*imageregistryv1.Config, error) {
-	if valid, err := builder.validate(); !valid {
-		return nil, err
-	}
-
-	klog.V(100).Infof("Getting existing imageRegistry with name %s from cluster", builder.Definition.Name)
-
-	imageRegistry := &imageregistryv1.Config{}
-
-	err := builder.apiClient.Get(logging.DiscardContext(), goclient.ObjectKey{
-		Name: builder.Definition.Name,
-	}, imageRegistry)
-	if err != nil {
-		klog.V(100).Infof("Failed to get ImageRegistry object %s: %v", builder.Definition.Name, err)
-
-		return nil, err
-	}
-
-	return imageRegistry, nil
-}
-
-// Exists checks whether the given imageRegistry exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if imageRegistry %s exists", builder.Definition.Name)
-
-	var err error
-
-	builder.Object, err = builder.Get()
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
-// Update renovates the imageRegistry in the cluster and stores the created object in struct.
-func (builder *Builder) Update() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating the imageRegistry %s", builder.Definition.Name)
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("imageRegistry object %s does not exist", builder.Definition.Name)
-	}
-
-	err := builder.apiClient.Update(logging.DiscardContext(), builder.Definition)
-	if err == nil {
-		builder.Object = builder.Definition
-	}
-
-	return builder, err
+	return common.PullClusterScopedBuilder[imageregistryv1.Config, Builder](
+		context.TODO(), apiClient, imageregistryv1.Install, imageRegistryObjName)
 }
 
 // GetManagementState fetches imageRegistry ManagementState.
 func (builder *Builder) GetManagementState() (*operatorv1.ManagementState, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return nil, err
 	}
 
@@ -150,7 +56,7 @@ func (builder *Builder) GetManagementState() (*operatorv1.ManagementState, error
 
 // GetStorageConfig fetches imageRegistry Storage configuration.
 func (builder *Builder) GetStorageConfig() (*imageregistryv1.ImageRegistryConfigStorage, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return nil, err
 	}
 
@@ -165,7 +71,7 @@ func (builder *Builder) GetStorageConfig() (*imageregistryv1.ImageRegistryConfig
 
 // WithManagementState sets the imageRegistry operator's management state.
 func (builder *Builder) WithManagementState(expectedManagementState operatorv1.ManagementState) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -180,7 +86,7 @@ func (builder *Builder) WithManagementState(expectedManagementState operatorv1.M
 
 // WithStorage sets the imageRegistry operator's storage.
 func (builder *Builder) WithStorage(expectedStorage imageregistryv1.ImageRegistryConfigStorage) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -198,7 +104,7 @@ func (builder *Builder) WithStorage(expectedStorage imageregistryv1.ImageRegistr
 // value fields in the expected condition are ignored.
 func (builder *Builder) WaitForCondition(
 	expected operatorv1.OperatorCondition, timeout time.Duration) (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return nil, err
 	}
 
@@ -244,36 +150,4 @@ func (builder *Builder) WaitForCondition(
 	}
 
 	return builder, nil
-}
-
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "Configs.ImageRegistry"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
 }
