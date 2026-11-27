@@ -1,460 +1,190 @@
 package networkpolicy
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/k8snetworkplumbingwg/multi-networkpolicy/pkg/apis/k8s.cni.cncf.io/v1beta1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
-var testSchemesV1beta1 = []clients.SchemeAttacher{
-	v1beta1.AddToScheme,
+const (
+	defaultMultiNetworkPolicyName      = "test-name"
+	defaultMultiNetworkPolicyNamespace = "test-namespace"
+)
+
+var multiNetworkPolicyGVK = v1beta1.SchemeGroupVersion.WithKind("MultiNetworkPolicy")
+
+func TestNewMultiNetworkPolicyBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewMultiNetworkPolicyBuilder,
+		v1beta1.AddToScheme,
+		multiNetworkPolicyGVK,
+	).ExecuteTests(t)
 }
 
 func TestMultiNetworkPolicyPull(t *testing.T) {
-	generateMultiNetworkPolicy := func(name, namespace string) *v1beta1.MultiNetworkPolicy {
-		return &v1beta1.MultiNetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		policyName          string
-		policyNamespace     string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-	}{
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			expectedErrorText:   "",
-		},
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "MultiNetworkPolicy object test-policy does not exist in namespace test-namespace",
-		},
-		{
-			policyName:          "",
-			policyNamespace:     "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "MultiNetworkPolicy 'name' cannot be empty",
-		},
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "MultiNetworkPolicy 'namespace' cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		testMultiNetworkPolicy := generateMultiNetworkPolicy(testCase.policyName, testCase.policyNamespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testMultiNetworkPolicy)
-		}
-
-		testBuilder, testSettings := buildTestMultiNetworkPolicyBuilderWithFakeObjects(
-			runtimeObjects, testCase.policyName, testCase.policyNamespace)
-
-		if testCase.addToRuntimeObjects {
-			// Create the object to pull
-			_, err := testBuilder.Create()
-			assert.Nil(t, err)
-		}
-
-		result, err := PullMultiNetworkPolicy(testSettings, testCase.policyName, testCase.policyNamespace)
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testMultiNetworkPolicy.Name, result.Object.Name)
-			assert.Equal(t, testMultiNetworkPolicy.Namespace, result.Object.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		PullMultiNetworkPolicy,
+		v1beta1.AddToScheme,
+		multiNetworkPolicyGVK,
+	).ExecuteTests(t)
 }
 
-func TestMultiNetworkPolicyCreate(t *testing.T) {
-	generateMultiNetworkPolicy := func(name, namespace string) *v1beta1.MultiNetworkPolicy {
-		return &v1beta1.MultiNetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
+func TestMultiNetworkPolicyBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	testCases := []struct {
-		policyName          string
-		policyNamespace     string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-	}{
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			expectedErrorText:   "",
-		},
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "",
-		},
-		// NOTE: In the test cases above, I would expect the first test case to fail because the object already exists.
-		// I am not sure right now why it is not failing.  It seems that the 'fake' package is not working as expected.
-		// This will need to be investigated further.
-	}
+	commonTestConfig := testhelper.NewCommonTestConfig[v1beta1.MultiNetworkPolicy, MultiNetworkPolicyBuilder](
+		v1beta1.AddToScheme,
+		multiNetworkPolicyGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, generateMultiNetworkPolicy(
-				testCase.policyName, testCase.policyNamespace))
-		}
-
-		testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(
-			runtimeObjects, testCase.policyName, testCase.policyNamespace)
-
-		result, err := testBuilder.Create()
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.policyName, result.Object.Name)
-			assert.Equal(t, testCase.policyNamespace, result.Object.Namespace)
-		}
-	}
-}
-
-func TestMultiNetworkPolicyDelete(t *testing.T) {
-	generateMultiNetworkPolicy := func(name, namespace string) *v1beta1.MultiNetworkPolicy {
-		return &v1beta1.MultiNetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
-
-	testCases := []struct {
-		policyName          string
-		policyNamespace     string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-	}{
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			expectedErrorText:   "",
-		},
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, generateMultiNetworkPolicy(
-				testCase.policyName, testCase.policyNamespace))
-		}
-
-		testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(
-			runtimeObjects, testCase.policyName, testCase.policyNamespace)
-
-		err := testBuilder.Delete()
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-		}
-	}
-}
-
-func TestMultiNetworkPolicyUpdate(t *testing.T) {
-	generateMultiNetworkPolicy := func(name, namespace string) *v1beta1.MultiNetworkPolicy {
-		return &v1beta1.MultiNetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
-
-	testCases := []struct {
-		policyName          string
-		policyNamespace     string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-	}{
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			expectedErrorText:   "",
-		},
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "failed to update MultiNetworkPolicy, object does not exist on cluster",
-		},
-		{
-			policyName:          "",
-			policyNamespace:     "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "failed to update MultiNetworkPolicy, object does not exist on cluster",
-		},
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "failed to update MultiNetworkPolicy, object does not exist on cluster",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, generateMultiNetworkPolicy(
-				testCase.policyName, testCase.policyNamespace))
-		}
-
-		testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(
-			runtimeObjects, testCase.policyName, testCase.policyNamespace)
-
-		if testCase.addToRuntimeObjects {
-			// Create the object to update
-			_, err := testBuilder.Create()
-			assert.Nil(t, err)
-
-			// Set some arbitrary values to update
-			testBuilder.Definition.Spec.PodSelector = metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}}
-		}
-
-		testBuilder.Definition.ResourceVersion = "999"
-		builder, err := testBuilder.Update()
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.policyName, builder.Object.Name)
-			assert.Equal(t, testCase.policyNamespace, builder.Object.Namespace)
-			assert.Equal(t, "test", builder.Object.Spec.PodSelector.MatchLabels["test"])
-		}
-	}
-}
-
-func TestMultiNetworkPolicyValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		expectedError string
-	}{
-		{ // Test Case 1 - builder is nil
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "error: received nil MultiNetworkPolicy builder",
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: "can not redefine the undefined MultiNetworkPolicy",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: "MultiNetworkPolicy builder cannot have nil apiClient",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(nil, "test-name", "test-namespace")
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		valid, err := testBuilder.validate()
-
-		if testCase.expectedError != "" {
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.False(t, valid)
-		} else {
-			assert.Nil(t, err)
-			assert.True(t, valid)
-		}
-	}
-}
-
-func TestNewMultiNetworkPolicyBuilder(t *testing.T) {
-	testCases := []struct {
-		name              string
-		namespace         string
-		expectedError     bool
-		expectedErrorText string
-	}{
-		{
-			name:              "test-name",
-			namespace:         "test-namespace",
-			expectedError:     false,
-			expectedErrorText: "",
-		},
-		{
-			name:              "",
-			namespace:         "test-namespace",
-			expectedError:     true,
-			expectedErrorText: "The MultiNetworkPolicy 'name' cannot be empty",
-		},
-		{
-			name:              "test-name",
-			namespace:         "",
-			expectedError:     true,
-			expectedErrorText: "The MultiNetworkPolicy 'namespace' cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := NewMultiNetworkPolicyBuilder(clients.GetTestClients(clients.TestClientParams{
-			SchemeAttachers: testSchemes,
-		}), testCase.name, testCase.namespace)
-
-		if testCase.expectedError {
-			assert.NotNil(t, testBuilder)
-			assert.Equal(t, testCase.expectedErrorText, testBuilder.errorMsg)
-		} else {
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestMultiNetworkPolicyWithPodSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		podSelector map[string]string
-		expected    bool
+		name        string
+		podSelector metav1.LabelSelector
+		valid       bool
 	}{
 		{
-			podSelector: map[string]string{"test": "test"},
-			expected:    true,
+			name:        "valid pod selector",
+			podSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
+			valid:       true,
 		},
 		{
-			podSelector: nil,
-			expected:    false,
+			name:        "empty pod selector",
+			podSelector: metav1.LabelSelector{},
+			valid:       true,
+		},
+		{
+			name:        "invalid builder short circuits",
+			podSelector: metav1.LabelSelector{MatchLabels: map[string]string{"test": "test"}},
+			valid:       false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(nil, "test-name", "test-namespace")
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithPodSelector(metav1.LabelSelector{MatchLabels: testCase.podSelector})
+			testBuilder := buildMultiNetworkPolicyTestBuilder(testCase.valid)
 
-		if testCase.expected {
-			assert.Equal(t, testCase.podSelector, testBuilder.Definition.Spec.PodSelector.MatchLabels)
-		} else {
-			assert.Nil(t, testBuilder.Definition.Spec.PodSelector.MatchLabels)
-		}
+			result := testBuilder.WithPodSelector(testCase.podSelector)
+
+			if !testCase.valid {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.PodSelector.MatchLabels)
+
+				return
+			}
+
+			assert.NoError(t, result.GetError())
+			assert.Equal(t, testCase.podSelector, result.Definition.Spec.PodSelector)
+		})
 	}
 }
 
 func TestMultiNetworkPolicyWithNetwork(t *testing.T) {
-	testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(nil, "test-name", "test-namespace")
+	t.Parallel()
 
-	result := testBuilder.WithNetwork("test-network")
+	testCases := []struct {
+		name          string
+		networkName   string
+		valid         bool
+		expectedError error
+	}{
+		{
+			name:        "valid network",
+			networkName: "test-network",
+			valid:       true,
+		},
+		{
+			name:          "empty network",
+			networkName:   "",
+			valid:         true,
+			expectedError: errors.New("The networkName is an empty string"),
+		},
+		{
+			name:        "invalid builder short circuits",
+			networkName: "test-network",
+			valid:       false,
+		},
+	}
 
-	assert.Equal(t, "test-network", result.Definition.Annotations["k8s.v1.cni.cncf.io/policy-for"])
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-	result = testBuilder.WithNetwork("")
+			testBuilder := buildMultiNetworkPolicyTestBuilder(testCase.valid)
 
-	assert.Equal(t, "The networkName is an empty string", result.errorMsg)
+			result := testBuilder.WithNetwork(testCase.networkName)
+
+			if !testCase.valid {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Annotations)
+
+				return
+			}
+
+			assert.Equal(t, testCase.expectedError, result.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(
+					t,
+					testCase.networkName,
+					result.Definition.Annotations["k8s.v1.cni.cncf.io/policy-for"],
+				)
+			} else {
+				assert.Nil(t, result.Definition.Annotations)
+			}
+		})
+	}
 }
 
 func TestMultiNetworkPolicyWithEmptyIngress(t *testing.T) {
-	testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(nil, "test-name", "test-namespace")
+	t.Parallel()
 
-	result := testBuilder.WithEmptyIngress()
+	t.Run("valid builder sets empty ingress", func(t *testing.T) {
+		t.Parallel()
 
-	assert.Empty(t, result.Definition.Spec.Ingress)
+		result := buildMultiNetworkPolicyTestBuilder(true).WithEmptyIngress()
+
+		assert.NoError(t, result.GetError())
+		assert.NotNil(t, result.Definition.Spec.Ingress)
+		assert.Empty(t, result.Definition.Spec.Ingress)
+	})
+
+	t.Run("invalid builder short circuits", func(t *testing.T) {
+		t.Parallel()
+
+		result := buildMultiNetworkPolicyTestBuilder(false).WithEmptyIngress()
+
+		assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+		assert.Nil(t, result.Definition.Spec.Ingress)
+	})
 }
 
-func TestMultiNetworkWithIngressRule(t *testing.T) {
-	testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(nil, "test-name", "test-namespace")
+func TestMultiNetworkPolicyWithIngressRule(t *testing.T) {
+	t.Parallel()
 
 	peerRule := v1beta1.MultiNetworkPolicyIngressRule{
 		From: []v1beta1.MultiNetworkPolicyPeer{
@@ -466,13 +196,27 @@ func TestMultiNetworkWithIngressRule(t *testing.T) {
 		},
 	}
 
-	result := testBuilder.WithIngressRule(peerRule)
+	t.Run("valid builder appends ingress rule", func(t *testing.T) {
+		t.Parallel()
 
-	assert.Equal(t, peerRule, result.Definition.Spec.Ingress[0])
+		result := buildMultiNetworkPolicyTestBuilder(true).WithIngressRule(peerRule)
+
+		assert.NoError(t, result.GetError())
+		assert.Equal(t, []v1beta1.MultiNetworkPolicyIngressRule{peerRule}, result.Definition.Spec.Ingress)
+	})
+
+	t.Run("invalid builder short circuits", func(t *testing.T) {
+		t.Parallel()
+
+		result := buildMultiNetworkPolicyTestBuilder(false).WithIngressRule(peerRule)
+
+		assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+		assert.Empty(t, result.Definition.Spec.Ingress)
+	})
 }
 
 func TestMultiNetworkPolicyWithEgressRule(t *testing.T) {
-	testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(nil, "test-name", "test-namespace")
+	t.Parallel()
 
 	peerRule := v1beta1.MultiNetworkPolicyEgressRule{
 		To: []v1beta1.MultiNetworkPolicyPeer{
@@ -484,12 +228,79 @@ func TestMultiNetworkPolicyWithEgressRule(t *testing.T) {
 		},
 	}
 
-	result := testBuilder.WithEgressRule(peerRule)
+	t.Run("valid builder appends egress rule", func(t *testing.T) {
+		t.Parallel()
 
-	assert.Equal(t, peerRule, result.Definition.Spec.Egress[0])
+		result := buildMultiNetworkPolicyTestBuilder(true).WithEgressRule(peerRule)
+
+		assert.NoError(t, result.GetError())
+		assert.Equal(t, []v1beta1.MultiNetworkPolicyEgressRule{peerRule}, result.Definition.Spec.Egress)
+	})
+
+	t.Run("invalid builder short circuits", func(t *testing.T) {
+		t.Parallel()
+
+		result := buildMultiNetworkPolicyTestBuilder(false).WithEgressRule(peerRule)
+
+		assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+		assert.Empty(t, result.Definition.Spec.Egress)
+	})
+}
+
+func TestMultiNetworkPolicyWithPolicyType(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		policyType    v1beta1.MultiPolicyType
+		valid         bool
+		expectedError error
+	}{
+		{
+			name:       "valid policy type",
+			policyType: v1beta1.PolicyTypeEgress,
+			valid:      true,
+		},
+		{
+			name:          "empty policy type",
+			policyType:    "",
+			valid:         true,
+			expectedError: errors.New("The policy Type is an empty string"),
+		},
+		{
+			name:       "invalid builder short circuits",
+			policyType: v1beta1.PolicyTypeEgress,
+			valid:      false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := buildMultiNetworkPolicyTestBuilder(testCase.valid).WithPolicyType(testCase.policyType)
+
+			if !testCase.valid {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Empty(t, result.Definition.Spec.PolicyTypes)
+
+				return
+			}
+
+			assert.Equal(t, testCase.expectedError, result.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, []v1beta1.MultiPolicyType{testCase.policyType}, result.Definition.Spec.PolicyTypes)
+			} else {
+				assert.Empty(t, result.Definition.Spec.PolicyTypes)
+			}
+		})
+	}
 }
 
 func TestMultiNetworkPolicyGetMultiNetworkGVR(t *testing.T) {
+	t.Parallel()
+
 	result := GetMultiNetworkGVR()
 
 	assert.Equal(t, "k8s.cni.cncf.io", result.Group)
@@ -497,63 +308,20 @@ func TestMultiNetworkPolicyGetMultiNetworkGVR(t *testing.T) {
 	assert.Equal(t, "multi-networkpolicies", result.Resource)
 }
 
-func TestMultiNetworkPolicyWithPolicyType(t *testing.T) {
-	testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(nil, "test-name", "test-namespace")
-
-	result := testBuilder.WithPolicyType(v1beta1.PolicyTypeEgress)
-
-	assert.Equal(t, v1beta1.PolicyTypeEgress, result.Definition.Spec.PolicyTypes[0])
-
-	result = testBuilder.WithPolicyType("")
-
-	assert.Equal(t, "The policy Type is an empty string", result.errorMsg)
-}
-
-func TestMultiNetworkPolicyExists(t *testing.T) {
-	testCases := []struct {
-		policyName      string
-		policyNamespace string
-		expected        bool
-	}{
-		{
-			policyName:      "test-policy",
-			policyNamespace: "test-namespace",
-			expected:        true,
-		},
-		{
-			policyName:      "test-policy",
-			policyNamespace: "test-namespace",
-			expected:        false,
-		},
+func buildMultiNetworkPolicyTestBuilder(valid bool) *MultiNetworkPolicyBuilder {
+	if !valid {
+		return NewMultiNetworkPolicyBuilder(newMultiNetworkPolicyTestClient(), "", defaultMultiNetworkPolicyNamespace)
 	}
 
-	for _, testCase := range testCases {
-		testBuilder, _ := buildTestMultiNetworkPolicyBuilderWithFakeObjects(nil,
-			testCase.policyName, testCase.policyNamespace)
-
-		if testCase.expected {
-			_, err := testBuilder.Create()
-			assert.Nil(t, err)
-		}
-
-		assert.Equal(t, testCase.expected, testBuilder.Exists())
-	}
+	return NewMultiNetworkPolicyBuilder(
+		newMultiNetworkPolicyTestClient(),
+		defaultMultiNetworkPolicyName,
+		defaultMultiNetworkPolicyNamespace,
+	)
 }
 
-func buildTestMultiNetworkPolicyBuilderWithFakeObjects(runtimeObjects []runtime.Object,
-	name, nsname string) (*MultiNetworkPolicyBuilder, *clients.Settings) {
-	testSettings := clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  runtimeObjects,
-		SchemeAttachers: testSchemesV1beta1,
+func newMultiNetworkPolicyTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{v1beta1.AddToScheme},
 	})
-
-	return &MultiNetworkPolicyBuilder{
-		apiClient: testSettings.Client,
-		Definition: &v1beta1.MultiNetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}, testSettings
 }

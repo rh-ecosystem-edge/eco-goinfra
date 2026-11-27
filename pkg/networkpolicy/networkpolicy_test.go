@@ -1,531 +1,280 @@
 package networkpolicy
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
 	netv1 "k8s.io/api/networking/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
-var testSchemes = []clients.SchemeAttacher{
-	netv1.AddToScheme,
+const (
+	defaultNetworkPolicyName      = "test-name"
+	defaultNetworkPolicyNamespace = "test-namespace"
+)
+
+var networkPolicyGVK = netv1.SchemeGroupVersion.WithKind("NetworkPolicy")
+
+func TestNewNetworkPolicyBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewNetworkPolicyBuilder,
+		netv1.AddToScheme,
+		networkPolicyGVK,
+	).ExecuteTests(t)
 }
 
 func TestNetworkPolicyPull(t *testing.T) {
-	generateNetworkPolicy := func(name, namespace string) *netv1.NetworkPolicy {
-		return &netv1.NetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		policyName          string
-		policyNamespace     string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-	}{
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			expectedErrorText:   "",
-		},
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "networkPolicy object test-policy does not exist in namespace test-namespace",
-		},
-		{
-			policyName:          "",
-			policyNamespace:     "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "networkPolicy 'name' cannot be empty",
-		},
-		{
-			policyName:          "test-policy",
-			policyNamespace:     "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "networkPolicy 'namespace' cannot be empty",
-		},
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		Pull,
+		netv1.AddToScheme,
+		networkPolicyGVK,
+	).ExecuteTests(t)
+}
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
+func TestNetworkPolicyBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-		testNetworkPolicy := generateNetworkPolicy(testCase.policyName, testCase.policyNamespace)
+	commonTestConfig := testhelper.NewCommonTestConfig[netv1.NetworkPolicy, NetworkPolicyBuilder](
+		netv1.AddToScheme,
+		networkPolicyGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testNetworkPolicy)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: testSchemes,
-		})
-
-		result, err := Pull(testSettings, testCase.policyName, testCase.policyNamespace)
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testNetworkPolicy.Name, result.Object.Name)
-			assert.Equal(t, testNetworkPolicy.Namespace, result.Object.Namespace)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestNetworkPolicyWithNamespaceIngressRule(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNamespaceIngressLabels map[string]string
-		testPodIngressLabels       map[string]string
-		expectedError              bool
-		expectedErrorText          string
+		name                 string
+		testNamespaceIngress map[string]string
+		testPodIngress       map[string]string
+		valid                bool
+		expectedError        error
 	}{
-		{ // Test Case 1 - empty labels
-			testNamespaceIngressLabels: map[string]string{},
-			testPodIngressLabels:       map[string]string{},
-			expectedError:              true,
-			expectedErrorText:          "Both namespaceIngressMatchLabels and podIngressMatchLabels parameters are empty maps",
+		{
+			name:                 "pod selector only",
+			testNamespaceIngress: map[string]string{},
+			testPodIngress:       map[string]string{"test": "test"},
+			valid:                true,
 		},
-		{ // Test Case 2 - empty namespace labels
-			testNamespaceIngressLabels: map[string]string{},
-			testPodIngressLabels:       map[string]string{"test": "test"},
-			expectedError:              false,
-			expectedErrorText:          "",
+		{
+			name:                 "namespace selector only",
+			testNamespaceIngress: map[string]string{"test": "test"},
+			testPodIngress:       map[string]string{},
+			valid:                true,
 		},
-		{ // Test Case 3 - empty pod labels
-			testNamespaceIngressLabels: map[string]string{"test": "test"},
-			testPodIngressLabels:       map[string]string{},
-			expectedError:              false,
-			expectedErrorText:          "",
+		{
+			name:                 "both selectors",
+			testNamespaceIngress: map[string]string{"namespace": "test"},
+			testPodIngress:       map[string]string{"pod": "test"},
+			valid:                true,
+		},
+		{
+			name:                 "empty selectors",
+			testNamespaceIngress: map[string]string{},
+			testPodIngress:       map[string]string{},
+			valid:                true,
+			expectedError: errors.New(
+				"Both namespaceIngressMatchLabels and podIngressMatchLabels parameters are empty maps"),
+		},
+		{
+			name:                 "invalid builder short circuits",
+			testNamespaceIngress: map[string]string{"namespace": "test"},
+			testPodIngress:       map[string]string{"pod": "test"},
+			valid:                false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildTestBuilderWithFakeObjects(nil, "test-name", "test-namespace")
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithNamespaceIngressRule(testCase.testNamespaceIngressLabels, testCase.testPodIngressLabels)
+			testBuilder := buildNetworkPolicyTestBuilder(testCase.valid)
 
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			result := testBuilder.WithNamespaceIngressRule(
+				testCase.testNamespaceIngress,
+				testCase.testPodIngress,
+			)
+
+			if !testCase.valid {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Empty(t, result.Definition.Spec.Ingress)
+
+				return
 			}
-		} else {
-			// Assert that the IngressRule was added to the NetworkPolicyBuilder
-			assert.NotNil(t, result)
-			assert.NotNil(t, result.Definition.Spec.Ingress)
 
-			// Assert that the IngressRule has the correct labels
-			for _, ingressRule := range result.Definition.Spec.Ingress {
-				if len(testCase.testNamespaceIngressLabels) != 0 {
-					assert.NotNil(t, ingressRule.From[0].NamespaceSelector)
-					assert.Equal(t, testCase.testNamespaceIngressLabels, ingressRule.From[0].NamespaceSelector.MatchLabels)
-				}
+			assert.Equal(t, testCase.expectedError, result.GetError())
 
-				if len(testCase.testPodIngressLabels) != 0 {
-					assert.NotNil(t, ingressRule.From[0].PodSelector)
-					assert.Equal(t, testCase.testPodIngressLabels, ingressRule.From[0].PodSelector.MatchLabels)
-				}
+			if testCase.expectedError != nil {
+				assert.Empty(t, result.Definition.Spec.Ingress)
+
+				return
 			}
-		}
+
+			assert.Len(t, result.Definition.Spec.Ingress, 1)
+			assert.Len(t, result.Definition.Spec.Ingress[0].From, 1)
+
+			peer := result.Definition.Spec.Ingress[0].From[0]
+			if len(testCase.testNamespaceIngress) != 0 {
+				assert.Equal(t, testCase.testNamespaceIngress, peer.NamespaceSelector.MatchLabels)
+			} else {
+				assert.Nil(t, peer.NamespaceSelector)
+			}
+
+			if len(testCase.testPodIngress) != 0 {
+				assert.Equal(t, testCase.testPodIngress, peer.PodSelector.MatchLabels)
+			} else {
+				assert.Nil(t, peer.PodSelector)
+			}
+		})
 	}
 }
 
 func TestNetworkPolicyWithPolicyType(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testPolicyType    netv1.PolicyType
-		expectedError     bool
-		expectedErrorText string
+		name           string
+		testPolicyType netv1.PolicyType
+		valid          bool
+		expectedError  error
 	}{
-		{ // Test Case 1 - empty policy type
-			testPolicyType:    "",
-			expectedError:     true,
-			expectedErrorText: "The policyType is an empty string",
+		{
+			name:           "valid policy type",
+			testPolicyType: netv1.PolicyTypeIngress,
+			valid:          true,
 		},
-		{ // Test Case 2 - valid policy type
-			testPolicyType:    netv1.PolicyTypeIngress,
-			expectedError:     false,
-			expectedErrorText: "",
+		{
+			name:           "empty policy type",
+			testPolicyType: "",
+			valid:          true,
+			expectedError:  errors.New("The policyType is an empty string"),
+		},
+		{
+			name:           "invalid builder short circuits",
+			testPolicyType: netv1.PolicyTypeIngress,
+			valid:          false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildTestBuilderWithFakeObjects(nil, "test-name", "test-namespace")
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithPolicyType(testCase.testPolicyType)
+			testBuilder := buildNetworkPolicyTestBuilder(testCase.valid)
 
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			result := testBuilder.WithPolicyType(testCase.testPolicyType)
+
+			if !testCase.valid {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Empty(t, result.Definition.Spec.PolicyTypes)
+
+				return
 			}
-		} else {
-			// Assert that the PolicyType was added to the NetworkPolicyBuilder
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testPolicyType, result.Definition.Spec.PolicyTypes[0])
-		}
+
+			assert.Equal(t, testCase.expectedError, result.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, []netv1.PolicyType{testCase.testPolicyType}, result.Definition.Spec.PolicyTypes)
+			} else {
+				assert.Empty(t, result.Definition.Spec.PolicyTypes)
+			}
+		})
 	}
 }
 
 func TestNetworkPolicyWithPodSelector(t *testing.T) {
-	testCases := []struct {
-		testPodSelector     map[string]string
-		expectedError       bool
-		expectedErrorText   string
-		expectedPodSelector map[string]string
-	}{
-		{ // Test Case 1 - empty pod selector
-			testPodSelector:     map[string]string{},
-			expectedError:       true,
-			expectedErrorText:   "The podSelector is an empty string",
-			expectedPodSelector: nil,
-		},
-		{ // Test Case 2 - valid pod selector
-			testPodSelector:     map[string]string{"test": "test"},
-			expectedError:       false,
-			expectedErrorText:   "",
-			expectedPodSelector: map[string]string{"test": "test"},
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildTestBuilderWithFakeObjects(nil, "test-name", "test-namespace")
-
-		result := testBuilder.WithPodSelector(testCase.testPodSelector)
-
-		if testCase.expectedError {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
-			}
-		} else {
-			// Assert that the PodSelector was added to the NetworkPolicyBuilder
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.expectedPodSelector, result.Definition.Spec.PodSelector.MatchLabels)
-		}
-	}
-}
-
-func TestNetworkPolicyCreate(t *testing.T) {
-	generateNetworkPolicy := func(name, namespace string) *netv1.NetworkPolicy {
-		return &netv1.NetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
+	t.Parallel()
 
 	testCases := []struct {
-		testName            string
-		testNamespace       string
-		addToRuntimeObjects bool
-		expectedError       bool
-		expectedErrorText   string
+		name            string
+		testPodSelector map[string]string
+		valid           bool
+		expectedError   error
 	}{
-		{ // Test Case 1 - empty name
-			testName:            "",
-			testNamespace:       "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   errEmptyName,
-		},
-		{ // Test Case 2 - empty namespace
-			testName:            "test-name",
-			testNamespace:       "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   errEmptyNamespace,
-		},
-		{ // Test Case 3 - valid name and namespace
-			testName:            "test-name",
-			testNamespace:       "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "",
-		},
-		{ // Test Case 4 - valid name and namespace with existing object
-			testName:            "test-name",
-			testNamespace:       "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			expectedErrorText:   "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, generateNetworkPolicy(testCase.testName, testCase.testNamespace))
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects, testCase.testName, testCase.testNamespace)
-
-		result, err := testBuilder.Create()
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.testName, result.Object.Name)
-			assert.Equal(t, testCase.testNamespace, result.Object.Namespace)
-		}
-	}
-}
-
-func TestNetworkPolicyDelete(t *testing.T) {
-	generateNetworkPolicy := func(name, namespace string) *netv1.NetworkPolicy {
-		return &netv1.NetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
-
-	testCases := []struct {
-		testName            string
-		testNamespace       string
-		addToRuntimeObjects bool
-		expectedError       bool
-		expectedErrorText   string
-	}{
-		{ // Test Case 1 - empty name
-			testName:            "",
-			testNamespace:       "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   errEmptyName,
-		},
-		{ // Test Case 2 - empty namespace
-			testName:            "test-name",
-			testNamespace:       "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   errEmptyNamespace,
-		},
-		{ // Test Case 3 - valid name and namespace
-			testName:            "test-name",
-			testNamespace:       "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "",
-		},
-		{ // Test Case 4 - valid name and namespace with existing object
-			testName:            "test-name",
-			testNamespace:       "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-			expectedErrorText:   "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, generateNetworkPolicy(testCase.testName, testCase.testNamespace))
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects, testCase.testName, testCase.testNamespace)
-
-		err := testBuilder.Delete()
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-		}
-	}
-}
-
-func TestNetworkPolicyUpdate(t *testing.T) {
-	generateNetworkPolicy := func(name, namespace string) *netv1.NetworkPolicy {
-		return &netv1.NetworkPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
-
-	testCases := []struct {
-		addToRuntimeObjects bool
-		expectedError       bool
-		expectedErrorText   string
-	}{
-		{ // Test Case 1 - valid update
-			addToRuntimeObjects: true,
-			expectedError:       false,
-			expectedErrorText:   "",
-		},
-		{ // Test Case 2 - update with no existing object
-			addToRuntimeObjects: false,
-			expectedError:       true,
-			expectedErrorText:   "failed to update NetworkPolicy, object does not exist on cluster",
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, generateNetworkPolicy("test-name", "test-namespace"))
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects, "test-name", "test-namespace")
-
-		// Set some arbitrary values to update
-		testBuilder.Definition.Labels = map[string]string{"test": "test"}
-
-		testBuilder.Definition.ResourceVersion = "999"
-		builder, err := testBuilder.Update()
-
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testBuilder.Definition, builder.Definition)
-			assert.Equal(t, testBuilder.Object.Labels, builder.Object.Labels)
-		}
-	}
-}
-
-func TestNetworkPolicyValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		expectedError string
-	}{
-		{ // Test Case 1 - builder is nil
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "error: received nil NetworkPolicy builder",
+		{
+			name:            "valid pod selector",
+			testPodSelector: map[string]string{"test": "test"},
+			valid:           true,
 		},
 		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: "can not redefine the undefined NetworkPolicy",
+			name:            "empty pod selector",
+			testPodSelector: map[string]string{},
+			valid:           true,
+			expectedError:   errors.New("The podSelector is an empty string"),
 		},
 		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: "NetworkPolicy builder cannot have nil apiClient",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
+			name:            "invalid builder short circuits",
+			testPodSelector: map[string]string{"test": "test"},
+			valid:           false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildTestBuilderWithFakeObjects(nil, "test-name", "test-namespace")
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.builderNil {
-			testBuilder = nil
-		}
+			testBuilder := buildNetworkPolicyTestBuilder(testCase.valid)
 
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
+			result := testBuilder.WithPodSelector(testCase.testPodSelector)
 
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
+			if !testCase.valid {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.PodSelector.MatchLabels)
 
-		valid, err := testBuilder.validate()
+				return
+			}
 
-		if testCase.expectedError != "" {
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.False(t, valid)
-		} else {
-			assert.Nil(t, err)
-			assert.True(t, valid)
-		}
+			assert.Equal(t, testCase.expectedError, result.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, testCase.testPodSelector, result.Definition.Spec.PodSelector.MatchLabels)
+			} else {
+				assert.Nil(t, result.Definition.Spec.PodSelector.MatchLabels)
+			}
+		})
 	}
 }
 
-func TestNewNetworkPolicyBuilder(t *testing.T) {
-	testCases := []struct {
-		testName          string
-		testNamespace     string
-		expectedError     bool
-		expectedErrorText string
-	}{
-		{ // Test Case 1 - empty name
-			testName:          "",
-			testNamespace:     "test-namespace",
-			expectedError:     true,
-			expectedErrorText: errEmptyName,
-		},
-		{ // Test Case 2 - empty namespace
-			testName:          "test-name",
-			testNamespace:     "",
-			expectedError:     true,
-			expectedErrorText: errEmptyNamespace,
-		},
-		{ // Test Case 3 - valid name and namespace
-			testName:      "test-name",
-			testNamespace: "test-namespace",
-			expectedError: false,
-		},
-	}
+func TestNetworkPolicyGetGVR(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testNBP := NewNetworkPolicyBuilder(clients.GetTestClients(clients.TestClientParams{
-			SchemeAttachers: testSchemes,
-		}), testCase.testName, testCase.testNamespace)
+	result := GetGVR()
 
-		if testCase.expectedError {
-			assert.Equal(t, testCase.expectedErrorText, testNBP.errorMsg)
-		} else {
-			assert.NotNil(t, testNBP)
-		}
-	}
+	assert.Equal(t, "networking.k8s.io", result.Group)
+	assert.Equal(t, "v1", result.Version)
+	assert.Equal(t, "networkpolicies", result.Resource)
 }
 
-func buildTestBuilderWithFakeObjects(objects []runtime.Object, name, namespace string) *NetworkPolicyBuilder {
-	testSettings := clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  objects,
-		SchemeAttachers: testSchemes,
+func buildNetworkPolicyTestBuilder(valid bool) *NetworkPolicyBuilder {
+	if !valid {
+		return NewNetworkPolicyBuilder(newNetworkPolicyTestClient(), "", defaultNetworkPolicyNamespace)
+	}
+
+	return NewNetworkPolicyBuilder(
+		newNetworkPolicyTestClient(),
+		defaultNetworkPolicyName,
+		defaultNetworkPolicyNamespace,
+	)
+}
+
+func newNetworkPolicyTestClient() *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{netv1.AddToScheme},
 	})
-
-	return NewNetworkPolicyBuilder(testSettings, name, namespace)
 }
