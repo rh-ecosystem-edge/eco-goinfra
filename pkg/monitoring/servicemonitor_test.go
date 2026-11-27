@@ -7,493 +7,344 @@ import (
 	monv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 )
 
 var (
 	defaultServiceMonitorName      = "test-monitor-name"
 	defaultServiceMonitorNamespace = "test-monitor-namespace"
-	testSchemes                    = []clients.SchemeAttacher{
-		monv1.AddToScheme,
-	}
 )
 
+func TestNewBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedBuilderTestConfig(
+		NewBuilder, monv1.AddToScheme, serviceMonitorGVK).ExecuteTests(t)
+}
+
 func TestPullServiceMonitor(t *testing.T) {
-	generateServiceMonitor := func(name, namespace string) *monv1.ServiceMonitor {
-		return &monv1.ServiceMonitor{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                defaultServiceMonitorName,
-			namespace:           defaultServiceMonitorNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           defaultServiceMonitorNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf(errEmptyName),
-			client:              true,
-		},
-		{
-			name:                defaultServiceMonitorName,
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("serviceMonitor 'nsname' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "mon-test",
-			namespace:           defaultServiceMonitorNamespace,
-			addToRuntimeObjects: false,
-			expectedError: fmt.Errorf("serviceMonitor object mon-test does not exist " +
-				"in namespace test-monitor-namespace"),
-			client: true,
-		},
-		{
-			name:                "mon-test",
-			namespace:           defaultServiceMonitorNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("serviceMonitor 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testServiceMonitor := generateServiceMonitor(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testServiceMonitor)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
-
-		builderResult, err := Pull(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testServiceMonitor.Name, builderResult.Object.Name)
-			assert.Equal(t, testServiceMonitor.Namespace, builderResult.Object.Namespace)
-			assert.Nil(t, err)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig(
+		Pull, monv1.AddToScheme, serviceMonitorGVK).ExecuteTests(t)
 }
 
-func TestNewServiceMonitorBuilder(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		expectedError string
-		client        bool
-	}{
-		{
-			name:          defaultServiceMonitorName,
-			namespace:     defaultServiceMonitorNamespace,
-			expectedError: "",
-			client:        true,
-		},
-		{
-			name:          "",
-			namespace:     defaultServiceMonitorNamespace,
-			expectedError: errEmptyName,
-			client:        true,
-		},
-		{
-			name:          defaultServiceMonitorName,
-			namespace:     "",
-			expectedError: "serviceMonitor 'nsname' cannot be empty",
-			client:        true,
-		},
-		{
-			name:          defaultServiceMonitorName,
-			namespace:     defaultServiceMonitorNamespace,
-			expectedError: "",
-			client:        false,
-		},
-	}
+func TestServiceMonitorBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
+	commonTestConfig := testhelper.NewCommonTestConfig[monv1.ServiceMonitor, Builder](
+		monv1.AddToScheme,
+		serviceMonitorGVK,
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		testServiceMonitorBuilder := NewBuilder(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.expectedError == "" {
-			if testCase.client {
-				assert.Equal(t, testCase.name, testServiceMonitorBuilder.Definition.Name)
-				assert.Equal(t, testCase.namespace, testServiceMonitorBuilder.Definition.Namespace)
-			} else {
-				assert.Nil(t, testServiceMonitorBuilder)
-			}
-		} else {
-			assert.Equal(t, testCase.expectedError, testServiceMonitorBuilder.errorMsg)
-			assert.NotNil(t, testServiceMonitorBuilder.Definition)
-		}
-	}
-}
-
-func TestServiceMonitorExists(t *testing.T) {
-	testCases := []struct {
-		testServiceMonitor *Builder
-		expectedStatus     bool
-	}{
-		{
-			testServiceMonitor: buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			expectedStatus:     true,
-		},
-		{
-			testServiceMonitor: buildInValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			expectedStatus:     false,
-		},
-		{
-			testServiceMonitor: buildValidServiceMonitorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:     false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exist := testCase.testServiceMonitor.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
-}
-
-func TestServiceMonitorGet(t *testing.T) {
-	testCases := []struct {
-		testServiceMonitor *Builder
-		expectedError      error
-	}{
-		{
-			testServiceMonitor: buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			expectedError:      nil,
-		},
-		{
-			testServiceMonitor: buildInValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			expectedError:      fmt.Errorf(errEmptyName),
-		},
-		{
-			testServiceMonitor: buildValidServiceMonitorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:      fmt.Errorf("servicemonitors.monitoring.coreos.com \"test-monitor-name\" not found"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		serviceMonitorObj, err := testCase.testServiceMonitor.Get()
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, serviceMonitorObj.Name, testCase.testServiceMonitor.Definition.Name)
-			assert.Equal(t, serviceMonitorObj.Namespace, testCase.testServiceMonitor.Definition.Namespace)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestServiceMonitorCreate(t *testing.T) {
-	testCases := []struct {
-		testServiceMonitor *Builder
-		expectedError      string
-	}{
-		{
-			testServiceMonitor: buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			expectedError:      "",
-		},
-		{
-			testServiceMonitor: buildInValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			expectedError:      errEmptyName,
-		},
-		{
-			testServiceMonitor: buildValidServiceMonitorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:      "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		serviceMonitorObj, err := testCase.testServiceMonitor.Create()
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, serviceMonitorObj.Definition.Name, serviceMonitorObj.Object.Name)
-			assert.Equal(t, serviceMonitorObj.Definition.Namespace, serviceMonitorObj.Object.Namespace)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
-}
-
-func TestServiceMonitorDelete(t *testing.T) {
-	testCases := []struct {
-		testServiceMonitor *Builder
-		expectedError      error
-	}{
-		{
-			testServiceMonitor: buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			expectedError:      nil,
-		},
-		{
-			testServiceMonitor: buildValidServiceMonitorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:      nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		_, err := testCase.testServiceMonitor.Delete()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testServiceMonitor.Object)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestServiceMonitorUpdate(t *testing.T) {
-	testCases := []struct {
-		testServiceMonitor *Builder
-		expectedError      string
-		testLabels         map[string]string
-	}{
-		{
-			testServiceMonitor: buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			testLabels: map[string]string{"first-test-label-key": "first-test-label-value",
-				"second-test-label-key": ""},
-			expectedError: "",
-		},
-		{
-			testServiceMonitor: buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject()),
-			testLabels:         map[string]string{},
-			expectedError:      errEmptyLabels,
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, map[string]string(nil), testCase.testServiceMonitor.Definition.Labels)
-		testCase.testServiceMonitor.WithLabels(testCase.testLabels)
-		_, err := testCase.testServiceMonitor.Update()
-
-		if testCase.expectedError != "" {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.Equal(t, testCase.testLabels,
-				testCase.testServiceMonitor.Definition.Labels)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleteReturnerTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestServiceMonitorWithEndpoints(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testEndpoints     []monv1.Endpoint
-		expectedErrorText string
+		name          string
+		endpoints     []monv1.Endpoint
+		valid         bool
+		expectedError error
 	}{
 		{
-			testEndpoints: []monv1.Endpoint{{
+			name: "single endpoint",
+			endpoints: []monv1.Endpoint{{
 				Port:   "http",
 				Scheme: ptr.To(monv1.Scheme("http")),
 			}},
-			expectedErrorText: "",
+			valid: true,
 		},
 		{
-			testEndpoints: []monv1.Endpoint{{
-				Port:   "http",
-				Scheme: ptr.To(monv1.Scheme("http")),
-			},
+			name: "multiple endpoints",
+			endpoints: []monv1.Endpoint{
+				{
+					Port:   "http",
+					Scheme: ptr.To(monv1.Scheme("http")),
+				},
 				{
 					Port:   "sctp",
 					Scheme: ptr.To(monv1.Scheme("sctp")),
-				}},
-			expectedErrorText: "",
+				},
+			},
+			valid: true,
 		},
 		{
-			testEndpoints:     []monv1.Endpoint{},
-			expectedErrorText: "'endpoints' argument cannot be empty",
+			name:          "empty endpoints",
+			endpoints:     []monv1.Endpoint{},
+			valid:         true,
+			expectedError: fmt.Errorf("'endpoints' argument cannot be empty"),
+		},
+		{
+			name: "invalid builder",
+			endpoints: []monv1.Endpoint{{
+				Port:   "http",
+				Scheme: ptr.To(monv1.Scheme("http")),
+			}},
+			valid: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithEndpoints(testCase.testEndpoints)
-
-		if testCase.expectedErrorText != "" {
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			var testBuilder *Builder
+			if testCase.valid {
+				testBuilder = buildValidServiceMonitorTestBuilder(buildServiceMonitorTestClient())
+			} else {
+				testBuilder = buildInvalidServiceMonitorTestBuilder(buildServiceMonitorTestClient())
 			}
-		} else {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testEndpoints, result.Definition.Spec.Endpoints)
-		}
+
+			result := testBuilder.WithEndpoints(testCase.endpoints)
+
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Empty(t, result.Definition.Spec.Endpoints)
+
+				return
+			}
+
+			assert.Equal(t, testCase.expectedError, result.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, testCase.endpoints, result.Definition.Spec.Endpoints)
+			}
+		})
 	}
 }
 
-func TestServiceMonitorWithLabel(t *testing.T) {
+func TestServiceMonitorWithLabels(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testLabel      map[string]string
-		expectedErrMsg string
+		name          string
+		labels        map[string]string
+		valid         bool
+		expectedError error
 	}{
 		{
-			testLabel:      map[string]string{"test-label-key": "test-label-value"},
-			expectedErrMsg: "",
+			name:   "single label",
+			labels: map[string]string{"test-label-key": "test-label-value"},
+			valid:  true,
 		},
 		{
-			testLabel: map[string]string{"test-label1-key": "test-label1-value",
+			name: "multiple labels",
+			labels: map[string]string{
+				"test-label1-key": "test-label1-value",
 				"test-label2-key": "test-label2-value",
 				"test-label3-key": "test-label3-value",
 			},
-			expectedErrMsg: "",
+			valid: true,
 		},
 		{
-			testLabel:      map[string]string{"test-label-key": ""},
-			expectedErrMsg: "",
+			name:   "empty label value",
+			labels: map[string]string{"test-label-key": ""},
+			valid:  true,
 		},
 		{
-			testLabel:      map[string]string{"": "test-label-value"},
-			expectedErrMsg: "can not apply a labels with an empty key",
+			name:          "empty label key",
+			labels:        map[string]string{"": "test-label-value"},
+			valid:         true,
+			expectedError: fmt.Errorf("can not apply a labels with an empty key"),
 		},
 		{
-			testLabel:      map[string]string{},
-			expectedErrMsg: errEmptyLabels,
+			name:          "empty labels",
+			labels:        map[string]string{},
+			valid:         true,
+			expectedError: fmt.Errorf(errEmptyLabels),
+		},
+		{
+			name:   "invalid builder",
+			labels: map[string]string{"test-label-key": "test-label-value"},
+			valid:  false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithLabels(testCase.testLabel)
+			var testBuilder *Builder
+			if testCase.valid {
+				testBuilder = buildValidServiceMonitorTestBuilder(buildServiceMonitorTestClient())
+			} else {
+				testBuilder = buildInvalidServiceMonitorTestBuilder(buildServiceMonitorTestClient())
+			}
 
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
+			result := testBuilder.WithLabels(testCase.labels)
 
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.testLabel, testBuilder.Definition.Labels)
-		}
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Labels)
+
+				return
+			}
+
+			assert.Equal(t, testCase.expectedError, result.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, testCase.labels, result.Definition.Labels)
+			}
+		})
 	}
 }
 
 func TestServiceMonitorWithSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testSelector   map[string]string
-		expectedErrMsg string
+		name          string
+		selector      map[string]string
+		valid         bool
+		expectedError error
 	}{
 		{
-			testSelector:   map[string]string{"test-selector-key": "test-selector-value"},
-			expectedErrMsg: "",
+			name:     "selector with value",
+			selector: map[string]string{"test-selector-key": "test-selector-value"},
+			valid:    true,
 		},
 		{
-			testSelector:   map[string]string{"test-selector-key": ""},
-			expectedErrMsg: "",
+			name:     "selector with empty value",
+			selector: map[string]string{"test-selector-key": ""},
+			valid:    true,
 		},
 		{
-			testSelector:   map[string]string{"": "test-selector-value"},
-			expectedErrMsg: "can not apply a selector with an empty key",
+			name:          "empty selector key",
+			selector:      map[string]string{"": "test-selector-value"},
+			valid:         true,
+			expectedError: fmt.Errorf("can not apply a selector with an empty key"),
 		},
 		{
-			testSelector:   map[string]string{},
-			expectedErrMsg: "selector can not be empty",
+			name:          "empty selector",
+			selector:      map[string]string{},
+			valid:         true,
+			expectedError: fmt.Errorf("selector can not be empty"),
+		},
+		{
+			name:     "invalid builder",
+			selector: map[string]string{"test-selector-key": "test-selector-value"},
+			valid:    false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithSelector(testCase.testSelector)
+			var testBuilder *Builder
+			if testCase.valid {
+				testBuilder = buildValidServiceMonitorTestBuilder(buildServiceMonitorTestClient())
+			} else {
+				testBuilder = buildInvalidServiceMonitorTestBuilder(buildServiceMonitorTestClient())
+			}
 
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
+			result := testBuilder.WithSelector(testCase.selector)
 
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.testSelector, testBuilder.Definition.Spec.Selector.MatchLabels)
-		}
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.Selector.MatchLabels)
+
+				return
+			}
+
+			assert.Equal(t, testCase.expectedError, result.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, testCase.selector, result.Definition.Spec.Selector.MatchLabels)
+			}
+		})
 	}
 }
 
 func TestServiceMonitorWithNamespaceSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNamespaceSelector []string
-		expectedErrMsg        string
+		name              string
+		namespaceSelector []string
+		valid             bool
+		expectedError     error
 	}{
 		{
-			testNamespaceSelector: []string{"test-ns-selector"},
-			expectedErrMsg:        "",
+			name:              "single namespace",
+			namespaceSelector: []string{"test-ns-selector"},
+			valid:             true,
 		},
 		{
-			testNamespaceSelector: []string{"test-ns-selector1", "test-ns-selector2"},
-			expectedErrMsg:        "",
+			name:              "multiple namespaces",
+			namespaceSelector: []string{"test-ns-selector1", "test-ns-selector2"},
+			valid:             true,
 		},
 		{
-			testNamespaceSelector: []string{},
-			expectedErrMsg:        "namespaceSelector can not be empty",
+			name:              "empty namespace selector",
+			namespaceSelector: []string{},
+			valid:             true,
+			expectedError:     fmt.Errorf("namespaceSelector can not be empty"),
+		},
+		{
+			name:              "invalid builder",
+			namespaceSelector: []string{"test-ns-selector"},
+			valid:             false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidServiceMonitorBuilder(buildServiceMonitorClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithNamespaceSelector(testCase.testNamespaceSelector)
+			var testBuilder *Builder
+			if testCase.valid {
+				testBuilder = buildValidServiceMonitorTestBuilder(buildServiceMonitorTestClient())
+			} else {
+				testBuilder = buildInvalidServiceMonitorTestBuilder(buildServiceMonitorTestClient())
+			}
 
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
+			result := testBuilder.WithNamespaceSelector(testCase.namespaceSelector)
 
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.testNamespaceSelector, testBuilder.Definition.Spec.NamespaceSelector.MatchNames)
-		}
+			if !testCase.valid {
+				require.Error(t, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Empty(t, result.Definition.Spec.NamespaceSelector.MatchNames)
+
+				return
+			}
+
+			assert.Equal(t, testCase.expectedError, result.GetError())
+
+			if testCase.expectedError == nil {
+				assert.Equal(t, testCase.namespaceSelector, result.Definition.Spec.NamespaceSelector.MatchNames)
+			}
+		})
 	}
 }
 
-func buildValidServiceMonitorBuilder(apiClient *clients.Settings) *Builder {
-	serviceMonitorBuilder := NewBuilder(
-		apiClient, defaultServiceMonitorName, defaultServiceMonitorNamespace)
-
-	return serviceMonitorBuilder
+func buildValidServiceMonitorTestBuilder(apiClient *clients.Settings) *Builder {
+	return NewBuilder(apiClient, defaultServiceMonitorName, defaultServiceMonitorNamespace)
 }
 
-func buildInValidServiceMonitorBuilder(apiClient *clients.Settings) *Builder {
-	serviceMonitorBuilder := NewBuilder(
-		apiClient, "", defaultServiceMonitorNamespace)
-
-	return serviceMonitorBuilder
+func buildInvalidServiceMonitorTestBuilder(apiClient *clients.Settings) *Builder {
+	return NewBuilder(apiClient, "", defaultServiceMonitorNamespace)
 }
 
-func buildServiceMonitorClientWithDummyObject() *clients.Settings {
+func buildServiceMonitorTestClient() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyServiceMonitor(),
-		SchemeAttachers: testSchemes,
-	})
-}
-
-func buildDummyServiceMonitor() []runtime.Object {
-	return append([]runtime.Object{}, &monv1.ServiceMonitor{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultServiceMonitorName,
-			Namespace: defaultServiceMonitorNamespace,
-		},
+		SchemeAttachers: []clients.SchemeAttacher{monv1.AddToScheme},
 	})
 }
