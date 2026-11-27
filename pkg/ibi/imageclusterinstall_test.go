@@ -1,761 +1,395 @@
 package ibi
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	ibiv1alpha1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/imagebasedinstall/api/hiveextensions/v1alpha1"
 	hivev1 "github.com/rh-ecosystem-edge/eco-goinfra/pkg/schemes/imagebasedinstall/hive/api/v1"
-
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
 	testImageClusterInstall = "test-image-cluster-install"
+	testImageSet            = "4.16"
 )
 
-var testSchemes = []clients.SchemeAttacher{
-	ibiv1alpha1.AddToScheme,
-}
-
 func TestNewImageClusterInstallBuilder(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		imageset      string
-		client        bool
-		expectedError string
-	}{
-		{
-			name:          testImageClusterInstall,
-			namespace:     testImageClusterInstall,
-			imageset:      "4.16",
-			client:        true,
-			expectedError: "",
-		},
-		{
-			name:          "",
-			namespace:     testImageClusterInstall,
-			imageset:      "4.16",
-			client:        true,
-			expectedError: "imageclusterinstall 'name' cannot be empty",
-		},
-		{
-			name:          testImageClusterInstall,
-			namespace:     "",
-			imageset:      "4.16",
-			client:        true,
-			expectedError: "imageclusterinstall 'nsname' cannot be empty",
-		},
-		{
-			name:          testImageClusterInstall,
-			namespace:     testImageClusterInstall,
-			imageset:      "",
-			client:        true,
-			expectedError: "imageclusterinstall 'imageset' cannot be empty",
-		},
-		{
-			name:          testImageClusterInstall,
-			namespace:     testImageClusterInstall,
-			imageset:      "4.16",
-			client:        false,
-			expectedError: "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			client *clients.Settings
-		)
+	testhelper.NewNamespacedBuilderTestConfig(
+		func(apiClient *clients.Settings, name, nsname string) *ImageClusterInstallBuilder {
+			return NewImageClusterInstallBuilder(apiClient, name, nsname, testImageSet)
+		},
+		ibiv1alpha1.AddToScheme,
+		ibiv1alpha1.GroupVersion.WithKind("ImageClusterInstall"),
+	).ExecuteTests(t)
 
-		if testCase.client {
-			client = clients.GetTestClients(clients.TestClientParams{})
-		}
+	t.Run("imageset validation and assignment", func(t *testing.T) {
+		t.Parallel()
 
-		testBuilder := NewImageClusterInstallBuilder(
-			client, testCase.name, testCase.namespace, testCase.imageset)
+		apiClient := clients.GetTestClients(clients.TestClientParams{
+			SchemeAttachers: []clients.SchemeAttacher{ibiv1alpha1.AddToScheme},
+		})
 
-		if testCase.client {
-			assert.Equal(t, testCase.expectedError, testBuilder.errorMsg)
+		builder := NewImageClusterInstallBuilder(apiClient, testImageClusterInstall, testImageClusterInstall, "")
+		require.EqualError(t, builder.GetError(), "imageclusterinstall 'imageset' cannot be empty")
 
-			if testCase.expectedError == "" {
-				assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-				assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-				assert.Equal(t, testCase.imageset, testBuilder.Definition.Spec.ImageSetRef.Name)
-			}
-		} else {
-			assert.Nil(t, testBuilder)
-		}
-	}
+		builder = NewImageClusterInstallBuilder(apiClient, testImageClusterInstall, testImageClusterInstall, testImageSet)
+		require.NoError(t, builder.GetError())
+		assert.Equal(t, testImageSet, builder.Definition.Spec.ImageSetRef.Name)
+	})
 }
 
 func TestImageClusterInstallPull(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		client        bool
-		exists        bool
-		expectedError error
-	}{
-		{
-			name:          testImageClusterInstall,
-			namespace:     testImageClusterInstall,
-			client:        true,
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			name:          "",
-			namespace:     testImageClusterInstall,
-			client:        true,
-			exists:        true,
-			expectedError: fmt.Errorf("imageclusterinstall 'name' cannot be empty"),
-		},
-		{
-			name:          testImageClusterInstall,
-			namespace:     "",
-			client:        true,
-			exists:        true,
-			expectedError: fmt.Errorf("imageclusterinstall 'nsname' cannot be empty"),
-		},
-		{
-			name:          testImageClusterInstall,
-			namespace:     testImageClusterInstall,
-			client:        false,
-			exists:        true,
-			expectedError: fmt.Errorf("apiClient cannot be nil"),
-		},
-		{
-			name:      testImageClusterInstall,
-			namespace: testImageClusterInstall,
-			client:    true,
-			exists:    false,
-			expectedError: fmt.Errorf(
-				"imageclusterinstall object %s does not exist in namespace %s",
-				testImageClusterInstall, testImageClusterInstall),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testClient     *clients.Settings
-		)
+	testhelper.NewNamespacedPullTestConfig(
+		PullImageClusterInstall,
+		ibiv1alpha1.AddToScheme,
+		ibiv1alpha1.GroupVersion.WithKind("ImageClusterInstall"),
+	).ExecuteTests(t)
+}
 
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateImageClusterInstall())
-		}
+func TestImageClusterInstallMethods(t *testing.T) {
+	t.Parallel()
 
-		if testCase.client {
-			testClient = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: testSchemes,
-			})
-		}
+	commonTestConfig := testhelper.NewCommonTestConfig[ibiv1alpha1.ImageClusterInstall, ImageClusterInstallBuilder](
+		ibiv1alpha1.AddToScheme,
+		ibiv1alpha1.GroupVersion.WithKind("ImageClusterInstall"),
+		testhelper.ResourceScopeNamespaced,
+	)
 
-		testBuilder, err := PullImageClusterInstall(testClient, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.name, testBuilder.Definition.Name)
-			assert.Equal(t, testCase.namespace, testBuilder.Definition.Namespace)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewForceUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestImageClusterInstallWithHostname(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		hostname         string
-		expectedErrorMsg string
+		name           string
+		hostname       string
+		invalidBuilder bool
+		expectedError  string
 	}{
-		{
-			hostname:         "sno-0-0",
-			expectedErrorMsg: "",
-		},
-		{
-			hostname:         "",
-			expectedErrorMsg: "imageclusterinstall hostname cannot be empty",
-		},
+		{name: "valid hostname", hostname: "sno-0-0"},
+		{name: "empty hostname", expectedError: "imageclusterinstall hostname cannot be empty"},
+		{name: "invalid builder", invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateImageClusterInstallBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithHostname(testCase.hostname)
-		assert.Equal(t, testCase.expectedErrorMsg, testBuilder.errorMsg)
+			builder := modifierTestBuilder(testCase.invalidBuilder)
+			builder.WithHostname(testCase.hostname)
 
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, testCase.hostname, testBuilder.Definition.Spec.Hostname)
-		}
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			assertModifierResult(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				assert.Equal(t, testCase.hostname, builder.Definition.Spec.Hostname)
+			}
+		})
 	}
 }
 
 func TestImageClusterInstallWithClusterDeployment(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		clusterdeployment string
-		expectedErrorMsg  string
+		name                  string
+		clusterDeploymentName string
+		invalidBuilder        bool
+		expectedError         string
 	}{
+		{name: "valid cluster deployment", clusterDeploymentName: "ibi-cluster-deployment"},
 		{
-			clusterdeployment: "ibi-cluster-deployment",
-			expectedErrorMsg:  "",
+			name:          "empty cluster deployment",
+			expectedError: "imageclusterinstall clusterdeployment cannot be empty",
 		},
-		{
-			clusterdeployment: "",
-			expectedErrorMsg:  "imageclusterinstall clusterdeployment cannot be empty",
-		},
+		{name: "invalid builder", invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateImageClusterInstallBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithClusterDeployment(testCase.clusterdeployment)
-		assert.Equal(t, testCase.expectedErrorMsg, testBuilder.errorMsg)
+			builder := modifierTestBuilder(testCase.invalidBuilder)
+			builder.WithClusterDeployment(testCase.clusterDeploymentName)
 
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, testCase.clusterdeployment, testBuilder.Definition.Spec.ClusterDeploymentRef.Name)
-		}
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			assertModifierResult(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				require.NotNil(t, builder.Definition.Spec.ClusterDeploymentRef)
+				assert.Equal(t, testCase.clusterDeploymentName, builder.Definition.Spec.ClusterDeploymentRef.Name)
+			}
+		})
 	}
 }
+
 func TestImageClusterInstallWithExtraManifests(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		extramanifest    string
-		expectedErrorMsg string
+		name           string
+		extraManifest  string
+		invalidBuilder bool
+		expectedError  string
 	}{
-		{
-			extramanifest:    "ibi-extra-manifest",
-			expectedErrorMsg: "",
-		},
-		{
-			extramanifest:    "",
-			expectedErrorMsg: "imageclusterinstall extramanifest cannot be empty",
-		},
+		{name: "valid extra manifest", extraManifest: "ibi-extra-manifest"},
+		{name: "empty extra manifest", expectedError: "imageclusterinstall extramanifest cannot be empty"},
+		{name: "invalid builder", invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateImageClusterInstallBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithExtraManifests(testCase.extramanifest)
-		assert.Equal(t, testCase.expectedErrorMsg, testBuilder.errorMsg)
+			builder := modifierTestBuilder(testCase.invalidBuilder)
+			builder.WithExtraManifests(testCase.extraManifest)
 
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, testCase.extramanifest, testBuilder.Definition.Spec.ExtraManifestsRefs[0].Name)
-		}
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			assertModifierResult(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				require.Len(t, builder.Definition.Spec.ExtraManifestsRefs, 1)
+				assert.Equal(t, testCase.extraManifest, builder.Definition.Spec.ExtraManifestsRefs[0].Name)
+			}
+		})
 	}
 }
+
 func TestImageClusterInstallWithCABundle(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		cabundle         string
-		expectedErrorMsg string
+		name           string
+		caBundle       string
+		invalidBuilder bool
+		expectedError  string
 	}{
-		{
-			cabundle:         "ibi-ca-bundle",
-			expectedErrorMsg: "",
-		},
-		{
-			cabundle:         "",
-			expectedErrorMsg: "imageclusterinstall cabundle cannot be empty",
-		},
+		{name: "valid CA bundle", caBundle: "ibi-ca-bundle"},
+		{name: "empty CA bundle", expectedError: "imageclusterinstall cabundle cannot be empty"},
+		{name: "invalid builder", invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateImageClusterInstallBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithCABundle(testCase.cabundle)
-		assert.Equal(t, testCase.expectedErrorMsg, testBuilder.errorMsg)
+			builder := modifierTestBuilder(testCase.invalidBuilder)
+			builder.WithCABundle(testCase.caBundle)
 
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, testCase.cabundle, testBuilder.Definition.Spec.CABundleRef.Name)
-		}
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			assertModifierResult(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				require.NotNil(t, builder.Definition.Spec.CABundleRef)
+				assert.Equal(t, testCase.caBundle, builder.Definition.Spec.CABundleRef.Name)
+			}
+		})
 	}
 }
+
 func TestImageClusterInstallWithMachineNetwork(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		machineNetwork   string
-		expectedErrorMsg string
+		name           string
+		machineNetwork string
+		invalidBuilder bool
+		expectedError  string
 	}{
+		{name: "valid IPv4 network", machineNetwork: "192.168.0.0/24"},
+		{name: "valid IPv6 network", machineNetwork: "fd2e:6f44:5dd8::/64"},
 		{
-			machineNetwork:   "192.168.0.0/24",
-			expectedErrorMsg: "",
+			name:           "invalid IPv4 mask",
+			machineNetwork: "192.168.0.0/255.255.255.0",
+			expectedError:  errInvalidMachineNetworkFormat,
 		},
 		{
-			machineNetwork:   "fd2e:6f44:5dd8::/64",
-			expectedErrorMsg: "",
+			name:           "invalid IPv6 network",
+			machineNetwork: "fd2e:6f44:5dd8::",
+			expectedError:  errInvalidMachineNetworkFormat,
 		},
-		{
-			machineNetwork:   "192.168.0.0/255.255.255.0",
-			expectedErrorMsg: errInvalidMachineNetworkFormat,
-		},
-		{
-			machineNetwork:   "fd2e:6f44:5dd8::",
-			expectedErrorMsg: errInvalidMachineNetworkFormat,
-		},
-		{
-			machineNetwork:   "",
-			expectedErrorMsg: errInvalidMachineNetworkFormat,
-		},
+		{name: "empty network", expectedError: errInvalidMachineNetworkFormat},
+		{name: "invalid builder", invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateImageClusterInstallBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithMachineNetwork(testCase.machineNetwork)
-		assert.Equal(t, testCase.expectedErrorMsg, testBuilder.errorMsg)
+			builder := modifierTestBuilder(testCase.invalidBuilder)
+			builder.WithMachineNetwork(testCase.machineNetwork)
 
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, testCase.machineNetwork, testBuilder.Definition.Spec.MachineNetwork)
-		}
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			assertModifierResult(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				assert.Equal(t, testCase.machineNetwork, builder.Definition.Spec.MachineNetwork)
+			}
+		})
 	}
 }
 
 func TestImageClusterInstallWithSSHKey(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		sshkey           string
-		expectedErrorMsg string
+		name           string
+		sshKey         string
+		invalidBuilder bool
+		expectedError  string
 	}{
-		{
-			sshkey:           "mysecretsshkey",
-			expectedErrorMsg: "",
-		},
-		{
-			sshkey:           "",
-			expectedErrorMsg: "imageclusterinstall sshkey cannot be empty",
-		},
+		{name: "valid SSH key", sshKey: "mysecretsshkey"},
+		{name: "empty SSH key", expectedError: "imageclusterinstall sshkey cannot be empty"},
+		{name: "invalid builder", invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := generateImageClusterInstallBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testBuilder.WithSSHKey(testCase.sshkey)
-		assert.Equal(t, testCase.expectedErrorMsg, testBuilder.errorMsg)
+			builder := modifierTestBuilder(testCase.invalidBuilder)
+			builder.WithSSHKey(testCase.sshKey)
 
-		if testCase.expectedErrorMsg == "" {
-			assert.Equal(t, testCase.sshkey, testBuilder.Definition.Spec.SSHKey)
-		}
+			if testCase.invalidBuilder {
+				assert.True(t, commonerrors.IsBuilderNameEmpty(builder.GetError()))
+
+				return
+			}
+
+			assertModifierResult(t, builder.GetError(), testCase.expectedError)
+
+			if testCase.expectedError == "" {
+				assert.Equal(t, testCase.sshKey, builder.Definition.Spec.SSHKey)
+			}
+		})
 	}
 }
 
-func TestImageClusterInstallGetCompletedCondition(t *testing.T) {
+func TestImageClusterInstallConditions(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		status                   ibiv1alpha1.ImageClusterInstallStatus
-		expectedConditionMessage string
-		expectedError            error
+		name          string
+		conditionType hivev1.ClusterInstallConditionType
+		getCondition  func(*ImageClusterInstallBuilder) (*hivev1.ClusterInstallCondition, error)
 	}{
+		{"Completed", hivev1.ClusterInstallCompleted, (*ImageClusterInstallBuilder).GetCompletedCondition},
+		{"Failed", hivev1.ClusterInstallFailed, (*ImageClusterInstallBuilder).GetFailedCondition},
 		{
-			status: ibiv1alpha1.ImageClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{
-					{
-						Type:    hivev1.ClusterInstallCompleted,
-						Message: "This is a test completed condition",
-					},
-				},
-			},
-			expectedConditionMessage: "This is a test completed condition",
-			expectedError:            nil,
+			"RequirementsMet",
+			hivev1.ClusterInstallRequirementsMet,
+			(*ImageClusterInstallBuilder).GetRequirementsMetCondition,
 		},
-		{
-			status: ibiv1alpha1.ImageClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{},
-			},
-			expectedConditionMessage: "",
-			expectedError:            fmt.Errorf("cannot find Completed condition in imageclusterinstall status"),
-		},
+		{"Stopped", hivev1.ClusterInstallStopped, (*ImageClusterInstallBuilder).GetStoppedCondition},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		testICI := generateImageClusterInstall()
-		testICI.Status = testCase.status
-		runtimeObjects = append(runtimeObjects, testICI)
+			object := generateImageClusterInstall()
+			object.Status.Conditions = []hivev1.ClusterInstallCondition{{
+				Type:    testCase.conditionType,
+				Message: "expected condition",
+			}}
 
-		testBuilder := generateImageClusterInstallBuilderWithFakeObjects(runtimeObjects)
+			builder := generateImageClusterInstallBuilderWithFakeObjects([]runtime.Object{object})
+			condition, err := testCase.getCondition(builder)
+			require.NoError(t, err)
+			require.NotNil(t, condition)
+			assert.Equal(t, "expected condition", condition.Message)
 
-		condition, err := testBuilder.GetCompletedCondition()
-		assert.Equal(t, testCase.expectedError, err)
+			object.Status.Conditions = nil
+			builder = generateImageClusterInstallBuilderWithFakeObjects([]runtime.Object{object})
+			condition, err = testCase.getCondition(builder)
+			require.EqualError(t, err, "cannot find "+testCase.name+" condition in imageclusterinstall status")
+			assert.Nil(t, condition)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.expectedConditionMessage, condition.Message)
-		}
-	}
-}
-func TestImageClusterInstallGetFailedCondition(t *testing.T) {
-	testCases := []struct {
-		status                   ibiv1alpha1.ImageClusterInstallStatus
-		expectedConditionMessage string
-		expectedError            error
-	}{
-		{
-			status: ibiv1alpha1.ImageClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{
-					{
-						Type:    hivev1.ClusterInstallFailed,
-						Message: "This is a test failed condition",
-					},
-				},
-			},
-			expectedConditionMessage: "This is a test failed condition",
-			expectedError:            nil,
-		},
-		{
-			status: ibiv1alpha1.ImageClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{},
-			},
-			expectedConditionMessage: "",
-			expectedError:            fmt.Errorf("cannot find Failed condition in imageclusterinstall status"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		testICI := generateImageClusterInstall()
-		testICI.Status = testCase.status
-		runtimeObjects = append(runtimeObjects, testICI)
-
-		testBuilder := generateImageClusterInstallBuilderWithFakeObjects(runtimeObjects)
-
-		condition, err := testBuilder.GetFailedCondition()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.expectedConditionMessage, condition.Message)
-		}
-	}
-}
-func TestImageClusterInstallGetRequirementsMetCondition(t *testing.T) {
-	testCases := []struct {
-		status                   ibiv1alpha1.ImageClusterInstallStatus
-		expectedConditionMessage string
-		expectedError            error
-	}{
-		{
-			status: ibiv1alpha1.ImageClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{
-					{
-						Type:    hivev1.ClusterInstallRequirementsMet,
-						Message: "This is a test requirements met condition",
-					},
-				},
-			},
-			expectedConditionMessage: "This is a test requirements met condition",
-			expectedError:            nil,
-		},
-		{
-			status: ibiv1alpha1.ImageClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{},
-			},
-			expectedConditionMessage: "",
-			expectedError:            fmt.Errorf("cannot find RequirementsMet condition in imageclusterinstall status"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		testICI := generateImageClusterInstall()
-		testICI.Status = testCase.status
-		runtimeObjects = append(runtimeObjects, testICI)
-
-		testBuilder := generateImageClusterInstallBuilderWithFakeObjects(runtimeObjects)
-
-		condition, err := testBuilder.GetRequirementsMetCondition()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.expectedConditionMessage, condition.Message)
-		}
-	}
-}
-func TestImageClusterInstallGetStoppedCondition(t *testing.T) {
-	testCases := []struct {
-		status                   ibiv1alpha1.ImageClusterInstallStatus
-		expectedConditionMessage string
-		expectedError            error
-	}{
-		{
-			status: ibiv1alpha1.ImageClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{
-					{
-						Type:    hivev1.ClusterInstallStopped,
-						Message: "This is a test stopped condition",
-					},
-				},
-			},
-			expectedConditionMessage: "This is a test stopped condition",
-			expectedError:            nil,
-		},
-		{
-			status: ibiv1alpha1.ImageClusterInstallStatus{
-				Conditions: []hivev1.ClusterInstallCondition{},
-			},
-			expectedConditionMessage: "",
-			expectedError:            fmt.Errorf("cannot find Stopped condition in imageclusterinstall status"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		testICI := generateImageClusterInstall()
-		testICI.Status = testCase.status
-		runtimeObjects = append(runtimeObjects, testICI)
-
-		testBuilder := generateImageClusterInstallBuilderWithFakeObjects(runtimeObjects)
-
-		condition, err := testBuilder.GetStoppedCondition()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.expectedConditionMessage, condition.Message)
-		}
-	}
-}
-func TestImageClusterInstallGet(t *testing.T) {
-	testCases := []struct {
-		exists bool
-	}{
-		{
-			exists: true,
-		},
-		{
-			exists: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateImageClusterInstall())
-		}
-
-		testBuilder := generateImageClusterInstallBuilderWithFakeObjects(runtimeObjects)
-
-		aci, err := testBuilder.Get()
-		if testCase.exists {
-			assert.Nil(t, err)
-			assert.NotNil(t, aci)
-		} else {
-			assert.NotNil(t, err)
-			assert.Nil(t, aci)
-		}
+			builder = generateImageClusterInstallBuilderWithFakeObjects(nil)
+			condition, err = testCase.getCondition(builder)
+			require.EqualError(t, err, "cannot get condition from non-existent imageclusterinstall")
+			assert.Nil(t, condition)
+		})
 	}
 }
 
-func TestImageClusterInstallCreate(t *testing.T) {
-	testCases := []struct {
-		exists bool
-	}{
-		{
-			exists: true,
-		},
-		{
-			exists: false,
-		},
+func assertModifierResult(t *testing.T, err error, expectedError string) {
+	t.Helper()
+
+	if expectedError == "" {
+		require.NoError(t, err)
+
+		return
 	}
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateImageClusterInstall())
-		}
-
-		testBuilder := generateImageClusterInstallBuilderWithFakeObjects(runtimeObjects)
-
-		result, err := testBuilder.Create()
-		assert.Nil(t, err)
-		assert.NotNil(t, result)
-		assert.Equal(t, testImageClusterInstall, result.Definition.Name)
-		assert.Equal(t, testImageClusterInstall, result.Definition.Namespace)
-	}
-}
-func TestImageClusterInstallUpdate(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError error
-	}{
-		{
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			exists:        false,
-			expectedError: fmt.Errorf("cannot update non-existent imageclusterinstall"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateImageClusterInstall())
-		}
-
-		testBuilder := generateImageClusterInstallBuilderWithFakeObjects(runtimeObjects)
-
-		testBuilder.Definition.Spec.Hostname = "test-hostname"
-
-		ici, err := testBuilder.Update(true)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, ici.Object.Spec.Hostname, "test-hostname")
-		}
-	}
-}
-func TestImageClusterInstallDelete(t *testing.T) {
-	testCases := []struct {
-		exists        bool
-		expectedError error
-	}{
-		{
-			exists:        true,
-			expectedError: nil,
-		},
-		{
-			exists:        false,
-			expectedError: fmt.Errorf("imageclusterinstall cannot be deleted because it does not exist"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateImageClusterInstall())
-		}
-
-		testBuilder := generateImageClusterInstallBuilderWithFakeObjects(runtimeObjects)
-
-		err := testBuilder.Delete()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testBuilder.Object)
-		}
-	}
-}
-func TestImageClusterInstallExists(t *testing.T) {
-	testCases := []struct {
-		exists bool
-	}{
-		{
-			exists: true,
-		},
-		{
-			exists: false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-		)
-
-		if testCase.exists {
-			runtimeObjects = append(runtimeObjects, generateImageClusterInstall())
-		}
-
-		testBuilder := generateImageClusterInstallBuilderWithFakeObjects(runtimeObjects)
-
-		assert.Equal(t, testCase.exists, testBuilder.Exists())
-	}
+	require.EqualError(t, err, expectedError)
 }
 
-func TestImageClusterInstallValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		expectedError string
-	}{
-		{
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "error: received nil ImageClusterInstall builder",
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: "can not redefine the undefined ImageClusterInstall",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: "ImageClusterInstall builder cannot have nil apiClient",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
-		},
+func modifierTestBuilder(invalid bool) *ImageClusterInstallBuilder {
+	apiClient := clients.GetTestClients(clients.TestClientParams{
+		SchemeAttachers: []clients.SchemeAttacher{ibiv1alpha1.AddToScheme},
+	})
+
+	if invalid {
+		return NewImageClusterInstallBuilder(apiClient, "", testImageClusterInstall, testImageSet)
 	}
 
-	for _, testCase := range testCases {
-		testBuilder := generateImageClusterInstallBuilderWithFakeObjects([]runtime.Object{})
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		result, err := testBuilder.validate()
-		if testCase.expectedError != "" {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.False(t, result)
-		} else {
-			assert.Nil(t, err)
-			assert.True(t, result)
-		}
-	}
+	return NewImageClusterInstallBuilder(
+		apiClient, testImageClusterInstall, testImageClusterInstall, testImageSet)
 }
 
 func generateImageClusterInstallBuilderWithFakeObjects(objects []runtime.Object) *ImageClusterInstallBuilder {
-	return &ImageClusterInstallBuilder{
-		apiClient: clients.GetTestClients(
-			clients.TestClientParams{K8sMockObjects: objects, SchemeAttachers: testSchemes}).Client,
-		Definition: generateImageClusterInstall(),
-	}
-}
-
-func generateImageClusterInstallBuilder() *ImageClusterInstallBuilder {
-	return &ImageClusterInstallBuilder{
-		apiClient:  clients.GetTestClients(clients.TestClientParams{}).Client,
-		Definition: generateImageClusterInstall(),
-	}
+	return NewImageClusterInstallBuilder(
+		clients.GetTestClients(clients.TestClientParams{
+			K8sMockObjects:  objects,
+			SchemeAttachers: []clients.SchemeAttacher{ibiv1alpha1.AddToScheme},
+		}),
+		testImageClusterInstall,
+		testImageClusterInstall,
+		testImageSet,
+	)
 }
 
 func generateImageClusterInstall() *ibiv1alpha1.ImageClusterInstall {
@@ -765,9 +399,7 @@ func generateImageClusterInstall() *ibiv1alpha1.ImageClusterInstall {
 			Namespace: testImageClusterInstall,
 		},
 		Spec: ibiv1alpha1.ImageClusterInstallSpec{
-			ImageSetRef: hivev1.ClusterImageSetReference{
-				Name: "4.16",
-			},
+			ImageSetRef: hivev1.ClusterImageSetReference{Name: testImageSet},
 		},
 	}
 }
