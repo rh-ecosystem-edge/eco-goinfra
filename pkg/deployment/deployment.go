@@ -11,32 +11,42 @@ import (
 	multus "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
-	appsv1Typed "k8s.io/client-go/kubernetes/typed/apps/v1"
 	"k8s.io/klog/v2"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Builder provides struct for deployment object containing connection to the cluster and the deployment definitions.
 type Builder struct {
-	// Deployment definition. Used to create the deployment object.
-	Definition *appsv1.Deployment
-	// Created deployment object
-	Object *appsv1.Deployment
-	// Used in functions that define or mutate deployment definition. errorMsg is processed before the deployment
-	// object is created.
-	errorMsg  string
-	apiClient appsv1Typed.AppsV1Interface
+	common.EmbeddableBuilder[appsv1.Deployment, *appsv1.Deployment]
+	common.EmbeddableWithOptions[appsv1.Deployment, Builder, *appsv1.Deployment, *Builder, AdditionalOptions]
+	common.EmbeddableCreator[appsv1.Deployment, Builder, *appsv1.Deployment, *Builder]
+	common.EmbeddableDeleter[appsv1.Deployment, *appsv1.Deployment]
+	common.EmbeddableUpdater[appsv1.Deployment, Builder, *appsv1.Deployment, *Builder]
 }
 
 // AdditionalOptions additional options for deployment object.
 type AdditionalOptions func(builder *Builder) (*Builder, error)
+
+// AttachMixins wires the embedded CRUD mixins to this builder instance.
+func (builder *Builder) AttachMixins() {
+	builder.EmbeddableWithOptions.SetBase(builder)
+	builder.EmbeddableCreator.SetBase(builder)
+	builder.EmbeddableDeleter.SetBase(builder)
+	builder.EmbeddableUpdater.SetBase(builder)
+}
+
+// GetGVK returns the Deployment GVK for this builder.
+func (builder *Builder) GetGVK() schema.GroupVersionKind {
+	return appsv1.SchemeGroupVersion.WithKind("Deployment")
+}
 
 // NewBuilder creates a new instance of Builder.
 func NewBuilder(
@@ -46,48 +56,20 @@ func NewBuilder(
 			"name: %s, namespace: %s, labels: %s, containerSpec %v",
 		name, nsname, labels, containerSpec)
 
-	builder := &Builder{
-		apiClient: apiClient.AppsV1Interface,
-		Definition: &appsv1.Deployment{
-			Spec: appsv1.DeploymentSpec{
-				Selector: &metav1.LabelSelector{
-					MatchLabels: labels,
-				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: labels,
-					},
-				},
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
+	builder := common.NewNamespacedBuilder[appsv1.Deployment, Builder](apiClient, appsv1.AddToScheme, name, nsname)
+	if builder.GetError() != nil {
+		return builder
 	}
+
+	builder.Definition.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+	builder.Definition.Spec.Template.Labels = labels
 
 	builder.WithAdditionalContainerSpecs([]corev1.Container{containerSpec})
-
-	if name == "" {
-		klog.V(100).Info("The name of the deployment is empty")
-
-		builder.errorMsg = "deployment 'name' cannot be empty"
-
-		return builder
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the deployment is empty")
-
-		builder.errorMsg = "deployment 'namespace' cannot be empty"
-
-		return builder
-	}
 
 	if len(labels) == 0 {
 		klog.V(100).Info("There are no labels for the deployment")
 
-		builder.errorMsg = "deployment 'labels' cannot be empty"
+		builder.SetError(fmt.Errorf("deployment 'labels' cannot be empty"))
 
 		return builder
 	}
@@ -97,49 +79,15 @@ func NewBuilder(
 
 // Pull loads an existing deployment into Builder struct.
 func Pull(apiClient *clients.Settings, name, nsname string) (*Builder, error) {
-	// Safeguard against nil apiClient interfaces.
-	if apiClient == nil {
-		klog.V(100).Info("The apiClient is nil")
-
-		return nil, fmt.Errorf("apiClient cannot be nil")
-	}
-
 	klog.V(100).Infof("Pulling existing deployment name: %s under namespace: %s", name, nsname)
 
-	builder := &Builder{
-		apiClient: apiClient.AppsV1Interface,
-		Definition: &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: nsname,
-			},
-		},
-	}
-
-	if name == "" {
-		klog.V(100).Info("The name of the deployment is empty")
-
-		return nil, fmt.Errorf("deployment 'name' cannot be empty")
-	}
-
-	if nsname == "" {
-		klog.V(100).Info("The namespace of the deployment is empty")
-
-		return nil, fmt.Errorf("deployment 'namespace' cannot be empty")
-	}
-
-	if !builder.Exists() {
-		return nil, fmt.Errorf("deployment object %s does not exist in namespace %s", name, nsname)
-	}
-
-	builder.Definition = builder.Object
-
-	return builder, nil
+	return common.PullNamespacedBuilder[appsv1.Deployment, Builder](
+		context.TODO(), apiClient, appsv1.AddToScheme, name, nsname)
 }
 
 // WithNodeSelector applies a nodeSelector to the deployment definition.
 func (builder *Builder) WithNodeSelector(selector map[string]string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -153,7 +101,7 @@ func (builder *Builder) WithNodeSelector(selector map[string]string) *Builder {
 
 // WithReplicas sets the desired number of replicas in the deployment definition.
 func (builder *Builder) WithReplicas(replicas int32) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -167,7 +115,7 @@ func (builder *Builder) WithReplicas(replicas int32) *Builder {
 
 // WithAdditionalContainerSpecs appends a list of container specs to the deployment definition.
 func (builder *Builder) WithAdditionalContainerSpecs(specs []corev1.Container) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -177,7 +125,7 @@ func (builder *Builder) WithAdditionalContainerSpecs(specs []corev1.Container) *
 	if len(specs) == 0 {
 		klog.V(100).Info("The container specs are empty")
 
-		builder.errorMsg = "cannot accept empty list as container specs"
+		builder.SetError(fmt.Errorf("cannot accept empty list as container specs"))
 
 		return builder
 	}
@@ -189,21 +137,21 @@ func (builder *Builder) WithAdditionalContainerSpecs(specs []corev1.Container) *
 
 // WithSecondaryNetwork applies Multus secondary network configuration on deployment definition.
 func (builder *Builder) WithSecondaryNetwork(networks []*multus.NetworkSelectionElement) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	klog.V(100).Infof("Applying secondary networks %v to deployment %s", networks, builder.Definition.Name)
 
 	if len(networks) == 0 {
-		builder.errorMsg = "can not apply empty networks list"
+		builder.SetError(fmt.Errorf("can not apply empty networks list"))
 
 		return builder
 	}
 
 	netAnnotation, err := json.Marshal(networks)
 	if err != nil {
-		builder.errorMsg = fmt.Sprintf("error to unmarshal networks annotation due to: %s", err.Error())
+		builder.SetError(fmt.Errorf("error to unmarshal networks annotation due to: %s", err.Error()))
 
 		return builder
 	}
@@ -216,7 +164,7 @@ func (builder *Builder) WithSecondaryNetwork(networks []*multus.NetworkSelection
 
 // WithHugePages sets hugePages on all containers inside the deployment.
 func (builder *Builder) WithHugePages() *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -240,7 +188,7 @@ func (builder *Builder) WithHugePages() *Builder {
 
 // WithSecurityContext sets SecurityContext on deployment definition.
 func (builder *Builder) WithSecurityContext(securityContext *corev1.PodSecurityContext) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -250,7 +198,7 @@ func (builder *Builder) WithSecurityContext(securityContext *corev1.PodSecurityC
 	if securityContext == nil {
 		klog.V(100).Info("The 'securityContext' of the deployment is empty")
 
-		builder.errorMsg = "'securityContext' parameter is empty"
+		builder.SetError(fmt.Errorf("'securityContext' parameter is empty"))
 
 		return builder
 	}
@@ -262,7 +210,7 @@ func (builder *Builder) WithSecurityContext(securityContext *corev1.PodSecurityC
 
 // WithLabel applies label to deployment's definition.
 func (builder *Builder) WithLabel(labelKey, labelValue string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -271,7 +219,7 @@ func (builder *Builder) WithLabel(labelKey, labelValue string) *Builder {
 	if labelKey == "" {
 		klog.V(100).Info("The 'labelKey' of the deployment is empty")
 
-		builder.errorMsg = "can not apply empty labelKey"
+		builder.SetError(fmt.Errorf("can not apply empty labelKey"))
 
 		return builder
 	}
@@ -287,7 +235,7 @@ func (builder *Builder) WithLabel(labelKey, labelValue string) *Builder {
 
 // WithServiceAccountName sets the ServiceAccountName on deployment definition.
 func (builder *Builder) WithServiceAccountName(serviceAccountName string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -297,7 +245,7 @@ func (builder *Builder) WithServiceAccountName(serviceAccountName string) *Build
 	if serviceAccountName == "" {
 		klog.V(100).Info("The 'serviceAccount' of the deployment is empty")
 
-		builder.errorMsg = "can not apply empty serviceAccount"
+		builder.SetError(fmt.Errorf("can not apply empty serviceAccount"))
 
 		return builder
 	}
@@ -309,14 +257,14 @@ func (builder *Builder) WithServiceAccountName(serviceAccountName string) *Build
 
 // WithVolume attaches given volume to the deployment.
 func (builder *Builder) WithVolume(deployVolume corev1.Volume) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if deployVolume.Name == "" {
 		klog.V(100).Info("The volume's name cannot be empty")
 
-		builder.errorMsg = "The volume's name cannot be empty"
+		builder.SetError(fmt.Errorf("the volume's name cannot be empty"))
 
 		return builder
 	}
@@ -333,14 +281,14 @@ func (builder *Builder) WithVolume(deployVolume corev1.Volume) *Builder {
 
 // WithSchedulerName configures a scheduler to process pod's scheduling.
 func (builder *Builder) WithSchedulerName(schedulerName string) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if schedulerName == "" {
 		klog.V(100).Info("Scheduler's name cannot be empty")
 
-		builder.errorMsg = "Scheduler's name cannot be empty"
+		builder.SetError(fmt.Errorf("scheduler's name cannot be empty"))
 
 		return builder
 	}
@@ -355,14 +303,14 @@ func (builder *Builder) WithSchedulerName(schedulerName string) *Builder {
 
 // WithAffinity applies Affinity to the deployment definition.
 func (builder *Builder) WithAffinity(affinity *corev1.Affinity) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if affinity == nil {
 		klog.V(100).Info("The Affinity parameter is empty")
 
-		builder.errorMsg = "affinity parameter is empty"
+		builder.SetError(fmt.Errorf("affinity parameter is empty"))
 
 		return builder
 	}
@@ -377,7 +325,7 @@ func (builder *Builder) WithAffinity(affinity *corev1.Affinity) *Builder {
 
 // WithHostNetwork applies a hostnetwork state to the deployment definition.
 func (builder *Builder) WithHostNetwork(enableHostnetwork bool) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
@@ -389,96 +337,10 @@ func (builder *Builder) WithHostNetwork(enableHostnetwork bool) *Builder {
 	return builder
 }
 
-// WithOptions creates deployment with generic mutation options.
-func (builder *Builder) WithOptions(options ...AdditionalOptions) *Builder {
-	if valid, _ := builder.validate(); !valid {
-		return builder
-	}
-
-	klog.V(100).Info("Setting deployment additional options")
-
-	for _, option := range options {
-		if option != nil {
-			builder, err := option(builder)
-			if err != nil {
-				klog.V(100).Info("Error occurred in mutation function")
-
-				builder.errorMsg = err.Error()
-
-				return builder
-			}
-		}
-	}
-
-	return builder
-}
-
-// Create generates a deployment in cluster and stores the created object in struct.
-func (builder *Builder) Create() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Creating deployment %s in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-	if !builder.Exists() {
-		builder.Object, err = builder.apiClient.Deployments(builder.Definition.Namespace).Create(
-			logging.DiscardContext(), builder.Definition, metav1.CreateOptions{})
-	}
-
-	return builder, err
-}
-
-// Update renovates the existing deployment object with the deployment definition in builder.
-func (builder *Builder) Update() (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
-		return builder, err
-	}
-
-	klog.V(100).Infof("Updating deployment %s in namespace %s", builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.Deployments(builder.Definition.Namespace).Update(
-		logging.DiscardContext(), builder.Definition, metav1.UpdateOptions{})
-
-	return builder, err
-}
-
-// Delete removes a deployment.
-func (builder *Builder) Delete() error {
-	if valid, err := builder.validate(); !valid {
-		return err
-	}
-
-	klog.V(100).Infof("Deleting deployment %s in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	if !builder.Exists() {
-		klog.V(100).Infof("Deployment %s in namespace %s does not exist",
-			builder.Definition.Name, builder.Definition.Namespace)
-
-		builder.Object = nil
-
-		return nil
-	}
-
-	err := builder.apiClient.Deployments(builder.Definition.Namespace).Delete(
-		logging.DiscardContext(), builder.Definition.Name, metav1.DeleteOptions{})
-	if err != nil {
-		return err
-	}
-
-	builder.Object = nil
-
-	return nil
-}
-
 // DeleteGraceful removes a deployment while waiting for specified duration(in seconds)
 // the object should be deleted.
 func (builder *Builder) DeleteGraceful(gracePeriod *int64) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -500,25 +362,25 @@ func (builder *Builder) DeleteGraceful(gracePeriod *int64) error {
 		klog.V(100).Infof("Deployment %s in namespace %s does not exist",
 			builder.Definition.Name, builder.Definition.Namespace)
 
-		builder.Object = nil
+		builder.SetObject(nil)
 
 		return nil
 	}
 
-	err := builder.apiClient.Deployments(builder.Definition.Namespace).Delete(
-		logging.DiscardContext(), builder.Definition.Name, metav1.DeleteOptions{GracePeriodSeconds: gracePeriod})
+	err := builder.GetClient().Delete(
+		logging.DiscardContext(), builder.Definition, &runtimeclient.DeleteOptions{GracePeriodSeconds: gracePeriod})
 	if err != nil {
 		return err
 	}
 
-	builder.Object = nil
+	builder.SetObject(nil)
 
 	return nil
 }
 
 // CreateAndWaitUntilReady creates a deployment in the cluster and waits until the deployment is available.
 func (builder *Builder) CreateAndWaitUntilReady(timeout time.Duration) (*Builder, error) {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder, err
 	}
 
@@ -542,7 +404,7 @@ func (builder *Builder) CreateAndWaitUntilReady(timeout time.Duration) (*Builder
 
 // IsReady periodically checks if deployment is in ready status.
 func (builder *Builder) IsReady(timeout time.Duration) bool {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return false
 	}
 
@@ -555,8 +417,6 @@ func (builder *Builder) IsReady(timeout time.Duration) bool {
 
 	err := wait.PollUntilContextTimeout(
 		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-			var err error
-
 			// Add Discard logger to suppress verbose Kubernetes client logging.
 			// This preserves the behavior from logging.DiscardContext() while allowing
 			// us to add timeout and respect parent cancellation.
@@ -568,8 +428,9 @@ func (builder *Builder) IsReady(timeout time.Duration) bool {
 			getCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 			defer cancel()
 
-			builder.Object, err = builder.apiClient.Deployments(builder.Definition.Namespace).Get(
-				getCtx, builder.Definition.Name, metav1.GetOptions{})
+			deployment := &appsv1.Deployment{}
+
+			err := builder.GetClient().Get(getCtx, runtimeclient.ObjectKeyFromObject(builder.Definition), deployment)
 			if err != nil {
 				klog.V(100).Infof("Failed to get deployment from cluster. Error is: '%s'", err.Error())
 
@@ -585,7 +446,9 @@ func (builder *Builder) IsReady(timeout time.Duration) bool {
 				return false, err
 			}
 
-			if builder.Object.Status.ReadyReplicas > 0 && builder.Object.Status.Replicas == builder.Object.Status.ReadyReplicas {
+			builder.SetObject(deployment)
+
+			if deployment.Status.ReadyReplicas > 0 && deployment.Status.Replicas == deployment.Status.ReadyReplicas {
 				return true, nil
 			}
 
@@ -597,7 +460,7 @@ func (builder *Builder) IsReady(timeout time.Duration) bool {
 
 // DeleteAndWait deletes a deployment and waits until it is removed from the cluster.
 func (builder *Builder) DeleteAndWait(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -611,8 +474,8 @@ func (builder *Builder) DeleteAndWait(timeout time.Duration) error {
 	// Polls the deployment every second until it is removed.
 	return wait.PollUntilContextTimeout(
 		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-			_, err := builder.apiClient.Deployments(builder.Definition.Namespace).Get(
-				logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
+			err := builder.GetClient().Get(logging.DiscardContext(), runtimeclient.ObjectKeyFromObject(builder.Definition),
+				&appsv1.Deployment{})
 			if k8serrors.IsNotFound(err) {
 				return true, nil
 			}
@@ -621,27 +484,10 @@ func (builder *Builder) DeleteAndWait(timeout time.Duration) error {
 		})
 }
 
-// Exists checks whether the given deployment exists.
-func (builder *Builder) Exists() bool {
-	if valid, _ := builder.validate(); !valid {
-		return false
-	}
-
-	klog.V(100).Infof("Checking if deployment %s exists in namespace %s",
-		builder.Definition.Name, builder.Definition.Namespace)
-
-	var err error
-
-	builder.Object, err = builder.apiClient.Deployments(builder.Definition.Namespace).Get(
-		logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
-
-	return err == nil || !k8serrors.IsNotFound(err)
-}
-
 // WaitUntilCondition waits for the duration of the defined timeout or until the
 // deployment gets to a specific condition.
 func (builder *Builder) WaitUntilCondition(condition appsv1.DeploymentConditionType, timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -654,13 +500,15 @@ func (builder *Builder) WaitUntilCondition(condition appsv1.DeploymentConditionT
 
 	return wait.PollUntilContextTimeout(
 		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-			updateDeployment, err := builder.apiClient.Deployments(builder.Definition.Namespace).Get(
-				logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
+			updatedDeployment := &appsv1.Deployment{}
+
+			err := builder.GetClient().Get(logging.DiscardContext(),
+				runtimeclient.ObjectKeyFromObject(builder.Definition), updatedDeployment)
 			if err != nil {
 				return false, nil
 			}
 
-			for _, cond := range updateDeployment.Status.Conditions {
+			for _, cond := range updatedDeployment.Status.Conditions {
 				if cond.Type == condition && cond.Status == corev1.ConditionTrue {
 					return true, nil
 				}
@@ -672,7 +520,7 @@ func (builder *Builder) WaitUntilCondition(condition appsv1.DeploymentConditionT
 
 // WaitUntilDeleted waits for the duration of the defined timeout or until the deployment is deleted.
 func (builder *Builder) WaitUntilDeleted(timeout time.Duration) error {
-	if valid, err := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return err
 	}
 
@@ -681,8 +529,8 @@ func (builder *Builder) WaitUntilDeleted(timeout time.Duration) error {
 
 	return wait.PollUntilContextTimeout(
 		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-			_, err := builder.apiClient.Deployments(builder.Definition.Namespace).Get(
-				logging.DiscardContext(), builder.Definition.Name, metav1.GetOptions{})
+			err := builder.GetClient().Get(logging.DiscardContext(), runtimeclient.ObjectKeyFromObject(builder.Definition),
+				&appsv1.Deployment{})
 
 			if k8serrors.IsNotFound(err) {
 				return true, nil
@@ -697,48 +545,16 @@ func GetGVR() schema.GroupVersionResource {
 	return schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 }
 
-// validate will check that the builder and builder definition are properly initialized before
-// accessing any member fields.
-func (builder *Builder) validate() (bool, error) {
-	resourceCRD := "ClusterDeployment"
-
-	if builder == nil {
-		klog.V(100).Infof("The %s builder is uninitialized", resourceCRD)
-
-		return false, fmt.Errorf("error: received nil %s builder", resourceCRD)
-	}
-
-	if builder.Definition == nil {
-		klog.V(100).Infof("The %s is undefined", resourceCRD)
-
-		return false, fmt.Errorf("%s", msg.UndefinedCrdObjectErrString(resourceCRD))
-	}
-
-	if builder.apiClient == nil {
-		klog.V(100).Infof("The %s builder apiclient is nil", resourceCRD)
-
-		return false, fmt.Errorf("%s builder cannot have nil apiClient", resourceCRD)
-	}
-
-	if builder.errorMsg != "" {
-		klog.V(100).Infof("The %s builder has error message: %s", resourceCRD, builder.errorMsg)
-
-		return false, fmt.Errorf("%s", builder.errorMsg)
-	}
-
-	return true, nil
-}
-
 // WithToleration applies a toleration to the deployment's definition.
 func (builder *Builder) WithToleration(toleration corev1.Toleration) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 
 	if toleration == (corev1.Toleration{}) {
 		klog.V(100).Info("The toleration cannot be empty")
 
-		builder.errorMsg = "The toleration cannot be empty"
+		builder.SetError(fmt.Errorf("the toleration cannot be empty"))
 
 		return builder
 	}
@@ -755,7 +571,7 @@ func (builder *Builder) WithToleration(toleration corev1.Toleration) *Builder {
 
 // WithTerminationGracePeriodSeconds configures TerminationGracePeriodSeconds on the pod template of the deployment.
 func (builder *Builder) WithTerminationGracePeriodSeconds(terminationGracePeriodSeconds int64) *Builder {
-	if valid, _ := builder.validate(); !valid {
+	if err := common.Validate(builder); err != nil {
 		return builder
 	}
 

@@ -2,940 +2,533 @@ package deployment
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	multus "gopkg.in/k8snetworkplumbingwg/multus-cni.v4/pkg/types"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
-//nolint:funlen
+var deploymentGVK = appsv1.SchemeGroupVersion.WithKind("Deployment")
+
+func TestNewBuilder(t *testing.T) {
+	t.Parallel()
+
+	testhelper.NewNamespacedBuilderTestConfig[appsv1.Deployment, Builder](
+		func(apiClient *clients.Settings, name, nsname string) *Builder {
+			return NewBuilder(apiClient, name, nsname,
+				map[string]string{testDeploymentLabelKey: "test"}, corev1.Container{Name: "test"})
+		},
+		appsv1.AddToScheme,
+		deploymentGVK,
+	).ExecuteTests(t)
+
+	t.Run("sets deployment fields", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		require.NoError(t, builder.GetError())
+		assert.Equal(t, map[string]string{testDeploymentLabelKey: "test"}, builder.Definition.Spec.Selector.MatchLabels)
+		assert.Equal(t, map[string]string{testDeploymentLabelKey: "test"}, builder.Definition.Spec.Template.Labels)
+		require.Len(t, builder.Definition.Spec.Template.Spec.Containers, 1)
+		assert.Equal(t, "test-container", builder.Definition.Spec.Template.Spec.Containers[0].Name)
+	})
+
+	t.Run("empty labels returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := NewBuilder(newDeploymentTestClient(), "test-name", "test-namespace", nil, corev1.Container{Name: "test"})
+		require.EqualError(t, builder.GetError(), "deployment 'labels' cannot be empty")
+	})
+}
+
 func TestPull(t *testing.T) {
-	int32Ptr := func(i int32) *int32 { return &i }
-	generateDeployment := func(name, namespace string) *appsv1.Deployment {
-		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: appsv1.DeploymentSpec{
-				Replicas: int32Ptr(1),
-				Selector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{
-						"app": name,
-					},
-				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: map[string]string{
-							"app": name,
-						},
-					},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name:  "test-container",
-								Image: "test-image",
-							},
-						},
-					},
-				},
-			},
-		}
-	}
+	t.Parallel()
 
-	testCases := []struct {
-		deploymentName      string
-		deploymentNamespace string
-		expectedError       bool
-		addToRuntimeObjects bool
-		expectedErrorText   string
-	}{
-		{
-			deploymentName:      "test1",
-			deploymentNamespace: "test-namespace",
-			expectedError:       false,
-			addToRuntimeObjects: true,
-		},
-		{
-			deploymentName:      "test2",
-			deploymentNamespace: "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "deployment object test2 does not exist in namespace test-namespace",
-		},
-		{
-			deploymentName:      "",
-			deploymentNamespace: "test-namespace",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "deployment 'name' cannot be empty",
-		},
-		{
-			deploymentName:      "test3",
-			deploymentNamespace: "",
-			expectedError:       true,
-			addToRuntimeObjects: false,
-			expectedErrorText:   "deployment 'namespace' cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testDeployment := generateDeployment(testCase.deploymentName, testCase.deploymentNamespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testDeployment)
-		}
-
-		testSettings = clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
-		})
-
-		// Test the Pull method
-		builderResult, err := Pull(testSettings, testDeployment.Name, testDeployment.Namespace)
-
-		// Check the error
-		if testCase.expectedError {
-			assert.NotNil(t, err)
-
-			// Check the error message
-			if testCase.expectedErrorText != "" {
-				assert.Equal(t, testCase.expectedErrorText, err.Error())
-			}
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testDeployment.Name, builderResult.Object.Name)
-			assert.Equal(t, testDeployment.Namespace, builderResult.Object.Namespace)
-		}
-	}
+	testhelper.NewNamespacedPullTestConfig[appsv1.Deployment, Builder](
+		Pull, appsv1.AddToScheme, deploymentGVK).ExecuteTests(t)
 }
 
-// buildValidTestBuilder returns a valid Builder for testing purposes.
-func buildValidTestBuilder() *Builder {
-	return NewBuilder(&clients.Settings{
-		Client:          nil,
-		AppsV1Interface: k8sfake.NewSimpleClientset().AppsV1(),
-	}, "test-name", "test-namespace", map[string]string{
-		"test-key": "test-value",
-	}, corev1.Container{
-		Name: "test-container",
-	})
-}
+func TestBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-func buildTestBuilderWithFakeObjects(objects []runtime.Object) *Builder {
-	fakeClient := k8sfake.NewSimpleClientset(objects...)
+	commonConfig := newDeploymentCommonTestConfig()
 
-	return NewBuilder(&clients.Settings{
-		K8sClient:       fakeClient,
-		CoreV1Interface: fakeClient.CoreV1(),
-		AppsV1Interface: fakeClient.AppsV1(),
-	}, "test-name", "test-namespace", map[string]string{
-		"test-key": "test-value",
-	}, corev1.Container{
-		Name: "test-container",
-	})
-}
-
-func TestWithNodeSelector(t *testing.T) {
-	testBuilder := buildValidTestBuilder()
-
-	testBuilder.WithNodeSelector(map[string]string{
-		"test-node-selector-key": "test-node-selector-value",
-	})
-
-	assert.Empty(t, testBuilder.errorMsg)
-
-	assert.Equal(t, "test-node-selector-value",
-		testBuilder.Definition.Spec.Template.Spec.NodeSelector["test-node-selector-key"])
-}
-
-func TestWithReplicas(t *testing.T) {
-	testBuilder := buildValidTestBuilder()
-
-	testBuilder.WithReplicas(3)
-
-	assert.Equal(t, int32(3), *testBuilder.Definition.Spec.Replicas)
-}
-
-func TestWithAdditionalContainerSpecs(t *testing.T) {
-	testCases := []struct {
-		specsAvailable bool
-		expectedErrMsg string
-	}{
-		{
-			specsAvailable: true,
-			expectedErrMsg: "",
-		},
-		{
-			specsAvailable: false,
-			expectedErrMsg: "cannot accept empty list as container specs",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
-
-		if testCase.specsAvailable {
-			testBuilder.WithAdditionalContainerSpecs([]corev1.Container{
-				{
-					Name: "test-additional-container",
-				},
-			})
-		} else {
-			testBuilder.WithAdditionalContainerSpecs([]corev1.Container{})
-		}
-
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-	}
-}
-
-func TestWithSecondaryNetwork(t *testing.T) {
-	for _, testCase := range []struct {
-		secondaryNetworkAvailable bool
-		expectedErrMsg            string
-	}{
-		{
-			secondaryNetworkAvailable: true,
-			expectedErrMsg:            "",
-		},
-		{
-			secondaryNetworkAvailable: false,
-			expectedErrMsg:            "can not apply empty networks list",
-		},
-	} {
-		testBuilder := buildValidTestBuilder()
-
-		if testCase.secondaryNetworkAvailable {
-			testBuilder.WithSecondaryNetwork([]*multus.NetworkSelectionElement{
-				{
-					Name:      "test-secondary-network",
-					Namespace: "test-secondary-network-namespace",
-				},
-			})
-		} else {
-			testBuilder.WithSecondaryNetwork(
-				[]*multus.NetworkSelectionElement{},
-			)
-		}
-
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-
-		if testCase.secondaryNetworkAvailable {
-			assert.Equal(t,
-				"[{\"name\":\"test-secondary-network\",\"namespace\":\"test-secondary-network-namespace\",\"cni-args\":null}]",
-				testBuilder.Definition.Spec.Template.Annotations["k8s.v1.cni.cncf.io/networks"])
-		}
-	}
-}
-
-func TestWithHugePages(t *testing.T) {
-	testBuilder := buildValidTestBuilder()
-
-	testBuilder.WithHugePages()
-
-	// Assert the volumes are added to the spec
-	assert.Equal(t, "hugepages", testBuilder.Definition.Spec.Template.Spec.Volumes[0].Name)
-	assert.Equal(t, corev1.StorageMedium("HugePages"),
-		testBuilder.Definition.Spec.Template.Spec.Volumes[0].EmptyDir.Medium)
-
-	// Assert the container is updated with the volume mount
-	assert.Equal(t, "hugepages", testBuilder.Definition.Spec.Template.Spec.Containers[0].VolumeMounts[0].Name)
-	assert.Equal(t, "/mnt/huge",
-		testBuilder.Definition.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath)
-}
-
-func TestWithSecurityContext(t *testing.T) {
-	testCases := []struct {
-		securityContextAvailable bool
-		expectedErrMsg           string
-	}{
-		{
-			securityContextAvailable: true,
-			expectedErrMsg:           "",
-		},
-		{
-			securityContextAvailable: false,
-			expectedErrMsg:           "'securityContext' parameter is empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
-
-		if testCase.securityContextAvailable {
-			boolVar := true
-			testBuilder.WithSecurityContext(&corev1.PodSecurityContext{
-				RunAsNonRoot: &boolVar,
-			})
-		} else {
-			testBuilder.WithSecurityContext(nil)
-		}
-
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-
-		if testCase.securityContextAvailable {
-			assert.Equal(t, true, *testBuilder.Definition.Spec.Template.Spec.SecurityContext.RunAsNonRoot)
-		}
-	}
-}
-
-func TestWithLabel(t *testing.T) {
-	testCases := []struct {
-		labelKey       string
-		labelValue     string
-		expectedErrMsg string
-		emptyLabels    bool
-	}{
-		{
-			labelKey:    "test-label-key",
-			labelValue:  "test-label-value",
-			emptyLabels: false,
-		},
-		{
-			labelKey:       "",
-			expectedErrMsg: "can not apply empty labelKey",
-			emptyLabels:    false,
-		},
-		{
-			labelKey:    "test-label-key",
-			labelValue:  "test-label-value",
-			emptyLabels: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
-
-		if testCase.emptyLabels {
-			testBuilder.Definition.Spec.Template.Labels = nil
-		}
-
-		testBuilder.WithLabel(testCase.labelKey, testCase.labelValue)
-
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.labelValue, testBuilder.Definition.Spec.Template.Labels[testCase.labelKey])
-		}
-	}
-}
-
-func TestWithServiceAccountName(t *testing.T) {
-	testCases := []struct {
-		serviceAccountName string
-		expectedErrMsg     string
-	}{
-		{
-			serviceAccountName: "test-service-account",
-		},
-		{
-			serviceAccountName: "",
-			expectedErrMsg:     "can not apply empty serviceAccount",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
-
-		testBuilder.WithServiceAccountName(testCase.serviceAccountName)
-
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.serviceAccountName, testBuilder.Definition.Spec.Template.Spec.ServiceAccountName)
-		}
-	}
-}
-
-func TestWithVolume(t *testing.T) {
-	testCases := []struct {
-		volumeName     string
-		expectedErrMsg string
-	}{
-		{
-			volumeName: "test-volume",
-		},
-		{
-			volumeName:     "",
-			expectedErrMsg: "The volume's name cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
-
-		testBuilder.WithVolume(corev1.Volume{
-			Name: testCase.volumeName,
-		})
-
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.volumeName, testBuilder.Definition.Spec.Template.Spec.Volumes[0].Name)
-		}
-	}
-}
-
-func TestWithSchedulerName(t *testing.T) {
-	testCases := []struct {
-		schedulerName  string
-		expectedErrMsg string
-	}{
-		{
-			schedulerName: "test-scheduler",
-		},
-		{
-			schedulerName:  "",
-			expectedErrMsg: "Scheduler's name cannot be empty",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
-
-		testBuilder.WithSchedulerName(testCase.schedulerName)
-
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.schedulerName, testBuilder.Definition.Spec.Template.Spec.SchedulerName)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		With(testhelper.NewCreateTestConfig(commonConfig)).
+		With(testhelper.NewDeleterTestConfig(commonConfig)).
+		With(testhelper.NewUpdateTestConfig(commonConfig)).
+		Run(t)
 }
 
 func TestWithOptions(t *testing.T) {
-	testBuilder := buildValidTestBuilder()
+	t.Parallel()
 
-	testBuilder.WithOptions(func(builder *Builder) (*Builder, error) {
-		return builder, nil
+	testhelper.NewWithOptionsTestConfig(newDeploymentCommonTestConfig()).ExecuteTests(t)
+}
+
+func TestWithNodeSelector(t *testing.T) {
+	t.Parallel()
+
+	selector := map[string]string{"node": "worker"}
+
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithNodeSelector(selector)
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
+
+		assert.Equal(t, selector, builder.Definition.Spec.Template.Spec.NodeSelector)
+	})
+}
+
+func TestWithReplicas(t *testing.T) {
+	t.Parallel()
+
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithReplicas(3)
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
+
+		require.NotNil(t, builder.Definition.Spec.Replicas)
+		assert.Equal(t, int32(3), *builder.Definition.Spec.Replicas)
+	})
+}
+
+func TestWithAdditionalContainerSpecs(t *testing.T) {
+	t.Parallel()
+
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithAdditionalContainerSpecs([]corev1.Container{{Name: "additional"}})
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
+
+		require.Len(t, builder.Definition.Spec.Template.Spec.Containers, 2)
+		assert.Equal(t, "additional", builder.Definition.Spec.Template.Spec.Containers[1].Name)
 	})
 
-	assert.Equal(t, "", testBuilder.errorMsg)
+	t.Run("empty specs returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		builder.WithAdditionalContainerSpecs(nil)
+		require.EqualError(t, builder.GetError(), "cannot accept empty list as container specs")
+		assert.Len(t, builder.Definition.Spec.Template.Spec.Containers, 1)
+	})
 }
 
-func TestWithToleration(t *testing.T) {
-	testCases := []struct {
-		toleration     corev1.Toleration
-		expectedErrMsg string
-	}{
-		{
-			toleration: corev1.Toleration{
-				Key:      "test-toleration-key",
-				Operator: "test-toleration-operator",
-				Value:    "test-toleration-value",
-			},
-		},
-		{
-			toleration:     corev1.Toleration{},
-			expectedErrMsg: "The toleration cannot be empty",
-		},
-	}
+func TestWithSecondaryNetwork(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
+	networks := []*multus.NetworkSelectionElement{{
+		Name:      "test-secondary-network",
+		Namespace: "test-secondary-network-namespace",
+	}}
 
-		testBuilder.WithToleration(testCase.toleration)
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithSecondaryNetwork(networks)
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
 
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
+		assert.Equal(t,
+			"[{\"name\":\"test-secondary-network\",\"namespace\":\"test-secondary-network-namespace\",\"cni-args\":null}]",
+			builder.Definition.Spec.Template.Annotations["k8s.v1.cni.cncf.io/networks"])
+	})
 
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.toleration, testBuilder.Definition.Spec.Template.Spec.Tolerations[0])
-		}
-	}
+	t.Run("empty networks returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		builder.WithSecondaryNetwork(nil)
+		require.EqualError(t, builder.GetError(), "can not apply empty networks list")
+		assert.Empty(t, builder.Definition.Spec.Template.Annotations)
+	})
 }
 
-func TestDeploymentWithAffinity(t *testing.T) {
-	testCases := []struct {
-		nodeAffinity  *corev1.Affinity
-		expectedError error
-	}{
-		{
-			nodeAffinity: &corev1.Affinity{
-				NodeAffinity: &corev1.NodeAffinity{
-					RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-						NodeSelectorTerms: []corev1.NodeSelectorTerm{
-							{
-								MatchExpressions: []corev1.NodeSelectorRequirement{
-									{
-										Key:      "kubernetes.io/hostname",
-										Operator: corev1.NodeSelectorOpIn,
-										Values:   []string{"host1", "host2"},
-									},
-								},
-							},
-						}},
-				},
+func TestWithHugePages(t *testing.T) {
+	t.Parallel()
+
+	testDeploymentModifier(t, (*Builder).WithHugePages, func(t *testing.T, builder *Builder) {
+		t.Helper()
+
+		require.Len(t, builder.Definition.Spec.Template.Spec.Volumes, 1)
+		assert.Equal(t, "hugepages", builder.Definition.Spec.Template.Spec.Volumes[0].Name)
+		require.NotNil(t, builder.Definition.Spec.Template.Spec.Volumes[0].EmptyDir)
+		assert.Equal(t, corev1.StorageMedium("HugePages"), builder.Definition.Spec.Template.Spec.Volumes[0].EmptyDir.Medium)
+		require.Len(t, builder.Definition.Spec.Template.Spec.Containers[0].VolumeMounts, 1)
+		assert.Equal(t, "/mnt/huge", builder.Definition.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath)
+	})
+}
+
+func TestWithSecurityContext(t *testing.T) {
+	t.Parallel()
+
+	runAsNonRoot := true
+	securityContext := &corev1.PodSecurityContext{RunAsNonRoot: &runAsNonRoot}
+
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithSecurityContext(securityContext)
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
+
+		assert.Equal(t, securityContext, builder.Definition.Spec.Template.Spec.SecurityContext)
+	})
+
+	t.Run("nil security context returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		builder.WithSecurityContext(nil)
+		require.EqualError(t, builder.GetError(), "'securityContext' parameter is empty")
+		assert.Nil(t, builder.Definition.Spec.Template.Spec.SecurityContext)
+	})
+}
+
+func TestWithLabel(t *testing.T) {
+	t.Parallel()
+
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		builder.Definition.Spec.Template.Labels = nil
+
+		return builder.WithLabel("test-label-key", "test-label-value")
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
+
+		assert.Equal(t, "test-label-value", builder.Definition.Spec.Template.Labels["test-label-key"])
+	})
+
+	t.Run("empty label key returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		builder.WithLabel("", "value")
+		require.EqualError(t, builder.GetError(), "can not apply empty labelKey")
+	})
+}
+
+func TestWithServiceAccountName(t *testing.T) {
+	t.Parallel()
+
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithServiceAccountName("test-service-account")
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
+
+		assert.Equal(t, "test-service-account", builder.Definition.Spec.Template.Spec.ServiceAccountName)
+	})
+
+	t.Run("empty service account returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		builder.WithServiceAccountName("")
+		require.EqualError(t, builder.GetError(), "can not apply empty serviceAccount")
+	})
+}
+
+func TestWithVolume(t *testing.T) {
+	t.Parallel()
+
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithVolume(corev1.Volume{Name: "test-volume"})
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
+
+		require.Len(t, builder.Definition.Spec.Template.Spec.Volumes, 1)
+		assert.Equal(t, "test-volume", builder.Definition.Spec.Template.Spec.Volumes[0].Name)
+	})
+
+	t.Run("empty volume name returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		builder.WithVolume(corev1.Volume{})
+		require.EqualError(t, builder.GetError(), "the volume's name cannot be empty")
+		assert.Empty(t, builder.Definition.Spec.Template.Spec.Volumes)
+	})
+}
+
+func TestWithSchedulerName(t *testing.T) {
+	t.Parallel()
+
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithSchedulerName("test-scheduler")
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
+
+		assert.Equal(t, "test-scheduler", builder.Definition.Spec.Template.Spec.SchedulerName)
+	})
+
+	t.Run("empty scheduler name returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		builder.WithSchedulerName("")
+		require.EqualError(t, builder.GetError(), "scheduler's name cannot be empty")
+	})
+}
+
+func TestWithAffinity(t *testing.T) {
+	t.Parallel()
+
+	affinity := &corev1.Affinity{
+		NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key:      "kubernetes.io/hostname",
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{"host1", "host2"},
+					}},
+				}},
 			},
-			expectedError: nil,
-		},
-		{
-			nodeAffinity:  nil,
-			expectedError: fmt.Errorf("affinity parameter is empty"),
 		},
 	}
 
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithAffinity(affinity)
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
 
-		testBuilder.WithAffinity(testCase.nodeAffinity)
+		assert.Equal(t, affinity, builder.Definition.Spec.Template.Spec.Affinity)
+	})
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, testCase.nodeAffinity, testBuilder.Definition.Spec.Template.Spec.Affinity)
-			assert.Equal(t, "", testBuilder.errorMsg)
-			assert.NotNil(t, testBuilder)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), testBuilder.errorMsg)
-		}
-	}
+	t.Run("nil affinity returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		builder.WithAffinity(nil)
+		require.EqualError(t, builder.GetError(), "affinity parameter is empty")
+	})
 }
 
 func TestWithHostNetwork(t *testing.T) {
-	testCases := []struct {
-		enableHostNetwork bool
-		expectedErrMsg    string
-	}{
-		{
-			enableHostNetwork: true,
-			expectedErrMsg:    "",
-		},
-		{
-			enableHostNetwork: false,
-			expectedErrMsg:    "",
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithHostNetwork(true)
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
 
-		testBuilder.WithHostNetwork(testCase.enableHostNetwork)
-		assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-
-		if testCase.expectedErrMsg == "" {
-			assert.Equal(t, testCase.enableHostNetwork, testBuilder.Definition.Spec.Template.Spec.HostNetwork)
-		}
-	}
+		assert.True(t, builder.Definition.Spec.Template.Spec.HostNetwork)
+	})
 }
 
-func TestCreate(t *testing.T) {
-	generateTestDeployment := func() *appsv1.Deployment {
-		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-name",
-				Namespace: "test-namespace",
-			},
-		}
-	}
+func TestWithToleration(t *testing.T) {
+	t.Parallel()
 
-	testCases := []struct {
-		deploymentExistsAlready bool
-	}{
-		{
-			deploymentExistsAlready: false,
-		},
-		{
-			deploymentExistsAlready: true,
-		},
-	}
+	toleration := corev1.Toleration{Key: "test", Operator: corev1.TolerationOpExists}
 
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithToleration(toleration)
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
 
-		if testCase.deploymentExistsAlready {
-			runtimeObjects = append(runtimeObjects, generateTestDeployment())
-		}
+		require.Len(t, builder.Definition.Spec.Template.Spec.Tolerations, 1)
+		assert.Equal(t, toleration, builder.Definition.Spec.Template.Spec.Tolerations[0])
+	})
 
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-		result, err := testBuilder.Create()
-		assert.Nil(t, err)
-		assert.Equal(t, testBuilder.Definition.Name, result.Definition.Name)
-	}
+	t.Run("empty toleration returns error", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		builder.WithToleration(corev1.Toleration{})
+		require.EqualError(t, builder.GetError(), "the toleration cannot be empty")
+		assert.Empty(t, builder.Definition.Spec.Template.Spec.Tolerations)
+	})
 }
 
-func TestUpdate(t *testing.T) {
-	generateTestDeployment := func() *appsv1.Deployment {
-		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-name",
-				Namespace: "test-namespace",
-			},
-		}
-	}
+func TestWithTerminationGracePeriodSeconds(t *testing.T) {
+	t.Parallel()
 
-	int32Ptr := func(i int32) *int32 { return &i }
+	testDeploymentModifier(t, func(builder *Builder) *Builder {
+		return builder.WithTerminationGracePeriodSeconds(30)
+	}, func(t *testing.T, builder *Builder) {
+		t.Helper()
 
-	testCases := []struct {
-		deploymentExistsAlready bool
-	}{
-		{
-			deploymentExistsAlready: false,
-		},
-		{
-			deploymentExistsAlready: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.deploymentExistsAlready {
-			runtimeObjects = append(runtimeObjects, generateTestDeployment())
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-		// Assert the deployment before the update
-		assert.NotNil(t, testBuilder.Definition)
-		assert.Nil(t, testBuilder.Definition.Spec.Replicas)
-
-		// Set a value in the definition to test the update
-		testBuilder.Definition.Spec.Replicas = int32Ptr(3)
-
-		// Perform the update
-		result, err := testBuilder.Update()
-
-		// Assert the result
-		assert.NotNil(t, testBuilder.Definition)
-
-		if !testCase.deploymentExistsAlready {
-			assert.NotNil(t, err)
-			assert.Equal(t, "deployments.apps \"test-name\" not found", err.Error())
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, testBuilder.Definition.Name, result.Definition.Name)
-			assert.Equal(t, testBuilder.Definition.Spec.Replicas, result.Definition.Spec.Replicas)
-		}
-	}
-}
-
-func TestDelete(t *testing.T) {
-	generateTestDeployment := func() *appsv1.Deployment {
-		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-name",
-				Namespace: "test-namespace",
-			},
-		}
-	}
-
-	testCases := []struct {
-		deploymentExistsAlready bool
-	}{
-		{
-			deploymentExistsAlready: false,
-		},
-		{
-			deploymentExistsAlready: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
-
-		if testCase.deploymentExistsAlready {
-			runtimeObjects = append(runtimeObjects, generateTestDeployment())
-		}
-
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-		err := testBuilder.Delete()
-
-		assert.Nil(t, err)
-		assert.Nil(t, testBuilder.Object)
-	}
+		require.NotNil(t, builder.Definition.Spec.Template.Spec.TerminationGracePeriodSeconds)
+		assert.Equal(t, int64(30), *builder.Definition.Spec.Template.Spec.TerminationGracePeriodSeconds)
+	})
 }
 
 func TestDeleteGraceful(t *testing.T) {
-	generateTestDeployment := func() *appsv1.Deployment {
-		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-name",
-				Namespace: "test-namespace",
-			},
-			Status: appsv1.DeploymentStatus{
-				Replicas:      1,
-				ReadyReplicas: 1,
-			},
-		}
-	}
+	t.Parallel()
+
+	gracePeriod := int64(15)
+	negativeGracePeriod := int64(-7)
 
 	testCases := []struct {
-		gracefulPeriod    int64
-		gracefulPeriodNil bool
-		expectedError     string
+		name        string
+		gracePeriod *int64
+		object      *appsv1.Deployment
+		expectError string
 	}{
-		{
-			gracefulPeriod:    int64(0),
-			gracefulPeriodNil: true,
-			expectedError:     "gracePeriod cannot be nil",
-		},
-		{
-			gracefulPeriod:    int64(-7),
-			gracefulPeriodNil: false,
-			expectedError:     "gracePeriod must be non-negative integer",
-		},
-		{
-			gracefulPeriod:    int64(15),
-			gracefulPeriodNil: false,
-			expectedError:     "",
-		},
+		{name: "nil grace period", expectError: "gracePeriod cannot be nil"},
+		{name: "negative grace period", gracePeriod: &negativeGracePeriod, expectError: "gracePeriod must be non-negative integer"},
+		{name: "existing deployment", gracePeriod: &gracePeriod, object: buildDummyDeployment()},
+		{name: "missing deployment", gracePeriod: &gracePeriod},
 	}
 
 	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			gracefulPeriod *int64
-		)
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		runtimeObjects = append(runtimeObjects, generateTestDeployment())
+			var objects []runtime.Object
+			if testCase.object != nil {
+				objects = append(objects, testCase.object)
+			}
 
-		testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
+			builder := buildTestBuilderWithFakeObjects(objects)
+			err := builder.DeleteGraceful(testCase.gracePeriod)
 
-		if !testCase.gracefulPeriodNil {
-			gracefulPeriod = &testCase.gracefulPeriod
-		}
+			if testCase.expectError != "" {
+				require.EqualError(t, err, testCase.expectError)
 
-		err := testBuilder.DeleteGraceful(gracefulPeriod)
+				return
+			}
 
-		if testCase.expectedError != "" {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.Nil(t, err)
-		}
+			require.NoError(t, err)
+			assert.Nil(t, builder.GetObject())
+		})
 	}
 }
 
 func TestCreateAndWaitUntilReady(t *testing.T) {
-	generateTestDeployment := func() *appsv1.Deployment {
-		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-name",
-				Namespace: "test-namespace",
-			},
-			Status: appsv1.DeploymentStatus{
-				Replicas:      1,
-				ReadyReplicas: 1,
-			},
-		}
-	}
+	t.Parallel()
 
-	var runtimeObjects []runtime.Object
+	builder := buildTestBuilderWithFakeObjects([]runtime.Object{buildReadyDeployment()})
 
-	runtimeObjects = append(runtimeObjects, generateTestDeployment())
-
-	testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-	_, err := testBuilder.CreateAndWaitUntilReady(time.Second * 5)
-	assert.Nil(t, err)
+	result, err := builder.CreateAndWaitUntilReady(5 * time.Second)
+	require.NoError(t, err)
+	require.Same(t, builder, result)
 }
 
 func TestDeleteAndWait(t *testing.T) {
-	generateTestDeployment := func() *appsv1.Deployment {
-		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-name",
-				Namespace: "test-namespace",
-			},
-		}
-	}
+	t.Parallel()
 
-	var runtimeObjects []runtime.Object
+	builder := buildTestBuilderWithFakeObjects([]runtime.Object{buildDummyDeployment()})
 
-	runtimeObjects = append(runtimeObjects, generateTestDeployment())
-
-	testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-	err := testBuilder.DeleteAndWait(time.Second * 5)
-	assert.Nil(t, err)
+	require.NoError(t, builder.DeleteAndWait(5*time.Second))
+	assert.Nil(t, builder.GetObject())
 }
 
 func TestWaitUntilCondition(t *testing.T) {
-	generateTestDeployment := func() *appsv1.Deployment {
-		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-name",
-				Namespace: "test-namespace",
-			},
-			Status: appsv1.DeploymentStatus{
-				Replicas:      1,
-				ReadyReplicas: 1,
-				Conditions: []appsv1.DeploymentCondition{
-					{
-						Type:   appsv1.DeploymentAvailable,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-		}
-	}
+	t.Parallel()
 
-	var runtimeObjects []runtime.Object
+	builder := buildTestBuilderWithFakeObjects([]runtime.Object{buildReadyDeployment()})
 
-	runtimeObjects = append(runtimeObjects, generateTestDeployment())
-
-	testBuilder := buildTestBuilderWithFakeObjects(runtimeObjects)
-
-	err := testBuilder.WaitUntilCondition(appsv1.DeploymentAvailable, time.Second*5)
-
-	assert.Nil(t, err)
+	require.NoError(t, builder.WaitUntilCondition(appsv1.DeploymentAvailable, 5*time.Second))
 }
 
-func TestValidate(t *testing.T) {
+func TestWaitUntilDeleted(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		expectedError string
+		name        string
+		objects     []runtime.Object
+		expectError error
 	}{
+		{name: "deployment absent"},
 		{
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "error: received nil ClusterDeployment builder",
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			expectedError: "can not redefine the undefined ClusterDeployment",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			expectedError: "ClusterDeployment builder cannot have nil apiClient",
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			expectedError: "",
+			name:        "deployment present times out",
+			objects:     []runtime.Object{buildDummyDeployment()},
+			expectError: context.DeadlineExceeded,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		result, err := testBuilder.validate()
-		if testCase.expectedError != "" {
-			assert.NotNil(t, err)
-			assert.Equal(t, testCase.expectedError, err.Error())
-			assert.False(t, result)
-		} else {
-			assert.Nil(t, err)
-			assert.True(t, result)
-		}
+			builder := buildTestBuilderWithFakeObjects(testCase.objects)
+			assert.Equal(t, testCase.expectError, builder.WaitUntilDeleted(time.Second))
+		})
 	}
 }
 
-func TestDeploymentWaitUntilDeleted(t *testing.T) {
-	testCases := []struct {
-		testDeployment *Builder
-		expectedError  error
-	}{
-		{
-			testDeployment: buildTestBuilderWithFakeObjects(nil),
-			expectedError:  nil,
-		},
-		{
-			testDeployment: buildTestBuilderWithFakeObjects([]runtime.Object{
-				&appsv1.Deployment{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-name",
-						Namespace: "test-namespace",
-					},
-				},
-			}),
-			expectedError: context.DeadlineExceeded,
-		},
-	}
+func TestGetGVR(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		err := testCase.testDeployment.WaitUntilDeleted(time.Second)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testDeployment.Object)
-		}
-	}
+	testGVR := GetGVR()
+	assert.Equal(t, "apps", testGVR.Group)
+	assert.Equal(t, "v1", testGVR.Version)
+	assert.Equal(t, "deployments", testGVR.Resource)
 }
 
-func TestWithTerminationGracePeriodSeconds(t *testing.T) {
-	testCases := []struct {
-		terminationGracePeriodSeconds int64
-		expectedErrMsg                string
-		builderValid                  bool
-	}{
-		{
-			terminationGracePeriodSeconds: 30,
-			expectedErrMsg:                "",
-			builderValid:                  true,
-		},
-		{
-			terminationGracePeriodSeconds: 0,
-			expectedErrMsg:                "",
-			builderValid:                  true,
-		},
-		{
-			terminationGracePeriodSeconds: 300,
-			expectedErrMsg:                "",
-			builderValid:                  true,
-		},
-		{
-			terminationGracePeriodSeconds: 60,
-			expectedErrMsg:                "",
-			builderValid:                  false,
-		},
+func testDeploymentModifier(t *testing.T, modify func(*Builder) *Builder, verify func(*testing.T, *Builder)) {
+	t.Helper()
+
+	t.Run("applies to valid builder", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildValidTestBuilder()
+		result := modify(builder)
+		require.Same(t, builder, result)
+		require.NoError(t, result.GetError())
+		verify(t, result)
+	})
+
+	t.Run("invalid builder short circuits", func(t *testing.T) {
+		t.Parallel()
+
+		builder := buildInvalidTestBuilder()
+		before := builder.Definition.DeepCopy()
+		result := modify(builder)
+		require.Same(t, builder, result)
+		require.Error(t, result.GetError())
+		assert.Equal(t, before, result.Definition)
+	})
+}
+
+func newDeploymentCommonTestConfig() testhelper.CommonTestConfig[appsv1.Deployment, Builder, *appsv1.Deployment, *Builder] {
+	return testhelper.NewCommonTestConfig[appsv1.Deployment, Builder](
+		appsv1.AddToScheme, deploymentGVK, testhelper.ResourceScopeNamespaced)
+}
+
+func buildValidTestBuilder() *Builder {
+	return NewBuilder(newDeploymentTestClient(), "test-name", "test-namespace",
+		map[string]string{testDeploymentLabelKey: "test"}, corev1.Container{Name: "test-container", Image: "test-image"})
+}
+
+func buildInvalidTestBuilder() *Builder {
+	return NewBuilder(newDeploymentTestClient(), "", "test-namespace",
+		map[string]string{testDeploymentLabelKey: "test"}, corev1.Container{Name: "test-container", Image: "test-image"})
+}
+
+func buildTestBuilderWithFakeObjects(objects []runtime.Object) *Builder {
+	return NewBuilder(newDeploymentTestClient(objects...), "test-name", "test-namespace",
+		map[string]string{testDeploymentLabelKey: "test"}, corev1.Container{Name: "test-container", Image: "test-image"})
+}
+
+func newDeploymentTestClient(objects ...runtime.Object) *clients.Settings {
+	return clients.GetTestClients(clients.TestClientParams{
+		K8sMockObjects:  objects,
+		SchemeAttachers: []clients.SchemeAttacher{appsv1.AddToScheme},
+	})
+}
+
+func buildDummyDeployment() *appsv1.Deployment {
+	return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "test-name", Namespace: "test-namespace"}}
+}
+
+func buildReadyDeployment() *appsv1.Deployment {
+	deployment := buildDummyDeployment()
+	deployment.Status = appsv1.DeploymentStatus{
+		Replicas:      1,
+		ReadyReplicas: 1,
+		Conditions: []appsv1.DeploymentCondition{{
+			Type:   appsv1.DeploymentAvailable,
+			Status: corev1.ConditionTrue,
+		}},
 	}
 
-	for _, testCase := range testCases {
-		testBuilder := buildValidTestBuilder()
-
-		if !testCase.builderValid {
-			testBuilder.errorMsg = "test error"
-		}
-
-		originalTerminationGracePeriodSeconds := testBuilder.Definition.Spec.Template.Spec.TerminationGracePeriodSeconds
-
-		result := testBuilder.WithTerminationGracePeriodSeconds(testCase.terminationGracePeriodSeconds)
-
-		// Verify the method returns the builder for chaining
-		assert.Equal(t, testBuilder, result)
-
-		if testCase.builderValid {
-			// For valid builders, the value should be set
-			assert.NotNil(t, testBuilder.Definition.Spec.Template.Spec.TerminationGracePeriodSeconds)
-			assert.Equal(t, testCase.terminationGracePeriodSeconds,
-				*testBuilder.Definition.Spec.Template.Spec.TerminationGracePeriodSeconds)
-			assert.Equal(t, testCase.expectedErrMsg, testBuilder.errorMsg)
-		} else {
-			// For invalid builders, the value should not be changed
-			assert.Equal(t, originalTerminationGracePeriodSeconds,
-				testBuilder.Definition.Spec.Template.Spec.TerminationGracePeriodSeconds)
-			assert.NotEqual(t, "", testBuilder.errorMsg) // Error message should remain
-		}
-	}
+	return deployment
 }
