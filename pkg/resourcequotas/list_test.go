@@ -79,7 +79,8 @@ func TestResourceQuotaList(t *testing.T) {
 
 		// Generate fake client
 		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects: runtimeObjects,
+			K8sMockObjects:  runtimeObjects,
+			SchemeAttachers: []clients.SchemeAttacher{corev1.AddToScheme},
 		})
 
 		var testOptions []metav1.ListOptions
