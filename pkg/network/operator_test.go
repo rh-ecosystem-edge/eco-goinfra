@@ -8,160 +8,63 @@ import (
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 )
 
-var operatorTestSchemes = []clients.SchemeAttacher{
-	operatorv1.Install,
-}
+var operatorNetworkGVK = operatorv1.GroupVersion.WithKind("Network")
 
 func TestPullOperator(t *testing.T) {
-	testCases := []struct {
-		addToRuntimeObjects bool
-		client              bool
-		expectedError       error
-	}{
-		{
-			addToRuntimeObjects: true,
-			client:              true,
-			expectedError:       nil,
-		},
-		{
-			addToRuntimeObjects: false,
-			client:              true,
-			expectedError:       fmt.Errorf("network.operator object %s does not exist", clusterNetworkName),
-		},
-		{
-			addToRuntimeObjects: true,
-			client:              false,
-			expectedError:       fmt.Errorf("network.operator 'apiClient' cannot be nil"),
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var (
-			runtimeObjects []runtime.Object
-			testSettings   *clients.Settings
-		)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, buildDummyNetworkOperator())
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: operatorTestSchemes,
-			})
-		}
-
-		testBuilder, err := PullOperator(testSettings)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, clusterNetworkName, testBuilder.Definition.Name)
-		}
-	}
+	testhelper.NewSingletonClusterScopedPullTestConfig(
+		PullOperator,
+		operatorv1.Install,
+		operatorNetworkGVK,
+		clusterNetworkName,
+	).ExecuteTests(t)
 }
 
-func TestOperatorGet(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *OperatorBuilder
-		expectedError string
-	}{
-		{
-			testBuilder:   newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
-			expectedError: "",
-		},
-		{
-			testBuilder:   newOperatorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: "networks.operator.openshift.io \"cluster\" not found",
-		},
-	}
+func TestOperatorBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		networkOperator, err := testCase.testBuilder.Get()
+	commonConfig := testhelper.NewCommonTestConfig[operatorv1.Network, OperatorBuilder](
+		operatorv1.Install, operatorNetworkGVK, testhelper.ResourceScopeClusterScoped)
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.Equal(t, clusterNetworkName, networkOperator.Name)
-		} else {
-			assert.EqualError(t, err, testCase.expectedError)
-		}
-	}
-}
-
-func TestOperatorExists(t *testing.T) {
-	testCases := []struct {
-		testBuilder *OperatorBuilder
-		exists      bool
-	}{
-		{
-			testBuilder: newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
-			exists:      true,
-		},
-		{
-			testBuilder: newOperatorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			exists:      false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		exists := testCase.testBuilder.Exists()
-		assert.Equal(t, testCase.exists, exists)
-	}
-}
-
-func TestOperatorUpdate(t *testing.T) {
-	testCases := []struct {
-		testBuilder   *OperatorBuilder
-		expectedError error
-	}{
-		{
-			testBuilder:   newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
-			expectedError: nil,
-		},
-		{
-			testBuilder:   newOperatorBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError: fmt.Errorf("network.operator object %s does not exist", clusterNetworkName),
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Nil(t, testCase.testBuilder.Definition.Spec.DeployKubeProxy)
-
-		testCase.testBuilder.Definition.ResourceVersion = "999"
-		testCase.testBuilder.Definition.Spec.DeployKubeProxy = ptr.To(true)
-
-		testBuilder, err := testCase.testBuilder.Update()
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError == nil {
-			assert.Equal(t, true, *testBuilder.Definition.Spec.DeployKubeProxy)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonConfig)).
+		With(testhelper.NewExistsTestConfig(commonConfig)).
+		With(testhelper.NewUpdateTestConfig(commonConfig)).
+		Run(t)
 }
 
 func TestOperatorWaitUntilInCondition(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		exists        bool
 		inCondition   bool
 		expectedError error
 	}{
 		{
-			exists:        true,
-			inCondition:   true,
-			expectedError: nil,
+			name:        "condition found",
+			exists:      true,
+			inCondition: true,
 		},
 		{
+			name:          "network operator does not exist",
 			exists:        false,
 			inCondition:   true,
 			expectedError: fmt.Errorf("network.operator object %s does not exist", clusterNetworkName),
 		},
 		{
+			name:          "condition not found before timeout",
 			exists:        true,
 			inCondition:   false,
 			expectedError: context.DeadlineExceeded,
@@ -169,228 +72,163 @@ func TestOperatorWaitUntilInCondition(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		var runtimeObjects []runtime.Object
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		if testCase.exists {
-			networkOperator := buildDummyNetworkOperator()
+			var runtimeObjects []runtime.Object
 
-			if testCase.inCondition {
-				networkOperator.Status.Conditions = []operatorv1.OperatorCondition{{
-					Type:   operatorv1.OperatorStatusTypeAvailable,
-					Status: operatorv1.ConditionTrue,
-				}}
+			if testCase.exists {
+				networkOperator := buildDummyNetworkOperator()
+
+				if testCase.inCondition {
+					networkOperator.Status.Conditions = []operatorv1.OperatorCondition{{
+						Type:   operatorv1.OperatorStatusTypeAvailable,
+						Status: operatorv1.ConditionTrue,
+					}}
+				}
+
+				runtimeObjects = append(runtimeObjects, networkOperator)
 			}
 
-			runtimeObjects = append(runtimeObjects, networkOperator)
-		}
+			testBuilder := newOperatorBuilder(buildOperatorTestClient(runtimeObjects))
 
-		testSettings := clients.GetTestClients(clients.TestClientParams{
-			K8sMockObjects:  runtimeObjects,
-			SchemeAttachers: operatorTestSchemes,
-		})
-		testBuilder := newOperatorBuilder(testSettings)
-
-		err := testBuilder.WaitUntilInCondition(operatorv1.OperatorStatusTypeAvailable, time.Second, operatorv1.ConditionTrue)
-		assert.Equal(t, testCase.expectedError, err)
-	}
-}
-
-func TestOperatorValidate(t *testing.T) {
-	testCases := []struct {
-		builderNil    bool
-		definitionNil bool
-		apiClientNil  bool
-		errorMsg      string
-		expectedError error
-	}{
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			errorMsg:      "",
-			expectedError: nil,
-		},
-		{
-			builderNil:    true,
-			definitionNil: false,
-			apiClientNil:  false,
-			errorMsg:      "",
-			expectedError: fmt.Errorf("error: received nil network.operator builder"),
-		},
-		{
-			builderNil:    false,
-			definitionNil: true,
-			apiClientNil:  false,
-			errorMsg:      "",
-			expectedError: fmt.Errorf("can not redefine the undefined network.operator"),
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  true,
-			errorMsg:      "",
-			expectedError: fmt.Errorf("network.operator builder cannot have nil apiClient"),
-		},
-		{
-			builderNil:    false,
-			definitionNil: false,
-			apiClientNil:  false,
-			errorMsg:      "test error",
-			expectedError: fmt.Errorf("test error"),
-		},
-	}
-
-	for _, testCase := range testCases {
-		testBuilder := newOperatorBuilder(clients.GetTestClients(clients.TestClientParams{}))
-
-		if testCase.builderNil {
-			testBuilder = nil
-		}
-
-		if testCase.definitionNil {
-			testBuilder.Definition = nil
-		}
-
-		if testCase.apiClientNil {
-			testBuilder.apiClient = nil
-		}
-
-		if testCase.errorMsg != "" {
-			testBuilder.errorMsg = testCase.errorMsg
-		}
-
-		valid, err := testBuilder.validate()
-
-		if testCase.expectedError != nil {
-			assert.False(t, valid)
+			err := testBuilder.WaitUntilInCondition(
+				operatorv1.OperatorStatusTypeAvailable, time.Second, operatorv1.ConditionTrue)
 			assert.Equal(t, testCase.expectedError, err)
-		} else {
-			assert.True(t, valid)
-			assert.Nil(t, err)
-		}
+		})
 	}
 }
 
 func TestOperatorSetRouteAdvertisements(t *testing.T) {
-	// Note: These tests exercise the idempotent/no-op path where the desired state
-	// already matches. The update path (where state changes and triggers Update + WaitUntilInCondition)
-	// is not covered here, as it would require mocking status condition changes.
-	// WaitUntilInCondition itself has dedicated test coverage in TestOperatorWaitUntilInCondition.
+	t.Parallel()
+
+	// These tests exercise the idempotent path where the desired state already matches. The update path requires
+	// mocked status changes and is covered by TestOperatorWaitUntilInCondition and the shared Update tests.
 	testCases := []struct {
+		name          string
 		testBuilder   *OperatorBuilder
 		state         operatorv1.RouteAdvertisementsEnablement
 		ovnConfigNil  bool
 		alreadySet    bool
-		expectedError string
+		expectedError bool
 	}{
 		{
-			// Test idempotent behavior - state already set, OVNKubernetesConfig pre-exists
-			testBuilder:   newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
-			state:         operatorv1.RouteAdvertisementsEnabled,
-			ovnConfigNil:  true,
-			alreadySet:    true,
-			expectedError: "",
+			name:         "state already set with nil OVN config",
+			testBuilder:  newOperatorBuilder(buildOperatorTestClientWithDummyNetwork()),
+			state:        operatorv1.RouteAdvertisementsEnabled,
+			ovnConfigNil: true,
+			alreadySet:   true,
 		},
 		{
-			// Test idempotent behavior - OVNKubernetesConfig exists, state already matches
-			testBuilder:   newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
-			state:         operatorv1.RouteAdvertisementsDisabled,
-			ovnConfigNil:  false,
-			alreadySet:    true,
-			expectedError: "",
+			name:         "state already set with existing OVN config",
+			testBuilder:  newOperatorBuilder(buildOperatorTestClientWithDummyNetwork()),
+			state:        operatorv1.RouteAdvertisementsDisabled,
+			ovnConfigNil: false,
+			alreadySet:   true,
 		},
 		{
-			// Test error path - network.operator doesn't exist
-			testBuilder:   newOperatorBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			name:          "network operator does not exist",
+			testBuilder:   newOperatorBuilder(buildOperatorTestClient(nil)),
 			state:         operatorv1.RouteAdvertisementsEnabled,
 			ovnConfigNil:  true,
 			alreadySet:    false,
-			expectedError: "network.operator object cluster does not exist",
+			expectedError: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		if !testCase.ovnConfigNil {
-			testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig = &operatorv1.OVNKubernetesConfig{}
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		// Pre-set the state to match desired state so no actual change triggers waiting
-		if testCase.alreadySet {
-			if testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig == nil {
+			if !testCase.ovnConfigNil {
 				testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig = &operatorv1.OVNKubernetesConfig{}
 			}
 
-			testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig.RouteAdvertisements = testCase.state
-		}
+			if testCase.alreadySet {
+				if testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig == nil {
+					testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig = &operatorv1.OVNKubernetesConfig{}
+				}
 
-		testCase.testBuilder.Definition.ResourceVersion = "999"
+				testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig.RouteAdvertisements = testCase.state
+			}
 
-		testBuilder, err := testCase.testBuilder.SetRouteAdvertisements(testCase.state, time.Second)
+			testBuilder, err := testCase.testBuilder.SetRouteAdvertisements(testCase.state, time.Second)
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.NotNil(t, testBuilder)
-			assert.NotNil(t, testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig)
+			if testCase.expectedError {
+				require.Error(t, err)
+				assert.True(t, commonerrors.IsAPICallFailedWithVerb(err, "get"))
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, testBuilder)
+			require.NotNil(t, testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig)
 			assert.Equal(t, testCase.state,
 				testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig.RouteAdvertisements)
-		} else {
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), testCase.expectedError)
-		}
+		})
 	}
 }
 
 func TestOperatorSetIPForwarding(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
+		name          string
 		testBuilder   *OperatorBuilder
 		mode          operatorv1.IPForwardingMode
 		alreadySet    bool
-		expectedError string
+		expectedError bool
 	}{
 		{
-			testBuilder:   newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
-			mode:          operatorv1.IPForwardingRestricted,
-			alreadySet:    true,
-			expectedError: "",
+			name:        "restricted mode already set",
+			testBuilder: newOperatorBuilder(buildOperatorTestClientWithDummyNetwork()),
+			mode:        operatorv1.IPForwardingRestricted,
+			alreadySet:  true,
 		},
 		{
-			testBuilder:   newOperatorBuilder(buildTestClientWithDummyNetworkOperator()),
-			mode:          operatorv1.IPForwardingGlobal,
-			alreadySet:    true,
-			expectedError: "",
+			name:        "global mode already set",
+			testBuilder: newOperatorBuilder(buildOperatorTestClientWithDummyNetwork()),
+			mode:        operatorv1.IPForwardingGlobal,
+			alreadySet:  true,
 		},
 		{
-			testBuilder:   newOperatorBuilder(clients.GetTestClients(clients.TestClientParams{})),
+			name:          "network operator does not exist",
+			testBuilder:   newOperatorBuilder(buildOperatorTestClient(nil)),
 			mode:          operatorv1.IPForwardingRestricted,
 			alreadySet:    false,
-			expectedError: "network.operator object cluster does not exist",
+			expectedError: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		if testCase.alreadySet {
-			testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig = &operatorv1.OVNKubernetesConfig{
-				GatewayConfig: &operatorv1.GatewayConfig{
-					IPForwarding: testCase.mode,
-				},
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			if testCase.alreadySet {
+				testCase.testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig = &operatorv1.OVNKubernetesConfig{
+					GatewayConfig: &operatorv1.GatewayConfig{
+						IPForwarding: testCase.mode,
+					},
+				}
 			}
-		}
 
-		testCase.testBuilder.Definition.ResourceVersion = "999"
+			testBuilder, err := testCase.testBuilder.SetIPForwarding(testCase.mode, time.Second)
 
-		testBuilder, err := testCase.testBuilder.SetIPForwarding(testCase.mode, time.Second)
+			if testCase.expectedError {
+				require.Error(t, err)
+				assert.True(t, commonerrors.IsAPICallFailedWithVerb(err, "get"))
 
-		if testCase.expectedError == "" {
-			assert.Nil(t, err)
-			assert.NotNil(t, testBuilder)
-			assert.NotNil(t, testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig)
-			assert.NotNil(t, testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig.GatewayConfig)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, testBuilder)
+			require.NotNil(t, testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig)
+			require.NotNil(t, testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig.GatewayConfig)
 			assert.Equal(t, testCase.mode,
 				testBuilder.Definition.Spec.DefaultNetwork.OVNKubernetesConfig.GatewayConfig.IPForwarding)
-		} else {
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), testCase.expectedError)
-		}
+		})
 	}
 }
 
@@ -403,20 +241,18 @@ func buildDummyNetworkOperator() *operatorv1.Network {
 	}
 }
 
-// buildTestClientWithDummyNetworkOperator returns a client with a mock network.operator.
-func buildTestClientWithDummyNetworkOperator() *clients.Settings {
+func buildOperatorTestClient(objects []runtime.Object) *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects: []runtime.Object{
-			buildDummyNetworkOperator(),
-		},
-		SchemeAttachers: operatorTestSchemes,
+		K8sMockObjects:  objects,
+		SchemeAttachers: []clients.SchemeAttacher{operatorv1.Install},
 	})
 }
 
-// newOperatorBuilder returns a new OperatorBuilder for testing. It does not validate the apiClient.
+func buildOperatorTestClientWithDummyNetwork() *clients.Settings {
+	return buildOperatorTestClient([]runtime.Object{buildDummyNetworkOperator()})
+}
+
 func newOperatorBuilder(apiClient *clients.Settings) *OperatorBuilder {
-	return &OperatorBuilder{
-		apiClient:  apiClient.Client,
-		Definition: buildDummyNetworkOperator(),
-	}
+	return common.NewClusterScopedBuilder[operatorv1.Network, OperatorBuilder](
+		apiClient, operatorv1.Install, clusterNetworkName)
 }
