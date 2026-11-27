@@ -278,8 +278,6 @@ func GetModifiableTestClients(tcp TestClientParams) (*Settings, *fakeRuntimeClie
 		// Generic Client Objects
 		case *configV1.Node:
 			genericClientObjects = append(genericClientObjects, v)
-		case *operatorv1.IngressController:
-			genericClientObjects = append(genericClientObjects, v)
 		case *operatorv1.Console:
 			genericClientObjects = append(genericClientObjects, v)
 		case *configV1.ClusterOperator:
