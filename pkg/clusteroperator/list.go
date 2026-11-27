@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	configv1 "github.com/openshift/api/config/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/logging"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -14,43 +15,19 @@ import (
 
 // List returns clusterOperators inventory.
 func List(apiClient *clients.Settings, options ...metav1.ListOptions) ([]*Builder, error) {
-	logMessage := "Listing all clusterOperators"
-	passedOptions := metav1.ListOptions{}
-
 	if len(options) > 1 {
 		klog.V(100).Info("'options' parameter must be empty or single-valued")
 
 		return nil, fmt.Errorf("error: more than one ListOptions was passed")
 	}
 
-	if len(options) == 1 {
-		passedOptions = options[0]
-		logMessage += fmt.Sprintf(" with the options %v", passedOptions)
-	}
-
-	klog.V(100).Infof("%v", logMessage)
-
-	coList, err := apiClient.ClusterOperators().List(logging.DiscardContext(), passedOptions)
+	convertedOptions, err := common.ConvertMetaListOptionsToListOptions(options)
 	if err != nil {
-		klog.V(100).Infof("Failed to list clusterOperators due to %s", err.Error())
-
 		return nil, err
 	}
 
-	var coObjects []*Builder
-
-	for _, clusterOperator := range coList.Items {
-		copiedCo := clusterOperator
-		coBuilder := &Builder{
-			apiClient:  apiClient.Client,
-			Object:     &copiedCo,
-			Definition: &copiedCo,
-		}
-
-		coObjects = append(coObjects, coBuilder)
-	}
-
-	return coObjects, nil
+	return common.List[configv1.ClusterOperator, configv1.ClusterOperatorList, Builder](
+		context.TODO(), apiClient, configv1.Install, convertedOptions...)
 }
 
 // WaitForAllClusteroperatorsAvailable waits until all clusterOperators are in available state.
