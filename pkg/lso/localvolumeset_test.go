@@ -1,617 +1,550 @@
 package lso
 
 import (
-	"fmt"
 	"testing"
 
 	lsov1 "github.com/openshift/local-storage-operator/api/v1"
 	lsov1alpha1 "github.com/openshift/local-storage-operator/api/v1alpha1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	commonerrors "github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/errors"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/internal/common/testhelper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
-var (
+const (
 	defaultLocalVolumeSetName      = "ocs-deviceset"
 	defaultLocalVolumeSetNamespace = "test-lvsspace"
-	lsov1alpha1testSchemes         = []clients.SchemeAttacher{
-		lsov1alpha1.AddToScheme,
-	}
 )
 
-func TestPullLocalVolumeSet(t *testing.T) {
-	generateLocalVolumeSet := func(name, namespace string) *lsov1alpha1.LocalVolumeSet {
-		return &lsov1alpha1.LocalVolumeSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-		}
-	}
-
-	testCases := []struct {
-		name                string
-		namespace           string
-		addToRuntimeObjects bool
-		expectedError       error
-		client              bool
-	}{
-		{
-			name:                defaultLocalVolumeSetName,
-			namespace:           defaultLocalVolumeSetNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       nil,
-			client:              true,
-		},
-		{
-			name:                "",
-			namespace:           defaultLocalVolumeSetNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf(errEmptyName),
-			client:              true,
-		},
-		{
-			name:                defaultLocalVolumeSetName,
-			namespace:           "",
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("localVolumeSet 'nsname' cannot be empty"),
-			client:              true,
-		},
-		{
-			name:                "lvstest",
-			namespace:           defaultLocalVolumeSetNamespace,
-			addToRuntimeObjects: false,
-			expectedError: fmt.Errorf("localVolumeSet object lvstest does not exist " +
-				"in namespace test-lvsspace"),
-			client: true,
-		},
-		{
-			name:                "lvstest",
-			namespace:           defaultLocalVolumeSetNamespace,
-			addToRuntimeObjects: true,
-			expectedError:       fmt.Errorf("localVolumeSet 'apiClient' cannot be empty"),
-			client:              false,
-		},
-	}
-
-	for _, testCase := range testCases {
-		// Pre-populate the runtime objects
-		var runtimeObjects []runtime.Object
-
-		var testSettings *clients.Settings
-
-		testLocalVolumeSet := generateLocalVolumeSet(testCase.name, testCase.namespace)
-
-		if testCase.addToRuntimeObjects {
-			runtimeObjects = append(runtimeObjects, testLocalVolumeSet)
-		}
-
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{
-				K8sMockObjects:  runtimeObjects,
-				SchemeAttachers: lsov1alpha1testSchemes,
-			})
-		}
-
-		builderResult, err := PullLocalVolumeSet(testSettings, testCase.name, testCase.namespace)
-		assert.Equal(t, testCase.expectedError, err)
-
-		if testCase.expectedError != nil {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		} else {
-			assert.Equal(t, testLocalVolumeSet.Name, builderResult.Object.Name)
-			assert.Equal(t, testLocalVolumeSet.Namespace, builderResult.Object.Namespace)
-			assert.Nil(t, err)
-		}
-	}
-}
-
 func TestNewLocalVolumeSetBuilder(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     string
-		expectedError string
-		client        bool
-	}{
-		{
-			name:          defaultLocalVolumeSetName,
-			namespace:     defaultLocalVolumeSetNamespace,
-			expectedError: "",
-			client:        true,
-		},
-		{
-			name:          "",
-			namespace:     defaultLocalVolumeSetNamespace,
-			expectedError: errEmptyName,
-			client:        true,
-		},
-		{
-			name:          defaultLocalVolumeSetName,
-			namespace:     "",
-			expectedError: "localVolumeSet 'nsname' cannot be empty",
-			client:        true,
-		},
-		{
-			name:          defaultLocalVolumeSetName,
-			namespace:     defaultLocalVolumeSetNamespace,
-			expectedError: "",
-			client:        false,
-		},
-	}
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		var testSettings *clients.Settings
-		if testCase.client {
-			testSettings = clients.GetTestClients(clients.TestClientParams{})
-		}
-
-		testLocalVolumeSet := NewLocalVolumeSetBuilder(testSettings, testCase.name, testCase.namespace)
-
-		if testCase.expectedError == "" {
-			if testCase.client {
-				assert.Equal(t, testCase.name, testLocalVolumeSet.Definition.Name)
-				assert.Equal(t, testCase.namespace, testLocalVolumeSet.Definition.Namespace)
-			} else {
-				assert.Nil(t, testLocalVolumeSet)
-			}
-		} else {
-			assert.Equal(t, testCase.expectedError, testLocalVolumeSet.errorMsg)
-			assert.NotNil(t, testLocalVolumeSet.Definition)
-		}
-	}
+	testhelper.NewNamespacedBuilderTestConfig[
+		lsov1alpha1.LocalVolumeSet, LocalVolumeSetBuilder,
+	](NewLocalVolumeSetBuilder, lsov1alpha1.AddToScheme, localVolumeSetGVK).ExecuteTests(t)
 }
 
-func TestLocalVolumeSetExists(t *testing.T) {
-	testCases := []struct {
-		testLocalVolumeSet *LocalVolumeSetBuilder
-		expectedStatus     bool
-	}{
-		{
-			testLocalVolumeSet: buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			expectedStatus:     true,
-		},
-		{
-			testLocalVolumeSet: buildInValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			expectedStatus:     false,
-		},
-		{
-			testLocalVolumeSet: buildValidLocalVolumeSetObjectBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedStatus:     false,
-		},
-	}
+func TestPullLocalVolumeSet(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		exist := testCase.testLocalVolumeSet.Exists()
-		assert.Equal(t, testCase.expectedStatus, exist)
-	}
+	testhelper.NewNamespacedPullTestConfig[
+		lsov1alpha1.LocalVolumeSet, LocalVolumeSetBuilder,
+	](PullLocalVolumeSet, lsov1alpha1.AddToScheme, localVolumeSetGVK).ExecuteTests(t)
 }
 
-func TestLocalVolumeSetGet(t *testing.T) {
-	testCases := []struct {
-		testLocalVolumeSet *LocalVolumeSetBuilder
-		expectedError      error
-	}{
-		{
-			testLocalVolumeSet: buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			expectedError:      nil,
-		},
-		{
-			testLocalVolumeSet: buildInValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			expectedError:      fmt.Errorf(errEmptyName),
-		},
-		{
-			testLocalVolumeSet: buildValidLocalVolumeSetObjectBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:      fmt.Errorf("localvolumesets.local.storage.openshift.io \"ocs-deviceset\" not found"),
-		},
-	}
+func TestLocalVolumeSetBuilderMethods(t *testing.T) {
+	t.Parallel()
 
-	for _, testCase := range testCases {
-		localVolumeSetObj, err := testCase.testLocalVolumeSet.Get()
+	commonTestConfig := testhelper.NewCommonTestConfig[
+		lsov1alpha1.LocalVolumeSet, LocalVolumeSetBuilder,
+	](lsov1alpha1.AddToScheme, localVolumeSetGVK, testhelper.ResourceScopeNamespaced)
 
-		if testCase.expectedError == nil {
-			assert.Equal(t, localVolumeSetObj.Name, testCase.testLocalVolumeSet.Definition.Name)
-			assert.Equal(t, localVolumeSetObj.Namespace, testCase.testLocalVolumeSet.Definition.Namespace)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestLocalVolumeSetCreate(t *testing.T) {
-	testCases := []struct {
-		testLocalVolumeSet *LocalVolumeSetBuilder
-		expectedError      string
-	}{
-		{
-			testLocalVolumeSet: buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			expectedError:      "",
-		},
-		{
-			testLocalVolumeSet: buildInValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			expectedError:      errEmptyName,
-		},
-		{
-			testLocalVolumeSet: buildValidLocalVolumeSetObjectBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:      "",
-		},
-	}
-
-	for _, testCase := range testCases {
-		testLocalVolumeSetBuilder, err := testCase.testLocalVolumeSet.Create()
-
-		if testCase.expectedError == "" {
-			assert.Equal(t, testLocalVolumeSetBuilder.Definition.Name, testLocalVolumeSetBuilder.Object.Name)
-			assert.Equal(t, testLocalVolumeSetBuilder.Definition.Namespace, testLocalVolumeSetBuilder.Object.Namespace)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		}
-	}
-}
-
-func TestLocalVolumeSetDelete(t *testing.T) {
-	testCases := []struct {
-		testLocalVolumeSet *LocalVolumeSetBuilder
-		expectedError      error
-	}{
-		{
-			testLocalVolumeSet: buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			expectedError:      nil,
-		},
-		{
-			testLocalVolumeSet: buildValidLocalVolumeSetObjectBuilder(clients.GetTestClients(clients.TestClientParams{})),
-			expectedError:      nil,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := testCase.testLocalVolumeSet.Delete()
-
-		if testCase.expectedError == nil {
-			assert.Nil(t, testCase.testLocalVolumeSet.Object)
-			assert.Nil(t, err)
-		} else {
-			assert.Equal(t, testCase.expectedError.Error(), err.Error())
-		}
-	}
-}
-
-func TestLocalVolumeSetUpdate(t *testing.T) {
-	testCases := []struct {
-		testLocalVolumeSet   *LocalVolumeSetBuilder
-		testStorageClassName string
-		expectedError        string
-	}{
-		{
-			testLocalVolumeSet:   buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			testStorageClassName: "test-storage-class",
-			expectedError:        "",
-		},
-		{
-			testLocalVolumeSet:   buildInValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject()),
-			testStorageClassName: "",
-			expectedError:        errEmptyName,
-		},
-	}
-
-	for _, testCase := range testCases {
-		assert.Equal(t, "", testCase.testLocalVolumeSet.Definition.Spec.StorageClassName)
-		assert.Nil(t, nil, testCase.testLocalVolumeSet.Object)
-		testCase.testLocalVolumeSet.WithStorageClassName(testCase.testStorageClassName)
-		_, err := testCase.testLocalVolumeSet.Update()
-
-		if testCase.expectedError != "" {
-			assert.Equal(t, testCase.expectedError, err.Error())
-		} else {
-			assert.Equal(t, testCase.testStorageClassName, testCase.testLocalVolumeSet.Definition.Spec.StorageClassName)
-		}
-	}
+	testhelper.NewTestSuite().
+		With(testhelper.NewGetTestConfig(commonTestConfig)).
+		With(testhelper.NewExistsTestConfig(commonTestConfig)).
+		With(testhelper.NewCreateTestConfig(commonTestConfig)).
+		With(testhelper.NewDeleterTestConfig(commonTestConfig)).
+		With(testhelper.NewUpdateTestConfig(commonTestConfig)).
+		Run(t)
 }
 
 func TestLocalVolumeSetWithTolerations(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testTolerations   []corev1.Toleration
-		expectedErrorText string
+		name           string
+		tolerations    []corev1.Toleration
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			testTolerations: []corev1.Toleration{{
+			name: "valid tolerations",
+			tolerations: []corev1.Toleration{{
 				Key:      "node.ocs.openshift.io/storage",
-				Operator: "Equal",
+				Operator: corev1.TolerationOpEqual,
 				Value:    "true",
-				Effect:   "NoSchedule",
+				Effect:   corev1.TaintEffectNoSchedule,
 			}},
-			expectedErrorText: "",
 		},
 		{
-			testTolerations:   []corev1.Toleration{},
-			expectedErrorText: errEmptyTolerations,
+			name:          "empty tolerations",
+			tolerations:   []corev1.Toleration{},
+			expectedError: errEmptyTolerations,
+		},
+		{
+			name:           "invalid builder short circuits",
+			tolerations:    []corev1.Toleration{},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithTolerations(testCase.testTolerations)
-		assert.Equal(t, testCase.expectedErrorText, result.errorMsg)
+			var builder *LocalVolumeSetBuilder
+			if testCase.invalidBuilder {
+				builder = buildInvalidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			} else {
+				builder = buildValidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			}
 
-		if testCase.expectedErrorText == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testTolerations, result.Definition.Spec.Tolerations)
-		}
+			initialError := builder.GetError()
+			result := builder.WithTolerations(testCase.tolerations)
+
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				assert.Equal(t, initialError, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.Tolerations)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Nil(t, result.Definition.Spec.Tolerations)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.tolerations, result.Definition.Spec.Tolerations)
+		})
 	}
 }
 
 func TestLocalVolumeSetWithNodeSelector(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testNodeSelector corev1.NodeSelector
-		expectedError    string
+		name           string
+		nodeSelector   corev1.NodeSelector
+		invalidBuilder bool
 	}{
 		{
-			testNodeSelector: corev1.NodeSelector{
+			name: "node selector with matching expression",
+			nodeSelector: corev1.NodeSelector{
 				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
 					MatchExpressions: []corev1.NodeSelectorRequirement{{
 						Key:      "cluster.ocs.openshift.io/openshift-storage",
-						Operator: "In",
+						Operator: corev1.NodeSelectorOpIn,
 						Values:   []string{""},
-					}}},
-				},
+					}},
+				}},
 			},
-			expectedError: "",
 		},
 		{
-			testNodeSelector: corev1.NodeSelector{
+			name: "node selector with exists expression",
+			nodeSelector: corev1.NodeSelector{
 				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
 					MatchExpressions: []corev1.NodeSelectorRequirement{{
 						Key:      "cluster.ocs.openshift.io/openshift-storage",
-						Operator: "Exists",
-					}}},
-				},
+						Operator: corev1.NodeSelectorOpExists,
+					}},
+				}},
 			},
-			expectedError: "",
 		},
 		{
-			testNodeSelector: corev1.NodeSelector{
+			name: "node selector with multiple expressions",
+			nodeSelector: corev1.NodeSelector{
 				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
-					MatchExpressions: []corev1.NodeSelectorRequirement{{
-						Key:      "cluster.ocs.openshift.io/openshift-storage",
-						Operator: "Exists",
-					}, {
-						Key:      "machineconfiguration.openshift.io/role",
-						Operator: "In",
-						Values:   []string{"customcnf", "worker"},
-					}}},
-				},
+					MatchExpressions: []corev1.NodeSelectorRequirement{
+						{
+							Key:      "cluster.ocs.openshift.io/openshift-storage",
+							Operator: corev1.NodeSelectorOpExists,
+						},
+						{
+							Key:      "machineconfiguration.openshift.io/role",
+							Operator: corev1.NodeSelectorOpIn,
+							Values:   []string{"customcnf", "worker"},
+						},
+					},
+				}},
 			},
-			expectedError: "",
+		},
+		{
+			name:           "invalid builder short circuits",
+			nodeSelector:   corev1.NodeSelector{},
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithNodeSelector(testCase.testNodeSelector)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			var builder *LocalVolumeSetBuilder
+			if testCase.invalidBuilder {
+				builder = buildInvalidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			} else {
+				builder = buildValidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			}
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testNodeSelector, *result.Definition.Spec.NodeSelector)
-		}
+			initialError := builder.GetError()
+			result := builder.WithNodeSelector(testCase.nodeSelector)
+
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				assert.Equal(t, initialError, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.NodeSelector)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.NodeSelector)
+			assert.Equal(t, testCase.nodeSelector, *result.Definition.Spec.NodeSelector)
+		})
 	}
 }
 
 func TestLocalVolumeSetWithStorageClassName(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testStorageClassName string
-		expectedError        string
+		name             string
+		storageClassName string
+		invalidBuilder   bool
+		expectedError    string
 	}{
 		{
-			testStorageClassName: "test-storage-class",
-			expectedError:        "",
+			name:             "valid storage class name",
+			storageClassName: "test-storage-class",
 		},
 		{
-			testStorageClassName: "",
-			expectedError:        "'storageClassName' argument cannot be empty",
+			name:          "empty storage class name",
+			expectedError: "'storageClassName' argument cannot be empty",
 		},
+		{name: "invalid builder short circuits", invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithStorageClassName(testCase.testStorageClassName)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			var builder *LocalVolumeSetBuilder
+			if testCase.invalidBuilder {
+				builder = buildInvalidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			} else {
+				builder = buildValidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			}
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testStorageClassName, result.Definition.Spec.StorageClassName)
-		}
+			initialError := builder.GetError()
+			result := builder.WithStorageClassName(testCase.storageClassName)
+
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				assert.Equal(t, initialError, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Empty(t, result.Definition.Spec.StorageClassName)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Empty(t, result.Definition.Spec.StorageClassName)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.storageClassName, result.Definition.Spec.StorageClassName)
+		})
 	}
 }
 
 func TestLocalVolumeSetWithVolumeMode(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testVolumeMode lsov1.PersistentVolumeMode
+		name           string
+		volumeMode     lsov1.PersistentVolumeMode
+		invalidBuilder bool
 		expectedError  string
 	}{
 		{
-			testVolumeMode: lsov1.PersistentVolumeBlock,
-			expectedError:  "",
+			name:       "block volume mode",
+			volumeMode: lsov1.PersistentVolumeBlock,
 		},
 		{
-			testVolumeMode: lsov1.PersistentVolumeFilesystem,
-			expectedError:  "",
+			name:       "filesystem volume mode",
+			volumeMode: lsov1.PersistentVolumeFilesystem,
 		},
 		{
-			testVolumeMode: "",
-			expectedError:  "'volumeMode' argument cannot be empty",
+			name:          "empty volume mode",
+			expectedError: "'volumeMode' argument cannot be empty",
 		},
+		{name: "invalid builder short circuits", invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithVolumeMode(testCase.testVolumeMode)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			var builder *LocalVolumeSetBuilder
+			if testCase.invalidBuilder {
+				builder = buildInvalidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			} else {
+				builder = buildValidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			}
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testVolumeMode, result.Definition.Spec.VolumeMode)
-		}
+			initialError := builder.GetError()
+			result := builder.WithVolumeMode(testCase.volumeMode)
+
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				assert.Equal(t, initialError, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Empty(t, result.Definition.Spec.VolumeMode)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Empty(t, result.Definition.Spec.VolumeMode)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.volumeMode, result.Definition.Spec.VolumeMode)
+		})
 	}
 }
 
 func TestLocalVolumeSetWithFSType(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testFSType    string
-		expectedError string
+		name           string
+		fstype         string
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			testFSType:    "ext4",
-			expectedError: "",
+			name:   "valid filesystem type",
+			fstype: "ext4",
 		},
 		{
-			testFSType:    "",
+			name:          "empty filesystem type",
 			expectedError: "'fstype' argument cannot be empty",
+		},
+		{
+			name:           "invalid builder short circuits",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithFSType(testCase.testFSType)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			var builder *LocalVolumeSetBuilder
+			if testCase.invalidBuilder {
+				builder = buildInvalidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			} else {
+				builder = buildValidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			}
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testFSType, result.Definition.Spec.FSType)
-		}
+			initialError := builder.GetError()
+			result := builder.WithFSType(testCase.fstype)
+
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				assert.Equal(t, initialError, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Empty(t, result.Definition.Spec.FSType)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Empty(t, result.Definition.Spec.FSType)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			assert.Equal(t, testCase.fstype, result.Definition.Spec.FSType)
+		})
 	}
 }
 
 func TestLocalVolumeSetWithMaxDeviceCount(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testMaxDeviceCount int32
-		expectedError      string
+		name           string
+		maxDeviceCount int32
+		invalidBuilder bool
+		expectedError  string
 	}{
 		{
-			testMaxDeviceCount: int32(42),
-			expectedError:      "",
+			name:           "valid max device count",
+			maxDeviceCount: 42,
 		},
 		{
-			testMaxDeviceCount: int32(0),
-			expectedError:      "'maxDeviceCount' argument cannot be equal zero",
+			name:          "zero max device count",
+			expectedError: "'maxDeviceCount' argument cannot be equal zero",
+		},
+		{
+			name:           "invalid builder short circuits",
+			invalidBuilder: true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithMaxDeviceCount(testCase.testMaxDeviceCount)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			var builder *LocalVolumeSetBuilder
+			if testCase.invalidBuilder {
+				builder = buildInvalidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			} else {
+				builder = buildValidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			}
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testMaxDeviceCount, *result.Definition.Spec.MaxDeviceCount)
-		}
+			initialError := builder.GetError()
+			result := builder.WithMaxDeviceCount(testCase.maxDeviceCount)
+
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				assert.Equal(t, initialError, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.MaxDeviceCount)
+
+				return
+			}
+
+			if testCase.expectedError != "" {
+				assert.EqualError(t, result.GetError(), testCase.expectedError)
+				assert.Nil(t, result.Definition.Spec.MaxDeviceCount)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.MaxDeviceCount)
+			assert.Equal(t, testCase.maxDeviceCount, *result.Definition.Spec.MaxDeviceCount)
+		})
 	}
 }
 
 func TestLocalVolumeSetWithDeviceInclusionSpec(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
-		testDeviceInclusionSpec lsov1alpha1.DeviceInclusionSpec
-		expectedError           string
+		name                string
+		deviceInclusionSpec lsov1alpha1.DeviceInclusionSpec
+		invalidBuilder      bool
 	}{
 		{
-			testDeviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
+			name: "raw non-rotational devices",
+			deviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
 				DeviceTypes:                []lsov1alpha1.DeviceType{lsov1alpha1.RawDisk},
 				DeviceMechanicalProperties: []lsov1alpha1.DeviceMechanicalProperty{lsov1alpha1.NonRotational},
 			},
-			expectedError: "",
 		},
 		{
-			testDeviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
+			name: "rotational partitions",
+			deviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
 				DeviceTypes:                []lsov1alpha1.DeviceType{lsov1alpha1.Partition},
 				DeviceMechanicalProperties: []lsov1alpha1.DeviceMechanicalProperty{lsov1alpha1.Rotational},
 			},
-			expectedError: "",
 		},
 		{
-			testDeviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
+			name: "loop devices",
+			deviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
 				DeviceTypes:                []lsov1alpha1.DeviceType{lsov1alpha1.Loop},
 				DeviceMechanicalProperties: []lsov1alpha1.DeviceMechanicalProperty{lsov1alpha1.Rotational},
 			},
-			expectedError: "",
 		},
 		{
-			testDeviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
+			name: "multipath devices",
+			deviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
 				DeviceTypes:                []lsov1alpha1.DeviceType{lsov1alpha1.MultiPath},
 				DeviceMechanicalProperties: []lsov1alpha1.DeviceMechanicalProperty{lsov1alpha1.NonRotational},
 			},
-			expectedError: "",
 		},
 		{
-			testDeviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
-				DeviceTypes: []lsov1alpha1.DeviceType{lsov1alpha1.RawDisk,
-					lsov1alpha1.MultiPath},
+			name: "raw and multipath devices",
+			deviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
+				DeviceTypes: []lsov1alpha1.DeviceType{
+					lsov1alpha1.RawDisk,
+					lsov1alpha1.MultiPath,
+				},
 				DeviceMechanicalProperties: []lsov1alpha1.DeviceMechanicalProperty{lsov1alpha1.Rotational},
 			},
-			expectedError: "",
 		},
 		{
-			testDeviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
+			name: "device types only",
+			deviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
 				DeviceTypes: []lsov1alpha1.DeviceType{lsov1alpha1.RawDisk},
 			},
-			expectedError: "",
 		},
 		{
-			testDeviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
+			name: "mechanical properties only",
+			deviceInclusionSpec: lsov1alpha1.DeviceInclusionSpec{
 				DeviceMechanicalProperties: []lsov1alpha1.DeviceMechanicalProperty{lsov1alpha1.NonRotational},
 			},
-			expectedError: "",
 		},
+		{name: "invalid builder short circuits", invalidBuilder: true},
 	}
 
 	for _, testCase := range testCases {
-		testBuilder := buildValidLocalVolumeSetObjectBuilder(buildLocalVolumeSetClientWithDummyObject())
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result := testBuilder.WithDeviceInclusionSpec(testCase.testDeviceInclusionSpec)
-		assert.Equal(t, testCase.expectedError, result.errorMsg)
+			var builder *LocalVolumeSetBuilder
+			if testCase.invalidBuilder {
+				builder = buildInvalidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			} else {
+				builder = buildValidLocalVolumeSetTestBuilder(getTestLocalVolumeSetAPIClient())
+			}
 
-		if testCase.expectedError == "" {
-			assert.NotNil(t, result)
-			assert.Equal(t, testCase.testDeviceInclusionSpec, *result.Definition.Spec.DeviceInclusionSpec)
-		}
+			initialError := builder.GetError()
+			result := builder.WithDeviceInclusionSpec(testCase.deviceInclusionSpec)
+
+			require.Same(t, builder, result)
+
+			if testCase.invalidBuilder {
+				assert.Equal(t, initialError, result.GetError())
+				assert.True(t, commonerrors.IsBuilderNameEmpty(result.GetError()))
+				assert.Nil(t, result.Definition.Spec.DeviceInclusionSpec)
+
+				return
+			}
+
+			require.NoError(t, result.GetError())
+			require.NotNil(t, result.Definition.Spec.DeviceInclusionSpec)
+			assert.Equal(t, testCase.deviceInclusionSpec, *result.Definition.Spec.DeviceInclusionSpec)
+		})
 	}
 }
 
-func buildValidLocalVolumeSetObjectBuilder(apiClient *clients.Settings) *LocalVolumeSetBuilder {
-	localVolumeSet := NewLocalVolumeSetBuilder(
-		apiClient, defaultLocalVolumeSetName, defaultLocalVolumeSetNamespace)
-
-	return localVolumeSet
+func buildValidLocalVolumeSetTestBuilder(apiClient *clients.Settings) *LocalVolumeSetBuilder {
+	return NewLocalVolumeSetBuilder(apiClient, defaultLocalVolumeSetName, defaultLocalVolumeSetNamespace)
 }
 
-func buildInValidLocalVolumeSetObjectBuilder(apiClient *clients.Settings) *LocalVolumeSetBuilder {
-	localVolumeSet := NewLocalVolumeSetBuilder(
-		apiClient, "", defaultLocalVolumeSetNamespace)
-
-	return localVolumeSet
+func buildInvalidLocalVolumeSetTestBuilder(apiClient *clients.Settings) *LocalVolumeSetBuilder {
+	return NewLocalVolumeSetBuilder(apiClient, "", defaultLocalVolumeSetNamespace)
 }
 
-func buildLocalVolumeSetClientWithDummyObject() *clients.Settings {
+func getTestLocalVolumeSetAPIClient() *clients.Settings {
 	return clients.GetTestClients(clients.TestClientParams{
-		K8sMockObjects:  buildDummyLocalVolumeSet(),
-		SchemeAttachers: lsov1alpha1testSchemes,
-	})
-}
-
-func buildDummyLocalVolumeSet() []runtime.Object {
-	return append([]runtime.Object{}, &lsov1alpha1.LocalVolumeSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      defaultLocalVolumeSetName,
-			Namespace: defaultLocalVolumeSetNamespace,
-		},
+		SchemeAttachers: []clients.SchemeAttacher{lsov1alpha1.AddToScheme},
 	})
 }
